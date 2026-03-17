@@ -1,0 +1,49 @@
+# Local/private config goes in the include
+[include]
+    path = ~/.gitconfig.local
+
+[init]
+    defaultBranch = main
+[push]
+    autoSetupRemote = true
+[pull]
+    rebase = false
+
+[filter "lfs"]
+    clean = git-lfs clean -- %f
+    smudge = git-lfs smudge -- %f
+    process = git-lfs filter-process
+    required = true
+
+[alias]
+    st = status -u
+    br = branch --format=\"%(color:bold red)%(HEAD)%(color:reset) %(color:yellow)%(refname:short)%(color:reset) %(color:cyan)%(committerdate:relative)%(color:reset) %(subject) %(color:bold magenta)-%(authorname)\" --sort=-committerdate
+    hst = "!f() { \
+        if [ -z \"$1\" ]; then \
+            lines=\"\"; \
+        else \
+            lines=\"-$1\"; \
+        fi; \
+        git log --pretty=tformat:\"%C(yellow)%h%Creset %C(cyan)%cd%C(auto)%d%Creset %s %C(bold magenta)-%an\" --date=format-local:'%Y-%m-%d %H:%M:%S' --abbrev-commit $lines; \
+        }; f"
+    fa = "!f() { \
+        git fetch --all --prune; \
+        git fetch --tags --force; \
+        }; f"
+    co = checkout
+    cb = checkout -b
+    coo = "!f() { \
+        git fetch --all --prune; \
+        git fetch --tags --force; \
+        git checkout \"$1\"; \
+        git pull origin; \
+        git status; \
+        }; f"
+    dff = "!f() { \
+        cur_head=$(git rev-parse --abbrev-ref HEAD); \
+        echo ---------------------------------------------------------------- ; \
+        echo \"Ref: $cur_head\"; \
+        echo ---------------------------------------------------------------- ; \
+        git --no-pager diff; \
+        echo ---------------------------------------------------------------- ; \
+        }; f"

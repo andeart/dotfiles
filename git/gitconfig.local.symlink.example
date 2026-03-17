@@ -1,0 +1,20 @@
+# User details
+[user]
+    email = AUTHOREMAIL
+    name = AUTHORNAME
+
+# Sign commits
+[commit]
+	gpgsign = true
+
+# Editor
+[core]
+	editor = code --wait
+[diff]
+	tool = code
+[difftool "code"]
+	cmd = code --wait --diff $LOCAL $REMOTE
+[merge]
+	tool = code
+[mergetool "code"]
+	cmd = code --wait --merge $REMOTE $LOCAL $BASE $MERGED
