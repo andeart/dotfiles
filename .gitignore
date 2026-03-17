@@ -1,0 +1,8 @@
+# macOS
+.DS_Store
+
+# Machine-specific overrides
+*.local.*
+
+# Secrets
+*[sS][eE][cC][rR][eE][tT]*
