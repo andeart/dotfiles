@@ -56,7 +56,7 @@
         git fetch --all --prune && \
         git fetch --tags --force && \
         git switch \"$1\" && \
-        git pull origin && \
+        git pull --ff-only origin && \
         git status; \
         }; f"
     undo = reset --mixed HEAD~1
