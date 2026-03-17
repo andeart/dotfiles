@@ -44,12 +44,9 @@
         fi; \
         git log --pretty=tformat:\"%C(yellow)%h%Creset %C(cyan)%cd%C(auto)%d%Creset %s %C(bold magenta)-%an\" --date=format-local:'%Y-%m-%d %H:%M:%S' --abbrev-commit $lines; \
         }; f"
-    fa = "!f() { \
-        git fetch --all --prune; \
-        git fetch --tags --force; \
-        }; f"
+    fa = !git fetch --all --prune && git fetch --tags --force
     co = checkout
-    cb = checkout -b
+    sw = switch -c
     coo = "!f() { \
         git fetch --all --prune; \
         git fetch --tags --force; \
@@ -65,3 +62,7 @@
         git --no-pager diff; \
         echo ---------------------------------------------------------------- ; \
         }; f"
+    lg = log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit
+    undo = reset --mixed HEAD~1
+    amend = commit --amend --no-edit
+    aliases = config --get-regexp alias
