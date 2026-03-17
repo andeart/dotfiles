@@ -37,6 +37,16 @@ if [ -f "$BREWFILE" ]; then
     success "All Brewfile dependencies installed"
 fi
 
+# Remind user to set up .local files before symlinking begins
+echo ''
+info "Before continuing, ensure the following .local files exist and are up to date:"
+printf "    git/gitconfig.local.symlink  (see git/gitconfig.local.symlink.example)\n"
+printf "    zsh/zshrc.local.symlink      (see zsh/zshrc.local.symlink.example)\n"
+echo ''
+read -rp "  Ready to continue? (y/n) " confirm
+[ "$confirm" = "y" ] || { echo "Aborted."; exit 0; }
+echo ''
+
 link_file() {
     local src="$1" dst="$2"
 
