@@ -15,6 +15,24 @@
     process = git-lfs filter-process
     required = true
 
+[color "diff"]
+	meta = bold cyan
+	frag = cyan
+	new = bold green	
+	newMoved = bold green
+	old = bold red
+	oldMoved = bold red
+	context = dim
+[color "status"]
+	added = bold green
+	updated = bold green
+	changed = yellow
+	untracked = bold green
+	branch = cyan
+	localBranch = cyan
+	remoteBranch = cyan
+	unmerged = red
+
 [alias]
     st = status -u
     br = branch --format=\"%(color:bold red)%(HEAD)%(color:reset) %(color:yellow)%(refname:short)%(color:reset) %(color:cyan)%(committerdate:relative)%(color:reset) %(subject) %(color:bold magenta)-%(authorname)\" --sort=-committerdate
