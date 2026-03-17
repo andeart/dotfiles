@@ -21,7 +21,10 @@ DISABLE_AUTO_TITLE="true"
 
 plugins=(git)
 
-# Initialize OMZ.
+# Set $ZSH_CUSTOM to our dotfiles zsh-custom repo before sourcing oh-my-zsh.sh
+ZSH_CUSTOM="$(dirname "$(readlink ~/.zshrc)")/zsh-custom"
+
+# Initialize OMZ
 source $ZSH/oh-my-zsh.sh
 
 [ -f ~/.zshrc.local ] && source ~/.zshrc.local

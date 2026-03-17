@@ -5,4 +5,4 @@ git:
 
 oh-my-zsh:
   zshrc: true
-  zsh-themes: false
+  # Note that the zshrc symlink also automatically covers pointing to the zsh-custom directory.

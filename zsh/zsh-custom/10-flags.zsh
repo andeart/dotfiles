@@ -1,0 +1,10 @@
+export LDFLAGS="-L/opt/homebrew/opt/ruby/lib"
+export CPPFLAGS="-I/opt/homebrew/opt/ruby/include"
+
+# Export $ZSH_CUSTOM explicitly for access in bash scripts.
+export ZSH_CUSTOM="$ZSH_CUSTOM"
+
+# Avoid opening sub-editors (default oh-my-zsh behavior) for certain commands.
+export PAGER='less'
+export LESS='-R'
+export GIT_PAGER=""
