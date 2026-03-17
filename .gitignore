@@ -4,5 +4,8 @@
 # Machine-specific overrides
 *.local.*
 
+# Examples are always allowed, even ones that may have matched any of the patterns above.
+!*.example
+
 # Secrets
 *[sS][eE][cC][rR][eE][tT]*
