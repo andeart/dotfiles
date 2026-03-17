@@ -34,8 +34,12 @@
 	unmerged = red
 
 [alias]
-    st = status -u
+    aliases = config --get-regexp alias
+    amend = commit --amend --no-edit
     br = branch --format=\"%(color:bold red)%(HEAD)%(color:reset) %(color:yellow)%(refname:short)%(color:reset) %(color:cyan)%(committerdate:relative)%(color:reset) %(subject) %(color:bold magenta)-%(authorname)\" --sort=-committerdate
+    dff = !git --no-pager diff
+    fa = !git fetch --all --prune && git fetch --tags --force
+    # TODO: Consolidate hst and lg into a single alias that can take an optional arg for number of commits to show.
     hst = "!f() { \
         if [ -z \"$1\" ]; then \
             lines=\"\"; \
@@ -44,25 +48,15 @@
         fi; \
         git log --pretty=tformat:\"%C(yellow)%h%Creset %C(cyan)%cd%C(auto)%d%Creset %s %C(bold magenta)-%an\" --date=format-local:'%Y-%m-%d %H:%M:%S' --abbrev-commit $lines; \
         }; f"
-    fa = !git fetch --all --prune && git fetch --tags --force
-    co = checkout
-    sw = switch -c
-    coo = "!f() { \
-        git fetch --all --prune; \
-        git fetch --tags --force; \
-        git checkout \"$1\"; \
-        git pull origin; \
+    lg = log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit
+    st = status -u
+    sw = switch
+    swc = switch -c
+    swo = "!f() { \
+        git fetch --all --prune && \
+        git fetch --tags --force && \
+        git switch \"$1\" && \
+        git pull origin && \
         git status; \
         }; f"
-    dff = "!f() { \
-        cur_head=$(git rev-parse --abbrev-ref HEAD); \
-        echo ---------------------------------------------------------------- ; \
-        echo \"Ref: $cur_head\"; \
-        echo ---------------------------------------------------------------- ; \
-        git --no-pager diff; \
-        echo ---------------------------------------------------------------- ; \
-        }; f"
-    lg = log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit
     undo = reset --mixed HEAD~1
-    amend = commit --amend --no-edit
-    aliases = config --get-regexp alias
