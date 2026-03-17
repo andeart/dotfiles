@@ -31,7 +31,7 @@ fi
 BREWFILE="$DOTFILES_ROOT/brew/Brewfile"
 if [ -f "$BREWFILE" ]; then
     info "Checking Brewfile dependencies"
-    if ! brew bundle check --file="$BREWFILE" &>/dev/null; then
+    if ! brew bundle check --file="$BREWFILE" --verbose; then
         fail "Missing Brewfile dependencies. Run: brew bundle --file=$BREWFILE"
     fi
     success "All Brewfile dependencies installed"
