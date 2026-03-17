@@ -1,0 +1,8 @@
+# Configuration used by bootstrap.sh
+
+git:
+  gitconfig: true
+
+oh-my-zsh:
+  zshrc: false
+  zsh-themes: false

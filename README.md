@@ -2,10 +2,10 @@
 
 Structure
 
-```
+```text
 dotfiles/
-├── script/
-│   └── bootstrap              # the installer
+├── dotfiles.yml               # configuration
+├── bootstrap.sh               # installer
 ├── zsh/
 │   ├── zshrc.symlink          → ~/.zshrc
 │   ├── custom/
