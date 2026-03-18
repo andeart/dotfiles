@@ -1,0 +1,65 @@
+{
+    "dart.cliConsole": "terminal",
+    "cSpell.blockCheckingWhenLineLengthGreaterThan": 20000,
+    "cSpell.blockCheckingWhenTextChunkSizeGreaterThan": 1000,
+    "cSpell.diagnosticLevel": "Warning",
+    "cSpell.spellCheckOnlyWorkspaceFiles": true,
+    "cSpell.userWords": [
+        "Anurag",
+        "anuragdevanapally",
+        "Devanapally"
+    ],
+    "[dart]": {
+        "editor.formatOnSave": true,
+        "editor.formatOnType": true,
+        "editor.rulers": [
+            100
+        ],
+        "editor.selectionHighlight": false,
+        "editor.tabCompletion": "onlySnippets",
+        "editor.wordBasedSuggestions": "off"
+    },
+    "dart.closingLabelsTextStyle": "italic",
+    "dart.debugExternalPackageLibraries": true,
+    "dart.debugSdkLibraries": true,
+    "dart.flutterSelectDeviceWhenConnected": false,
+    "dart.flutterHotReloadOnSave": "manualIfDirty",
+    "dart.previewFlutterUiGuides": true,
+    "dart.promptToGetPackages": false,
+    "dart.renameFilesWithClasses": "always",
+    "dart.runPubGetOnPubspecChanges": "never",
+    "dart.showTodos": true,
+    "debug.internalConsoleOptions": "openOnSessionStart",
+    "debug.toolBarLocation": "commandCenter",
+    "editor.codeActionsOnSave": {},
+    "editor.guides.bracketPairs": true,
+    "editor.hover.delay": 1000,
+    "editor.renderWhitespace": "all",
+    "editor.wordWrap": "on",
+    "explorer.openEditors.sortOrder": "alphabetical",
+    "explorer.openEditors.visible": 100,
+    "git.openRepositoryInParentFolders": "never",
+    "[markdown]": {
+        "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
+    },
+    "markdown.occurrencesHighlight.enabled": true,
+    "references.preferredLocation": "view",
+    "redhat.telemetry.enabled": false,
+    "testing.automaticallyOpenPeekView": "failureAnywhere",
+    "window.commandCenter": true,
+    "window.confirmBeforeClose": "always",
+    "window.openFoldersInNewWindow": "on",
+    "window.title": "${rootName}${separator}${profileName}${separator}${activeEditorShort}",
+    "window.zoomLevel": 1.5,
+    "workbench.colorTheme": "GitHub Dark Default",
+    "workbench.editor.limit.value": 100,
+    "workbench.editor.showTabs": "none",
+    "workbench.iconTheme": "symbols",
+    "go.toolsManagement.autoUpdate": true,
+    "security.workspace.trust.untrustedFiles": "open",
+    "workbench.activityBar.compact": true,
+    "workbench.activityBar.location": "top",
+    "files.exclude": {
+        "**/.git": false
+    }
+}

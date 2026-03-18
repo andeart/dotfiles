@@ -6,3 +6,13 @@ git:
 oh-my-zsh:
   zshrc: true
   # Note that the zshrc symlink also automatically covers pointing to the zsh-custom directory.
+
+vscode:
+  settings: true
+  extensions: true
+
+iterm2:
+  preferences: true
+
+claude:
+  settings: true

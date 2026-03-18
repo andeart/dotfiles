@@ -103,5 +103,52 @@ if is_enabled '.oh-my-zsh.zshrc'; then
     done
 fi
 
+# --- vscode ---
+if is_enabled '.vscode.settings'; then
+    info "Linking VS Code settings"
+    for file in settings.json keybindings.json; do
+        src="$DOTFILES_ROOT/vscode/$file"
+        [ -f "$src" ] || continue
+        link_file "$src" "$VSCODE_USER/$file"
+    done
+fi
+
+if is_enabled '.vscode.extensions'; then
+    info "Installing VS Code extensions"
+    if command -v code &>/dev/null; then
+        while IFS= read -r ext; do
+            code --install-extension "$ext" --force 2>/dev/null && success "installed $ext" || fail "failed to install $ext"
+        done < "$DOTFILES_ROOT/vscode/extensions.txt"
+    else
+        info "VS Code CLI not found — skipping extensions install"
+    fi
+fi
+
+# --- claude ---
+if is_enabled '.claude.settings'; then
+    info "Linking Claude Code settings"
+    for file in settings.json statusline-command.sh CLAUDE.md; do
+        src="$DOTFILES_ROOT/claude/$file"
+        [ -f "$src" ] || continue
+        link_file "$src" "$HOME/.claude/$file"
+    done
+fi
+
+# --- iterm2 ---
+if is_enabled '.iterm2.preferences'; then
+    info "Configuring iTerm2 to load preferences from dotfiles"
+
+    # Set up git clean/smudge filter for the iTerm2 plist (repo-local config).
+    # clean: strips transient state and replaces $HOME with __HOME__ on git add/diff.
+    # smudge: resolves __HOME__ back to $HOME and converts to binary on checkout.
+    git -C "$DOTFILES_ROOT" config filter.iterm-plist.clean "$DOTFILES_ROOT/iterm2/iterm-filter.sh clean"
+    git -C "$DOTFILES_ROOT" config filter.iterm-plist.smudge "$DOTFILES_ROOT/iterm2/iterm-filter.sh smudge"
+    success "git iterm-plist filter configured"
+
+    defaults write com.googlecode.iterm2 PrefsCustomFolder -string "$DOTFILES_ROOT/iterm2"
+    defaults write com.googlecode.iterm2 LoadPrefsFromCustomFolder -bool true
+    success "iTerm2 will load preferences from $DOTFILES_ROOT/iterm2"
+fi
+
 echo ''
 success "All done!"

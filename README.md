@@ -2,6 +2,10 @@
 
 This README is still WIP.
 
+TODO:
+
+- Fix brewfile with common deps from both my machines
+
 ---
 
 Structure
@@ -13,7 +17,7 @@ dotfiles/
 ├── zsh/
 │   ├── zshrc.symlink          → ~/.zshrc
 │   ├── custom/                → implicitly covered from $ZSH_CUSTOM through the .zshrc.
-│   │   ├── aliases.zsh        
+│   │   ├── aliases.zsh
 │   │   ├── themes/
 │   │   │   └── *.zsh-theme
 │   │   └── plugins/
@@ -22,13 +26,15 @@ dotfiles/
 │   ├── gitconfig.symlink      → ~/.gitconfig
 │   └── gitignore_global.symlink → ~/.gitignore_global
 ├── iterm2/
-│   └── profile.json           # manual import or defaults write
+│   └── com.googlecode.iterm2.plist  # loaded via iTerm2's "Load preferences from custom folder"
 ├── vscode/
-│   ├── settings.json          → ~/Library/Application Support/Code/User/
-│   ├── keybindings.json       → ~/Library/Application Support/Code/User/
-│   └── extensions.txt         # installed via script
+│   ├── settings.json          → ~/Library/Application Support/Code/User/settings.json
+│   ├── keybindings.json       → ~/Library/Application Support/Code/User/keybindings.json
+│   └── extensions.txt         # installed via `code --install-extension`
 ├── claude/
-│   └── ...                    → TBD. My statusline changes at least, to begin with.
+│   ├── settings.json          → ~/.claude/settings.json
+│   ├── statusline-command.sh  → ~/.claude/statusline-command.sh
+│   └── CLAUDE.md              → ~/.claude/CLAUDE.md
 └── brew/
     └── Brewfile               # brew bundle
 ```
