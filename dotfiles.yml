@@ -11,6 +11,10 @@ vscode:
   settings: true
   extensions: true
 
+cursor:
+  settings: true
+  extensions: true
+
 iterm2:
   preferences: true
 
