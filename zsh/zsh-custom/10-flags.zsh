@@ -8,3 +8,7 @@ export ZSH_CUSTOM="$ZSH_CUSTOM"
 export PAGER='less'
 export LESS='-R'
 export GIT_PAGER=""
+
+export EDITOR="cursor --wait"
+export VISUAL="cursor --wait"
+export GIT_EDITOR="cursor --wait"
