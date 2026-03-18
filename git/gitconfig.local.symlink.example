@@ -9,12 +9,12 @@
 
 # Editor
 [core]
-    editor = code --wait
+    editor = cursor --wait
 [diff]
-    tool = code
-[difftool "code"]
-    cmd = code --wait --diff $LOCAL $REMOTE
+    tool = cursor
+[difftool "cursor"]
+    cmd = cursor --wait --diff $LOCAL $REMOTE
 [merge]
-    tool = code
-[mergetool "code"]
-    cmd = code --wait --merge $REMOTE $LOCAL $BASE $MERGED
+    tool = cursor
+[mergetool "cursor"]
+    cmd = cursor --wait --merge $REMOTE $LOCAL $BASE $MERGED
