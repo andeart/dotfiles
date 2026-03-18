@@ -126,6 +126,8 @@ if is_enabled '.vscode.extensions'; then
     info "Installing VS Code extensions"
     if command -v code &>/dev/null; then
         while IFS= read -r ext; do
+            [[ "$ext" =~ ^# ]] && continue
+            [ -z "$ext" ] && continue
             code --install-extension "$ext" --force 2>/dev/null && success "installed $ext" || fail "failed to install $ext"
         done < "$DOTFILES_ROOT/vscode/extensions.txt"
     else
