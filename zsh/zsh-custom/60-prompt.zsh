@@ -1,5 +1,8 @@
 autoload -U promptinit; promptinit
 
+# Disable the ding when tabbing
+unsetopt LIST_BEEP
+
 # Uncomment this entire section below to enable random tab colors from rose-pine.
 # function _iterm_random_tab_color() {
 # local -a colors=(

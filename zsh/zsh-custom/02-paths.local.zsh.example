@@ -1,0 +1,9 @@
+# Simple Flutter...
+export PATH="${HOME}/user-sdks/flutter/bin:${PATH}"
+
+# FVM...
+export FVM_CACHE_PATH="${HOME}/user-sdks/.fvm"
+export PATH="${FVM_CACHE_PATH}/default/bin:${PATH}"
+
+export PATH="${HOME}/user-sdks/protoc/bin:${PATH}"
+export PATH="${HOME}/user-sdks/protoc/include:${PATH}"

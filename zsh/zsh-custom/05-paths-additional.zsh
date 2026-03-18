@@ -1,0 +1,14 @@
+# ---- PATH ----
+export PATH="${HOME}/.pub-cache/bin:${PATH}"
+export PATH="${HOME}/.gem/bin:${PATH}"
+export PATH="${HOME}/.local/bin:${PATH}"
+export PATH="${BREW_PREFIX}/lib/ruby/gems/3.4.0/bin:${PATH}"
+export PATH="${BREW_PREFIX}/opt/ruby/bin:${PATH}"
+export PATH="${BREW_PREFIX}/opt/ruby/bin:${PATH}"
+# ^ All lines above are PREFIXED to the default PATH, with lower lines being earlier in the final PATH.
+# ---- default PATH divider ----
+# v All lines below are SUFFIXED to the default PATH, with lower lines being later in the final PATH.
+export PATH="${PATH}:${ANDROID_HOME}/tools"
+export PATH="${PATH}:${ANDROID_HOME}/platform-tools"
+export PATH="${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin"
+export PATH="${PATH}:/Applications/Visual Studio Code.app/Contents/Resources/app/bin"
