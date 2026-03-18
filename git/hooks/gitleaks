@@ -3,10 +3,10 @@
 # Gitleaks pre-commit check: scan staged changes for secrets.
 #
 # Standalone (no existing pre-commit hook):
-#   ln -sf ~/code/dotfiles/git/hooks/gitleaks .git/hooks/pre-commit
+#   ln -sf $DOTFILES_ROOT/git/hooks/gitleaks .git/hooks/pre-commit
 #
 # Alongside an existing pre-commit hook — add this line to your hook:
-#   ~/code/dotfiles/git/hooks/gitleaks
+#   $DOTFILES_ROOT/git/hooks/gitleaks
 #
 # Bypass (for false positives):
 #   git commit --no-verify
@@ -17,4 +17,4 @@ if ! command -v gitleaks &>/dev/null; then
     exit 0
 fi
 
-gitleaks protect --staged --verbose
+gitleaks protect --staged --verbose && echo "gitleaks scan passed: no secrets detected in staged changes"

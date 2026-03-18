@@ -5,3 +5,5 @@
     HL_CONTENT_SOURCE[USER]=''
     HL_CONTENT_SOURCE[HOST]=''
 }
+
+export DOTFILES_ROOT="$HOME/user-settings/dotfiles"
