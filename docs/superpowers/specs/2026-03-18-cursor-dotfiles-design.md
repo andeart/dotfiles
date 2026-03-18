@@ -23,7 +23,7 @@ cursor/
   extensions.txt    ← own file (reviewed and finalized after opening Cursor IDE)
 ```
 
-`cursor/keybindings.json` is committed to the repo as a symlink. Git tracks it as a symlink; macOS follows the chain from the Cursor user directory through to the VS Code file.
+`cursor/keybindings.json` is committed to the repo as a relative symlink (`ln -s ../vscode/keybindings.json cursor/keybindings.json`). This in-repo symlink must be created manually and staged with `git add` — it is separate from the symlinks `bootstrap.sh` creates into `~/Library/Application Support/Cursor/User/`. Git tracks it as a symlink; macOS follows the full chain from the Cursor user directory through to the VS Code file.
 
 ---
 
