@@ -40,8 +40,11 @@ fi
 # Remind user to set up .local files before symlinking begins
 echo ''
 info "Before continuing, ensure the following .local files exist and are up to date:"
-printf "    git/gitconfig.local.symlink  (see git/gitconfig.local.symlink.example)\n"
-printf "    zsh/zshrc.local.symlink      (see zsh/zshrc.local.symlink.example)\n"
+find -H "$DOTFILES_ROOT" -maxdepth 3 -name '*.local.symlink.example' -not -path '*/.git/*' | while read -r example; do
+    local_file="${example%.example}"
+    relative="${local_file#$DOTFILES_ROOT/}"
+    printf "    %s\n" "$relative"
+done
 echo ''
 read -rp "  Ready to continue? (y/n) " confirm
 [ "$confirm" = "y" ] || { echo "Aborted."; exit 0; }
