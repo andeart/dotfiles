@@ -38,28 +38,28 @@
     "editor.wordWrap": "on",
     "explorer.openEditors.sortOrder": "alphabetical",
     "explorer.openEditors.visible": 100,
+    "files.exclude": {
+        "**/.git": false
+    },
     "git.openRepositoryInParentFolders": "never",
+    "go.toolsManagement.autoUpdate": true,
     "[markdown]": {
         "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
     },
     "markdown.occurrencesHighlight.enabled": true,
     "references.preferredLocation": "view",
     "redhat.telemetry.enabled": false,
+    "security.workspace.trust.untrustedFiles": "open",
     "testing.automaticallyOpenPeekView": "failureAnywhere",
     "window.commandCenter": true,
     "window.confirmBeforeClose": "always",
     "window.openFoldersInNewWindow": "on",
     "window.title": "${rootName}${separator}${profileName}${separator}${activeEditorShort}",
     "window.zoomLevel": 1.5,
+    "workbench.activityBar.compact": true,
+    "workbench.activityBar.location": "top",
     "workbench.colorTheme": "GitHub Dark Default",
     "workbench.editor.limit.value": 100,
     "workbench.editor.showTabs": "none",
-    "workbench.iconTheme": "symbols",
-    "go.toolsManagement.autoUpdate": true,
-    "security.workspace.trust.untrustedFiles": "open",
-    "workbench.activityBar.compact": true,
-    "workbench.activityBar.location": "top",
-    "files.exclude": {
-        "**/.git": false
-    }
+    "workbench.iconTheme": "symbols"
 }
