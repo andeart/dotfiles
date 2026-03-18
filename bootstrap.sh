@@ -147,7 +147,8 @@ if is_enabled '.cursor.extensions'; then
     info "Installing Cursor extensions"
     if command -v cursor &>/dev/null; then
         while IFS= read -r ext; do
-            [[ "$ext" =~ ^# ]] || [ -z "$ext" ] && continue
+            [[ "$ext" =~ ^# ]] && continue
+            [ -z "$ext" ] && continue
             cursor --install-extension "$ext" --force 2>/dev/null && success "installed $ext" || fail "failed to install $ext"
         done < "$DOTFILES_ROOT/cursor/extensions.txt"
     else
