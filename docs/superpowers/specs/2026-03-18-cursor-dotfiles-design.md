@@ -19,11 +19,13 @@ A new `cursor/` directory is added alongside `vscode/`:
 ```
 cursor/
   keybindings.json  ← symlink → ../vscode/keybindings.json  (VS Code is source of truth)
-  settings.json     ← own file (general settings + Cursor-specific AI config)
+  settings.json     ← symlink → ../vscode/settings.json      (VS Code is source of truth)
   extensions.txt    ← own file (reviewed and finalized after opening Cursor IDE)
 ```
 
-`cursor/keybindings.json` is committed to the repo as a relative symlink (`ln -s ../vscode/keybindings.json cursor/keybindings.json`). This in-repo symlink must be created manually and staged with `git add` — it is separate from the symlinks `bootstrap.sh` creates into `~/Library/Application Support/Cursor/User/`. Git tracks it as a symlink; macOS follows the full chain from the Cursor user directory through to the VS Code file.
+Both `cursor/keybindings.json` and `cursor/settings.json` are committed to the repo as relative symlinks. This design was chosen after reconciling the two files post-review: the settings were identical enough (and both editors silently ignore unknown keys) that a single shared file is cleaner than maintaining two in sync. Any future Cursor-specific setting can be added to `vscode/settings.json` — VS Code will ignore unknown `cursor.*` keys.
+
+These in-repo symlinks must be created manually and staged with `git add` — they are separate from the symlinks `bootstrap.sh` creates into `~/Library/Application Support/Cursor/User/`. Git tracks them as symlinks (mode 120000); macOS follows the full chain from the Cursor user directory through to the VS Code file.
 
 ---
 
@@ -67,15 +69,19 @@ export GIT_EDITOR="cursor --wait"
 
 ---
 
-## Symlink Chain for Keybindings
+## Symlink Chains
 
 ```
 ~/Library/Application Support/Cursor/User/keybindings.json
   → $DOTFILES_ROOT/cursor/keybindings.json        (repo symlink, linked by bootstrap.sh)
     → $DOTFILES_ROOT/vscode/keybindings.json       (source of truth)
+
+~/Library/Application Support/Cursor/User/settings.json
+  → $DOTFILES_ROOT/cursor/settings.json           (repo symlink, linked by bootstrap.sh)
+    → $DOTFILES_ROOT/vscode/settings.json          (source of truth)
 ```
 
-Editing `vscode/keybindings.json` automatically propagates to Cursor with no further action.
+Editing either `vscode/` file automatically propagates to Cursor with no further action.
 
 ---
 
