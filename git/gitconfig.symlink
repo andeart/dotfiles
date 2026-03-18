@@ -34,22 +34,29 @@
 	unmerged = red
 
 [alias]
+    a = add
+    aa = add -A
+    ap = add -p
     aliases = config --get-regexp alias
     amend = commit --amend --no-edit
-    br = branch --format=\"%(color:bold red)%(HEAD)%(color:reset) %(color:yellow)%(refname:short)%(color:reset) %(color:cyan)%(committerdate:relative)%(color:reset) %(subject) %(color:bold magenta)-%(authorname)\" --sort=-committerdate
-    dff = !git --no-pager diff
+    c = commit
+    cm = commit -m
+    contributors = shortlog -sn
+    d = !git --no-pager diff
+    discard = restore
+    ds = !git --no-pager diff --staged
     fa = !git fetch --all --prune && git fetch --tags --force
-    # TODO: Consolidate hst and lg into a single alias that can take an optional arg for number of commits to show.
-    hst = "!f() { \
+    lg = "!f() { \
         if [ -z \"$1\" ]; then \
             lines=\"\"; \
         else \
             lines=\"-$1\"; \
         fi; \
-        git log --pretty=tformat:\"%C(yellow)%h%Creset %C(cyan)%cd%C(auto)%d%Creset %s %C(bold magenta)-%an\" --date=format-local:'%Y-%m-%d %H:%M:%S' --abbrev-commit $lines; \
+        git log --color --graph --pretty=format:'%C(bold yellow)%h%Creset%C(auto)%d%Creset %C(bold blue)%cd%Creset %s %C(bold magenta)-%an%Creset' --date=format-local:'%Y-%m-%d %H:%M' --abbrev-commit $lines | sed 's/\\*/•/g'; \
         }; f"
-    lg = log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit
-    st = status -u
+    po = push origin
+    pl = pull
+    st = status -su
     sw = switch
     swc = switch -c
     swo = "!f() { \
@@ -60,3 +67,4 @@
         git status; \
         }; f"
     undo = reset --mixed HEAD~1
+    unstage = restore --staged
