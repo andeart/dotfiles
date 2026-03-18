@@ -1,7 +1,7 @@
 # Configuration used by bootstrap.sh
 
 git:
-  gitconfig: false
+  gitconfig: true
 
 oh-my-zsh:
   zshrc: true
