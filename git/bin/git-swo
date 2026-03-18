@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -e
+git fetch --all --prune
+git fetch --tags --force
+git switch "$1"
+git pull --ff-only origin
+git status

@@ -34,6 +34,7 @@
 	unmerged = red
 
 [alias]
+    # Additional aliases are provided as scripts in git/bin/
     a = add
     aa = add -A
     ap = add -p
@@ -46,25 +47,10 @@
     discard = restore
     ds = !git --no-pager diff --staged
     fa = !git fetch --all --prune && git fetch --tags --force
-    lg = "!f() { \
-        if [ -z \"$1\" ]; then \
-            lines=\"\"; \
-        else \
-            lines=\"-$1\"; \
-        fi; \
-        git log --color --graph --pretty=format:'%C(bold yellow)%h%Creset%C(auto)%d%Creset %C(bold blue)%cd%Creset %s %C(bold magenta)-%an%Creset' --date=format-local:'%Y-%m-%d %H:%M' --abbrev-commit $lines | sed 's/\\*/•/g'; \
-        }; f"
     po = push origin
     pl = pull
     st = status -su
     sw = switch
     swc = switch -c
-    swo = "!f() { \
-        git fetch --all --prune && \
-        git fetch --tags --force && \
-        git switch \"$1\" && \
-        git pull --ff-only origin && \
-        git status; \
-        }; f"
     undo = reset --mixed HEAD~1
     unstage = restore --staged

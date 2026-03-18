@@ -1,4 +1,5 @@
 # ---- PATH ----
+export PATH="${DOTFILES_ROOT}/git/bin:${PATH}"
 export PATH="${HOME}/.pub-cache/bin:${PATH}"
 export PATH="${HOME}/.gem/bin:${PATH}"
 export PATH="${HOME}/.local/bin:${PATH}"

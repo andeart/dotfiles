@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-DOTFILES_ROOT="$(cd "$(dirname "$0")" && pwd)"
-DOTFILES_CONFIG="$DOTFILES_ROOT/dotfiles.yml"
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+DOTFILES_CONFIG="$REPO_ROOT/dotfiles.yml"
 ZSH_CUSTOM="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
 VSCODE_USER="$HOME/Library/Application Support/Code/User"
 
@@ -28,7 +28,7 @@ if ! command -v brew &>/dev/null; then
     fail "Homebrew is required but not installed."
 fi
 
-BREWFILE="$DOTFILES_ROOT/brew/Brewfile"
+BREWFILE="$REPO_ROOT/brew/Brewfile"
 if [ -f "$BREWFILE" ]; then
     info "Checking Brewfile dependencies"
     if ! brew bundle check --file="$BREWFILE" --verbose; then
@@ -51,15 +51,23 @@ echo ''
 
 # Remind user to set up .local files before symlinking begins
 info "Before continuing, ensure the following .local files exist and are up to date:"
-find -H "$DOTFILES_ROOT" -maxdepth 3 -name '*.local.symlink.example' -not -path '*/.git/*' | while read -r example; do
+find -H "$REPO_ROOT" -maxdepth 3 -name '*.local.symlink.example' -not -path '*/.git/*' | while read -r example; do
     local_file="${example%.example}"
-    relative="${local_file#$DOTFILES_ROOT/}"
+    relative="${local_file#$REPO_ROOT/}"
     printf "    %s\n" "$relative"
 done
 echo ''
 read -rp "  Ready to continue? (y/n) " confirm
 [ "$confirm" = "y" ] || { echo "Aborted."; exit 0; }
 echo ''
+
+# Verify DOTFILES_ROOT will be available at shell startup
+if ! grep -q 'export DOTFILES_ROOT=' "$REPO_ROOT/zsh/zshrc.local.symlink" 2>/dev/null; then
+    fail "zshrc.local.symlink must export DOTFILES_ROOT (see zshrc.local.symlink.example)"
+fi
+
+# From here on, use DOTFILES_ROOT as the canonical name
+DOTFILES_ROOT="$REPO_ROOT"
 
 link_file() {
     local src="$1" dst="$2"

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+lines=${1:+-$1}
+git log --color --graph \
+  --pretty=format:'%C(bold yellow)%h%Creset%C(auto)%d%Creset %C(bold blue)%cd%Creset %s %C(bold magenta)-%an%Creset' \
+  --date=format-local:'%Y-%m-%d %H:%M' \
+  --abbrev-commit $lines | sed 's/\*/•/g'
