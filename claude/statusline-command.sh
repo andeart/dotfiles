@@ -8,17 +8,17 @@ cwd=$(echo "$input" | jq -r '.cwd')
 BOLD=$(printf '\033[1m')
 RESET=$(printf '\033[0m')
 DIM=$(printf '\033[2m')
-COLOR_DIR=$(printf '\033[38;5;12m')
-COLOR_GIT=$(printf '\033[38;5;11m')
-COLOR_DIRTY=$(printf '\033[38;5;172m')
-COLOR_AHEAD=$(printf '\033[38;5;113m')
-COLOR_BEHIND=$(printf '\033[38;5;13m')
+FAINT=$(printf '\033[2m')
+COLOR_DIR=$(printf '\033[1;34m')      # bold ANSI blue   (headline PATH)
+COLOR_GIT=$(printf '\033[1;36m')      # bold ANSI cyan   (headline BRANCH)
+COLOR_STATUS=$(printf '\033[1;35m')   # bold magenta     (headline STATUS)
 COLOR_GREEN=$(printf '\033[38;5;113m')
 COLOR_YELLOW=$(printf '\033[38;5;220m')
 COLOR_RED=$(printf '\033[38;5;203m')
 COLOR_CYAN=$(printf '\033[38;5;117m')
 COLOR_MAGENTA=$(printf '\033[38;5;183m')
 COLOR_LABEL=$(printf '\033[38;5;245m')
+COLOR_DUR=$(printf '\033[38;5;215m')  # soft orange for durations
 SEP="${COLOR_LABEL}│${RESET}"
 
 # --- Directory + Git ---
