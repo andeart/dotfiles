@@ -20,3 +20,4 @@ iterm2:
 
 claude:
   settings: true
+  skills: true
