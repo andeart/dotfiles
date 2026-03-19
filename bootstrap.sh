@@ -161,7 +161,7 @@ fi
 # --- claude ---
 if is_enabled '.claude.settings'; then
     info "Linking Claude Code settings"
-    for file in settings.json statusline-command.sh CLAUDE.md; do
+    for file in statusline-command.sh CLAUDE.md; do
         src="$DOTFILES_ROOT/claude/$file"
         [ -f "$src" ] || continue
         link_file "$src" "$HOME/.claude/$file"
