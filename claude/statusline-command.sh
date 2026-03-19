@@ -26,27 +26,75 @@ dir_display=$(echo "$cwd" | sed "s|^$HOME|~|")
 
 git_part=""
 if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    branch=$(git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null || git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
-    dirty=""
-    if [ -n "$(git -C "$cwd" status --porcelain 2>/dev/null)" ]; then
-        dirty="${COLOR_DIRTY} •${RESET}${BOLD}${COLOR_GIT}"
+    # Branch name; detached HEAD gets :hash prefix (matches headline-git-branch)
+    branch=$(git -C "$cwd" symbolic-ref --quiet --short HEAD 2>/dev/null)
+    if [ -z "$branch" ]; then
+        short_hash=$(git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
+        branch=":${short_hash}"
     fi
 
-    ahead_behind=$(git -C "$cwd" rev-list --left-right --count HEAD...@{upstream} 2>/dev/null)
-    remote_status=""
-    if [ -n "$ahead_behind" ]; then
-        ahead=$(echo "$ahead_behind" | awk '{print $1}')
-        behind=$(echo "$ahead_behind" | awk '{print $2}')
-        if [ "$ahead" -gt 0 ] && [ "$behind" -gt 0 ]; then
-            remote_status="${COLOR_BEHIND}${BOLD}⏷${COLOR_AHEAD}⏶${RESET}${BOLD}${COLOR_GIT} "
-        elif [ "$ahead" -gt 0 ]; then
-            remote_status="${COLOR_AHEAD}${BOLD}⏶${RESET}${BOLD}${COLOR_GIT} "
-        elif [ "$behind" -gt 0 ]; then
-            remote_status="${COLOR_BEHIND}${BOLD}⏷${RESET}${BOLD}${COLOR_GIT} "
+    # Single git status call covers tracking line + file status
+    git_status_raw=$(git -C "$cwd" status --porcelain -b 2>/dev/null)
+
+    # Parse tracking line for ahead/behind counts
+    ahead=0; behind=0
+    tracking=$(printf '%s\n' "$git_status_raw" | head -1)
+    if printf '%s\n' "$tracking" | grep -q 'ahead'; then
+        ahead=$(printf '%s\n' "$tracking" | grep -o 'ahead [0-9]*' | grep -o '[0-9]*')
+        ahead=${ahead:-0}
+    fi
+    if printf '%s\n' "$tracking" | grep -q 'behind'; then
+        behind=$(printf '%s\n' "$tracking" | grep -o 'behind [0-9]*' | grep -o '[0-9]*')
+        behind=${behind:-0}
+    fi
+
+    # Parse status lines — priority order matches headline's headline-git-status-counts()
+    staged=0; changed=0; untracked=0; conflicts=0
+    while IFS= read -r line; do
+        xy="${line:0:2}"
+        case "$xy" in
+            '##'|'!!') continue ;;
+        esac
+        if printf '%s\n' "$xy" | grep -qE '^(U[ADU]|[AD]U|AA|DD)'; then
+            conflicts=$((conflicts + 1))
+        elif [ "$xy" = '??' ]; then
+            untracked=$((untracked + 1))
+        elif printf '%s\n' "$xy" | grep -qE '^[MTADRC] '; then
+            staged=$((staged + 1))
+        elif printf '%s\n' "$xy" | grep -qE '^[MTARC][MTD]'; then
+            staged=$((staged + 1)); changed=$((changed + 1))
+        elif printf '%s\n' "$xy" | grep -qE '^ [MTADRC]'; then
+            changed=$((changed + 1))
         fi
+    done <<< "$git_status_raw"
+
+    # Stash count
+    stashed=0
+    if git -C "$cwd" rev-parse --verify refs/stash >/dev/null 2>&1; then
+        stashed=$(git -C "$cwd" rev-list --walk-reflogs --count refs/stash 2>/dev/null)
+        stashed=${stashed:-0}
     fi
 
-    git_part=" ${BOLD}⊢${RESET} ${remote_status}${BOLD}${COLOR_GIT}${branch}${dirty}${RESET}"
+    # Build status string — HL_GIT_STATUS_ORDER: STAGED CHANGED UNTRACKED BEHIND AHEAD
+    # DIVERGED(always 0) STASHED CONFLICTS; format is count+symbol (e.g. 3!)
+    entries=("${staged}:+" "${changed}:!" "${untracked}:?" "${behind}:↓" "${ahead}:↑" "0:↕" "${stashed}:*" "${conflicts}:✘")
+    git_status_str=""
+    for entry in "${entries[@]}"; do
+        count="${entry%%:*}"
+        symbol="${entry#*:}"
+        if [ "$count" -gt 0 ]; then
+            [ -n "$git_status_str" ] && git_status_str="${git_status_str}${FAINT}${COLOR_LABEL}|${RESET}${COLOR_STATUS}"
+            git_status_str="${git_status_str}${count}${symbol}"
+        fi
+    done
+
+    # Assemble branch + optional status brackets
+    if [ -n "$git_status_str" ]; then
+        status_brackets="${FAINT}${COLOR_LABEL} [${RESET}${COLOR_STATUS}${git_status_str}${FAINT}${COLOR_LABEL}]${RESET}"
+    else
+        status_brackets=""
+    fi
+    git_part="${FAINT}${COLOR_LABEL} | ${RESET}${BOLD}${COLOR_GIT}${branch}${RESET}${status_brackets}"
 fi
 
 # --- Model ---
