@@ -138,12 +138,37 @@ make_bar() {
 
 ctx_bar=$(make_bar "$ctx_pct" 10)
 
+# Helper: format milliseconds as Xm YYs or Xh Ym YYs
+format_duration() {
+    local ms=$1
+    local total_secs=$((ms / 1000))
+    local hours=$((total_secs / 3600))
+    local mins=$(( (total_secs % 3600) / 60 ))
+    local secs=$((total_secs % 60))
+    if [ "$hours" -gt 0 ]; then
+        printf '%dh %dm %02ds' "$hours" "$mins" "$secs"
+    else
+        printf '%dm %02ds' "$mins" "$secs"
+    fi
+}
+
+# --- Timing ---
+api_dur_ms=$(echo "$input" | jq -r '.cost.total_api_duration_ms // 0')
+total_dur_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
+timing_part=""
+if [ "$total_dur_ms" -gt 0 ]; then
+    api_fmt=$(format_duration "$api_dur_ms")
+    total_fmt=$(format_duration "$total_dur_ms")
+    timing_part=" ${SEP} ${BOLD}${COLOR_DUR}⏱ ${api_fmt}${RESET} ${FAINT}${COLOR_LABEL}/${RESET} ${BOLD}${COLOR_DUR}${total_fmt}${RESET}"
+fi
+
 # --- Output ---
-printf '%s%s%s%s%s %s %s%s%s %s %s %s%s %s\n' \
+printf '%s%s%s%s%s %s %s%s%s %s %s %s%s %s%s\n' \
     "$BOLD" "$COLOR_DIR" "$dir_display" "$RESET" "$git_part" \
     "$SEP" \
     "$BOLD" "$COLOR_MAGENTA" "$model" \
     "$SEP" \
     "${BOLD}Context ${ctx_bar}" \
     "${BOLD}${COLOR_CYAN}" "${ctx_pct}%${RESET}" \
-    "${BOLD}${DIM}(${ctx_used_fmt}/${ctx_size_fmt})${RESET}"
+    "${BOLD}${DIM}(${ctx_used_fmt}/${ctx_size_fmt})${RESET}" \
+    "$timing_part"
