@@ -168,6 +168,11 @@ if is_enabled '.claude.settings'; then
     done
 fi
 
+if is_enabled '.claude.skills'; then
+    info "Linking Claude Code skills"
+    link_file "$DOTFILES_ROOT/claude/skills" "$HOME/.claude/skills"
+fi
+
 # --- iterm2 ---
 if is_enabled '.iterm2.preferences'; then
     info "Configuring iTerm2 to load preferences from dotfiles"
