@@ -4,3 +4,10 @@
 alias lsa="ls -AFGho"
 
 alias pip='python3 -m pip'
+
+allansicolors() {
+    for i in {0..255}; do
+        printf '\033[38;5;%dm████ %3d\033[0m\n' $i $i
+        [ $(( (i+1) % 16 )) -eq 0 ] && echo
+    done
+}
