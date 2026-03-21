@@ -163,8 +163,9 @@ if [ "$total_dur_ms" -gt 0 ]; then
 fi
 
 # --- Output ---
-printf '%s%s%s%s%s %s %s%s%s %s %s %s%s %s%s\n' \
-    "$BOLD" "$COLOR_DIR" "$dir_display" "$RESET" "$git_part" \
+printf '%s%s%s%s%s\n' \
+    "$BOLD" "$COLOR_DIR" "$dir_display" "$RESET" "$git_part"
+printf '%s %s%s%s %s %s %s%s %s%s\n' \
     "$SEP" \
     "$BOLD" "$COLOR_MAGENTA" "$model" \
     "$SEP" \
