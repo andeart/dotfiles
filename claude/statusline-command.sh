@@ -120,29 +120,30 @@ else
     ctx_size_fmt="$ctx_size"
 fi
 
-# Helper: build a 5-slot color-coded bar using ■ ◧ □
-# Each slot = 20%; ■ = full, ◧ = half (>=10% remainder), □ = empty
+# Segmented bar characters (Nerd Font) — empty and full variants for left/middle/right positions
+_BEL=$(printf '\xee\xb8\x80') _BEM=$(printf '\xee\xb8\x81') _BER=$(printf '\xee\xb8\x82')  # empty: left, middle, right
+_BFL=$(printf '\xee\xb8\x83') _BFM=$(printf '\xee\xb8\x84') _BFR=$(printf '\xee\xb8\x85')  # full:  left, middle, right
+
+# Helper: build a 5-slot segmented bar (no loops — case on 6 possible fill counts)
+# Each slot = 20%; slot is full if pct >= slot_start + 10, i.e. full_count = (pct+10)/20
 make_bar() {
     local pct=$1 bar_color
-    local filled=$((pct / 20))
-    [ "$filled" -gt 5 ] && filled=5
-    local half=0
-    [ "$filled" -lt 5 ] && [ $((pct % 20)) -ge 10 ] && half=1
-    local empty=$((5 - filled - half))
+    local full=$(( (pct + 10) / 20 ))
+    [ "$full" -gt 5 ] && full=5
 
-    if [ "$pct" -ge 90 ]; then
-        bar_color="$COLOR_RED"
-    elif [ "$pct" -ge 70 ]; then
-        bar_color="$COLOR_YELLOW"
-    else
-        bar_color="$COLOR_GREEN"
+    if   [ "$pct" -ge 90 ]; then bar_color="$COLOR_RED"
+    elif [ "$pct" -ge 70 ]; then bar_color="$COLOR_YELLOW"
+    else                          bar_color="$COLOR_GREEN"
     fi
 
-    local bar="" i
-    for ((i=0; i<filled; i++)); do bar="${bar}■"; done
-    [ "$half" -eq 1 ] && bar="${bar}◧"
-    for ((i=0; i<empty; i++)); do bar="${bar}□"; done
-    printf '%s%s%s' "$bar_color" "$bar" "$RESET"
+    case "$full" in
+        0) printf '%s%s%s'     "$DIM"       "$_BEL$_BEM$_BEM$_BEM$_BER"                   "$RESET" ;;
+        1) printf '%s%s%s%s%s' "$bar_color" "$_BFL"          "$DIM" "$_BEM$_BEM$_BEM$_BER" "$RESET" ;;
+        2) printf '%s%s%s%s%s' "$bar_color" "$_BFL$_BFM"     "$DIM" "$_BEM$_BEM$_BER"      "$RESET" ;;
+        3) printf '%s%s%s%s%s' "$bar_color" "$_BFL$_BFM$_BFM"     "$DIM" "$_BEM$_BER"      "$RESET" ;;
+        4) printf '%s%s%s%s%s' "$bar_color" "$_BFL$_BFM$_BFM$_BFM"     "$DIM" "$_BER"      "$RESET" ;;
+        5) printf '%s%s%s'     "$bar_color" "$_BFL$_BFM$_BFM$_BFM$_BFR"                    "$RESET" ;;
+    esac
 }
 
 ctx_bar=$(make_bar "$ctx_pct")
@@ -220,8 +221,8 @@ seven_d_bar=$(make_bar "$seven_d_pct")
 five_h_remaining=$(format_remaining "$five_h_reset")
 seven_d_remaining=$(format_remaining "$seven_d_reset")
 
-five_h_part=" ${SEP} ${BOLD}${COLOR_GOLD}5h${RESET} ${five_h_bar} ${BOLD}${COLOR_GOLD}${five_h_pct}%${RESET} ${DIM}${five_h_remaining} left${RESET}"
-seven_d_part=" ${SEP} ${BOLD}${COLOR_GOLD}7d${RESET} ${seven_d_bar} ${BOLD}${COLOR_GOLD}${seven_d_pct}%${RESET} ${DIM}${seven_d_remaining} left${RESET}"
+five_h_part=" ${SEP} ${BOLD}${COLOR_GOLD}5h${RESET} ${five_h_bar} ${BOLD}${COLOR_GOLD}${five_h_pct}%${RESET} ${DIM}󰔛 ${five_h_remaining}${RESET}"
+seven_d_part=" ${SEP} ${BOLD}${COLOR_GOLD}7d${RESET} ${seven_d_bar} ${BOLD}${COLOR_GOLD}${seven_d_pct}%${RESET} ${DIM}󰔛 ${seven_d_remaining}${RESET}"
 
 # # Helper: format milliseconds as Xm YYs or Xh Ym YYs
 # format_duration() {
