@@ -12,13 +12,14 @@ FAINT=$(printf '\033[2m')
 COLOR_DIR=$(printf '\033[1;34m')      # bold ANSI blue   (headline PATH)
 COLOR_GIT=$(printf '\033[1;36m')      # bold ANSI cyan   (headline BRANCH)
 COLOR_STATUS=$(printf '\033[1;35m')   # bold magenta     (headline STATUS)
-COLOR_GREEN=$(printf '\033[38;5;113m')
+COLOR_GREEN=$(printf '\033[38;5;109m') # cool slate
 COLOR_YELLOW=$(printf '\033[38;5;220m')
 COLOR_RED=$(printf '\033[38;5;203m')
 COLOR_CYAN=$(printf '\033[38;5;117m')
-COLOR_MAGENTA=$(printf '\033[38;5;183m')
+COLOR_CLAUDE=$(printf '\033[38;5;173m') # terracotta orange (Claude brand)
+COLOR_GOLD=$(printf '\033[38;5;179m')  # muted gold for labels + percentages
 COLOR_LABEL=$(printf '\033[38;5;245m')
-COLOR_DUR=$(printf '\033[38;5;215m')  # soft orange for durations
+# COLOR_DUR=$(printf '\033[38;5;215m')  # soft orange for durations (used by timing)
 SEP="${COLOR_LABEL}│${RESET}"
 
 # --- Directory + Git ---
@@ -119,11 +120,16 @@ else
     ctx_size_fmt="$ctx_size"
 fi
 
-# Helper: build a color-coded bar
+# Helper: build a 5-slot color-coded bar using ■ ◧ □
+# Each slot = 20%; ■ = full, ◧ = half (>=10% remainder), □ = empty
 make_bar() {
-    local pct=$1 width=$2 bar_color
-    local filled=$((pct * width / 100))
-    local empty=$((width - filled))
+    local pct=$1 bar_color
+    local filled=$((pct / 20))
+    [ "$filled" -gt 5 ] && filled=5
+    local half=0
+    [ "$filled" -lt 5 ] && [ $((pct % 20)) -ge 10 ] && half=1
+    local empty=$((5 - filled - half))
+
     if [ "$pct" -ge 90 ]; then
         bar_color="$COLOR_RED"
     elif [ "$pct" -ge 70 ]; then
@@ -131,45 +137,125 @@ make_bar() {
     else
         bar_color="$COLOR_GREEN"
     fi
-    local f=$(printf "%${filled}s" | tr ' ' '◼')
-    local e=$(printf "%${empty}s" | tr ' ' '◻')
-    printf '%s%s%s%s%s' "$bar_color" "$f" "$DIM" "$e" "$RESET"
+
+    local bar="" i
+    for ((i=0; i<filled; i++)); do bar="${bar}■"; done
+    [ "$half" -eq 1 ] && bar="${bar}◧"
+    for ((i=0; i<empty; i++)); do bar="${bar}□"; done
+    printf '%s%s%s' "$bar_color" "$bar" "$RESET"
 }
 
-ctx_bar=$(make_bar "$ctx_pct" 10)
+ctx_bar=$(make_bar "$ctx_pct")
 
-# Helper: format milliseconds as Xm YYs or Xh Ym YYs
-format_duration() {
-    local ms=$1
-    local total_secs=$((ms / 1000))
-    local hours=$((total_secs / 3600))
-    local mins=$(( (total_secs % 3600) / 60 ))
-    local secs=$((total_secs % 60))
-    if [ "$hours" -gt 0 ]; then
-        printf '%dh %dm %02ds' "$hours" "$mins" "$secs"
+# --- Claude.ai usage (cached, TTL 5 min) ---
+USAGE_CACHE="${HOME}/.claude/usage_cache"
+five_h_pct=0
+seven_d_pct=0
+
+# Parse an ISO 8601 UTC timestamp (e.g. "2026-03-21T06:00:00.247097+00:00") to epoch
+parse_reset_epoch() {
+    local ts="$1"
+    local clean
+    clean=$(echo "$ts" | sed 's/\.[0-9]*//' | sed 's/[+-][0-9][0-9]:[0-9][0-9]$//')
+    TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "$clean" +%s 2>/dev/null || echo 0
+}
+
+# Format seconds remaining as "Xd Yh", "Xh", or "Xm"
+format_remaining() {
+    local remaining=$(( $1 - $(date +%s) ))
+    [ "$remaining" -le 0 ] && echo "now" && return
+    local days=$(( remaining / 86400 ))
+    local hours=$(( (remaining % 86400) / 3600 ))
+    local mins=$(( (remaining % 3600) / 60 ))
+    if [ "$days" -gt 0 ]; then
+        echo "${days}d ${hours}h"
+    elif [ "$hours" -gt 0 ]; then
+        echo "${hours}h"
     else
-        printf '%dm %02ds' "$mins" "$secs"
+        echo "${mins}m"
     fi
 }
 
-# --- Timing ---
-api_dur_ms=$(echo "$input" | jq -r '.cost.total_api_duration_ms // 0')
-total_dur_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
-timing_part=""
-if [ "$total_dur_ms" -gt 0 ]; then
-    api_fmt=$(format_duration "$api_dur_ms")
-    total_fmt=$(format_duration "$total_dur_ms")
-    timing_part=" ${SEP} ${BOLD}${COLOR_DUR}⏱ ${api_fmt}${RESET} ${FAINT}${COLOR_LABEL}/${RESET} ${BOLD}${COLOR_DUR}${total_fmt}${RESET}"
-fi
+fetch_usage() {
+    local now
+    now=$(date +%s)
+    if [ -f "$USAGE_CACHE" ]; then
+        local cache_time
+        cache_time=$(head -1 "$USAGE_CACHE" 2>/dev/null)
+        if [ -n "$cache_time" ] && [ $((now - cache_time)) -lt 300 ]; then
+            tail -1 "$USAGE_CACHE"
+            return
+        fi
+    fi
+
+    local token
+    token=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
+        | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+    [ -z "$token" ] && echo "0 0 0 0" && return
+
+    local response
+    response=$(curl -s --max-time 5 "https://api.anthropic.com/api/oauth/usage" \
+        -H "Authorization: Bearer $token" \
+        -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null)
+
+    local fh sd fh_reset sd_reset
+    fh=$(echo "$response" | jq -r '.five_hour.utilization // 0' 2>/dev/null | cut -d. -f1)
+    sd=$(echo "$response" | jq -r '.seven_day.utilization // 0' 2>/dev/null | cut -d. -f1)
+    fh_reset=$(parse_reset_epoch "$(echo "$response" | jq -r '.five_hour.resets_at // empty')")
+    sd_reset=$(parse_reset_epoch "$(echo "$response" | jq -r '.seven_day.resets_at // empty')")
+    fh=${fh:-0}; sd=${sd:-0}; fh_reset=${fh_reset:-0}; sd_reset=${sd_reset:-0}
+
+    printf '%s\n%s %s %s %s\n' "$now" "$fh" "$sd" "$fh_reset" "$sd_reset" > "$USAGE_CACHE"
+    echo "$fh $sd $fh_reset $sd_reset"
+}
+
+read -r five_h_pct seven_d_pct five_h_reset seven_d_reset <<< "$(fetch_usage)"
+five_h_pct=${five_h_pct:-0}
+seven_d_pct=${seven_d_pct:-0}
+five_h_reset=${five_h_reset:-0}
+seven_d_reset=${seven_d_reset:-0}
+
+five_h_bar=$(make_bar "$five_h_pct")
+seven_d_bar=$(make_bar "$seven_d_pct")
+five_h_remaining=$(format_remaining "$five_h_reset")
+seven_d_remaining=$(format_remaining "$seven_d_reset")
+
+five_h_part=" ${SEP} ${BOLD}${COLOR_GOLD}5h${RESET} ${five_h_bar} ${BOLD}${COLOR_GOLD}${five_h_pct}%${RESET} ${DIM}${five_h_remaining} left${RESET}"
+seven_d_part=" ${SEP} ${BOLD}${COLOR_GOLD}7d${RESET} ${seven_d_bar} ${BOLD}${COLOR_GOLD}${seven_d_pct}%${RESET} ${DIM}${seven_d_remaining} left${RESET}"
+
+# # Helper: format milliseconds as Xm YYs or Xh Ym YYs
+# format_duration() {
+#     local ms=$1
+#     local total_secs=$((ms / 1000))
+#     local hours=$((total_secs / 3600))
+#     local mins=$(( (total_secs % 3600) / 60 ))
+#     local secs=$((total_secs % 60))
+#     if [ "$hours" -gt 0 ]; then
+#         printf '%dh %dm %02ds' "$hours" "$mins" "$secs"
+#     else
+#         printf '%dm %02ds' "$mins" "$secs"
+#     fi
+# }
+#
+# # --- Timing ---
+# api_dur_ms=$(echo "$input" | jq -r '.cost.total_api_duration_ms // 0')
+# total_dur_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
+# timing_part=""
+# if [ "$total_dur_ms" -gt 0 ]; then
+#     api_fmt=$(format_duration "$api_dur_ms")
+#     total_fmt=$(format_duration "$total_dur_ms")
+#     timing_part=" ${SEP} ${BOLD}${COLOR_DUR}⏱ ${api_fmt}${RESET} ${FAINT}${COLOR_LABEL}/${RESET} ${BOLD}${COLOR_DUR}${total_fmt}${RESET}"
+# fi
 
 # --- Output ---
 printf '%s%s%s%s%s\n' \
     "$BOLD" "$COLOR_DIR" "$dir_display" "$RESET" "$git_part"
-printf '%s %s%s%s %s %s %s%s %s%s\n' \
+printf '%s%s%s %s %s %s%s %s%s%s\n' \
+    "$BOLD" "$COLOR_CLAUDE" "$model" \
     "$SEP" \
-    "$BOLD" "$COLOR_MAGENTA" "$model" \
-    "$SEP" \
-    "${BOLD}Context ${ctx_bar}" \
-    "${BOLD}${COLOR_CYAN}" "${ctx_pct}%${RESET}" \
-    "${BOLD}${DIM}(${ctx_used_fmt}/${ctx_size_fmt})${RESET}" \
-    "$timing_part"
+    "${BOLD}${COLOR_GOLD}Session${RESET} ${ctx_bar}" \
+    "${BOLD}${COLOR_GOLD}" "${ctx_pct}%${RESET}" \
+    "${BOLD}${DIM}${ctx_used_fmt}/${ctx_size_fmt}${RESET}" \
+    "$five_h_part" \
+    "$seven_d_part"
+    # "$timing_part"
