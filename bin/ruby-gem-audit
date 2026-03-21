@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+# Finds gem directories from old Ruby versions that are no longer active.
+# Checks Homebrew system gems, user-local gems, and PATH entries.
+#
+# Note: this script is macOS-specific (uses 'open' to reveal directories in Finder).
+# Note: PATH audit only reflects the live PATH at the time the script runs.
+# Stale entries hardcoded in shell config files (e.g. .zshrc) must be fixed manually.
+#
+# Usage: ruby-gem-audit [-h|--help]
+
+set -uo pipefail
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Usage: ruby-gem-audit [-h|--help]"
+  echo ""
+  echo "Audits gem directories from old Ruby versions and PATH entries"
+  echo "referencing stale Ruby gem bin paths."
+  echo ""
+  echo "Compares all gem dirs against the currently active Ruby installation"
+  echo "and offers to remove stale ones. System-owned dirs are opened in Finder."
+  exit 0
+fi
+
+homebrew_prefix=$(brew --prefix 2>/dev/null)
+if [[ -z "$homebrew_prefix" ]]; then
+  echo "Warning: brew not found - skipping Homebrew gem dir checks." >&2
+fi
+
+current_gem_dir=$(basename -- "$(gem environment gemdir 2>/dev/null)")
+if [[ -z "$current_gem_dir" ]]; then
+  echo "Error: could not determine active gem directory. Is Ruby installed?" >&2
+  exit 1
+fi
+
+echo ""
+echo -e "${BOLD}Ruby version:${RESET} $(ruby --version 2>/dev/null || echo 'not found')"
+echo -e "${BOLD}Active gem dir:${RESET} $current_gem_dir"
+echo ""
+
+found_stale_dirs=0
+found_stale_path=0
+
+audit_dir() {
+  local label="$1"
+  local base="$2"
+
+  if [[ ! -d "$base" ]]; then
+    return
+  fi
+
+  echo -e "${BOLD}${label}${RESET} ($base)"
+
+  for dir in "$base"/*/; do
+    [[ -d "$dir" ]] || continue
+    local version
+    version=$(basename -- "$dir")
+
+    local gem_count
+    gem_count=$(find "$dir/gems" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d '[:space:]')
+    local size
+    size=$(LC_ALL=C du -sh "$dir" 2>/dev/null | cut -f1)
+
+    if [[ "$version" == "$current_gem_dir" ]]; then
+      echo -e "  ${GREEN}OK${RESET} $version  ${size}  (${gem_count} gems) - active"
+    else
+      echo -e "  ${YELLOW}!!${RESET} $version  ${size}  (${gem_count} gems) - ${RED}stale${RESET}"
+      found_stale_dirs=1
+    fi
+  done
+
+  echo ""
+}
+
+audit_path() {
+  echo -e "${BOLD}PATH entries referencing Ruby gem dirs${RESET}"
+
+  local found=0
+  local entry
+  # Use IFS=: read -ra to split PATH, avoiding subshell and handling unusual entries more robustly
+  IFS=: read -ra path_entries <<< "$PATH"
+  for entry in "${path_entries[@]}"; do
+    # Match paths that contain /ruby/gems/X.Y.Z or /gem/ruby/X.Y.Z as a path segment
+    if [[ "$entry" =~ (^|/)(ruby/gems|gem/ruby)/([0-9]+\.[0-9]+\.[0-9]+)(/|$) ]]; then
+      found=1
+      local version="${BASH_REMATCH[3]}"
+      # Gem dirs use X.Y.0 naming. The exact match handles the common case (e.g. PATH has
+      # gems/4.0.0 and active gem dir is 4.0.0). The major_minor.0 form handles PATH entries
+      # with a non-zero patch (e.g. gems/3.4.2 in PATH matches gem dir 3.4.0), but not the
+      # reverse - if the PATH version is 3.4.0 and the gem dir is 3.4.2, it would be flagged.
+      local major_minor="${version%.*}"
+      if [[ "$version" == "$current_gem_dir" || "${major_minor}.0" == "$current_gem_dir" ]]; then
+        echo -e "  ${GREEN}OK${RESET} $entry"
+      else
+        echo -e "  ${YELLOW}!!${RESET} $entry - ${RED}stale (expected $current_gem_dir)${RESET}"
+        found_stale_path=1
+      fi
+    fi
+  done
+
+  if [[ $found -eq 0 ]]; then
+    echo -e "  (no Ruby gem paths found in PATH)"
+  fi
+
+  echo ""
+}
+
+audit_path
+[[ -n "$homebrew_prefix" ]] && audit_dir "Homebrew system gems" "$homebrew_prefix/lib/ruby/gems"
+audit_dir "User gems (~/.local/share/gem/ruby)" "$HOME/.local/share/gem/ruby"
+audit_dir "User gems (~/.gem/ruby)" "$HOME/.gem/ruby"
+
+if [[ $found_stale_dirs -eq 0 && $found_stale_path -eq 0 ]]; then
+  echo -e "${GREEN}No stale gem directories or PATH entries found.${RESET}"
+  exit 0
+fi
+
+# Cleanup flow - only runs when stale gem directories were found
+if [[ $found_stale_dirs -gt 0 ]]; then
+  if [[ ! -t 0 ]]; then
+    echo "Non-interactive environment - skipping cleanup."
+  else
+    # Collect stale dirs before prompting so the user knows what will be removed
+    stale_dirs=()
+    collect_stale_dirs() {
+      local base="$1"
+      [[ -d "$base" ]] || return
+      for dir in "$base"/*/; do
+        [[ -d "$dir" ]] || continue
+        local version
+        version=$(basename -- "$dir")
+        [[ "$version" != "$current_gem_dir" ]] && stale_dirs+=("$dir")
+      done
+    }
+
+    [[ -n "$homebrew_prefix" ]] && collect_stale_dirs "$homebrew_prefix/lib/ruby/gems"
+    collect_stale_dirs "$HOME/.local/share/gem/ruby"
+    collect_stale_dirs "$HOME/.gem/ruby"
+
+    if [[ ${#stale_dirs[@]} -eq 0 ]]; then
+      echo "No stale gem directories to remove."
+    else
+      echo -e "${BOLD}Directories to be removed:${RESET}"
+      for dir in "${stale_dirs[@]}"; do
+        echo "  $dir"
+      done
+      echo ""
+
+      echo -en "${BOLD}Clean up stale gem directories?${RESET} (y/N) "
+      read -r answer
+      if [[ "$answer" != "y" && "$answer" != "Y" ]]; then
+        echo "Skipped - no changes made."
+      else
+        opened_parents=()
+
+        cleanup_dir() {
+          local base="$1"
+
+          if [[ ! -d "$base" ]]; then
+            return
+          fi
+
+          for dir in "$base"/*/; do
+            [[ -d "$dir" ]] || continue
+            local version
+            version=$(basename -- "$dir")
+
+            if [[ "$version" != "$current_gem_dir" ]]; then
+              local parent
+              parent=$(dirname "$dir")
+              if [[ -w "$parent" ]]; then
+                echo "Removing $dir..."
+                rm -rf "$dir"
+              else
+                echo -e "${YELLOW}Cannot remove $dir (permission denied).${RESET}"
+                echo "  Delete it manually in Finder."
+                # Open each unique parent dir only once.
+                # The "${arr[@]+${arr[@]}}" form is required for set -u compatibility with bash 3.2
+                # (macOS default), where referencing an empty array would otherwise trigger an error.
+                local already_opened=0
+                for p in "${opened_parents[@]+"${opened_parents[@]}"}"; do
+                  [[ "$p" == "$parent" ]] && already_opened=1 && break
+                done
+                if [[ $already_opened -eq 0 ]]; then
+                  open "$parent"
+                  opened_parents+=("$parent")
+                fi
+              fi
+            fi
+          done
+        }
+
+        [[ -n "$homebrew_prefix" ]] && cleanup_dir "$homebrew_prefix/lib/ruby/gems"
+        cleanup_dir "$HOME/.local/share/gem/ruby"
+        cleanup_dir "$HOME/.gem/ruby"
+
+        echo -e "${GREEN}Done.${RESET}"
+      fi
+    fi
+  fi
+fi
+
+if [[ $found_stale_path -eq 1 ]]; then
+  echo ""
+  echo -e "${YELLOW}Note:${RESET} stale PATH entries were not modified - fix them manually in your shell config."
+fi
