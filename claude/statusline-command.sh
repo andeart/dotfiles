@@ -18,7 +18,7 @@ COLOR_RED=$(printf '\033[38;5;203m')
 COLOR_CYAN=$(printf '\033[38;5;117m')
 COLOR_CLAUDE=$(printf '\033[38;5;173m') # terracotta orange (Claude brand)
 COLOR_KEY=$(printf '\033[38;5;174m')   # section keys (close to Claude brand)
-COLOR_GOLD=$(printf '\033[38;5;179m')  # muted gold for percentages
+# COLOR_GOLD=$(printf '\033[38;5;179m')  # muted gold (was used for percentages, now inside bars)
 COLOR_LABEL=$(printf '\033[38;5;245m')
 # COLOR_DUR=$(printf '\033[38;5;215m')  # soft orange for durations (used by timing)
 SEP="${COLOR_LABEL}│${RESET}"
@@ -121,30 +121,41 @@ else
     ctx_size_fmt="$ctx_size"
 fi
 
-# Segmented bar characters (Nerd Font) — empty and full variants for left/middle/right positions
-_BEL=$(printf '\xee\xb8\x80') _BEM=$(printf '\xee\xb8\x81') _BER=$(printf '\xee\xb8\x82')  # empty: left, middle, right
-_BFL=$(printf '\xee\xb8\x83') _BFM=$(printf '\xee\xb8\x84') _BFR=$(printf '\xee\xb8\x85')  # full:  left, middle, right
-
-# Helper: build a 5-slot segmented bar (no loops — case on 6 possible fill counts)
-# Each slot = 20%; slot is full if pct >= slot_start + 10, i.e. full_count = (pct+10)/20
+# Helper: 10-char wide bar with rounded caps (Nerd Font U+E0B6/U+E0B4)
+# Caps use bar bg color as fg against terminal default, creating a pill effect
 make_bar() {
-    local pct=$1 bar_color
-    local full=$(( (pct + 10) / 20 ))
-    [ "$full" -gt 5 ] && full=5
+    local pct=$1
+    local WIDTH=10
+    local label="${pct}%"
+    local label_len=${#label}
+    local filled=$(( pct * WIDTH / 100 ))
 
-    if   [ "$pct" -ge 90 ]; then bar_color="$COLOR_RED"
-    elif [ "$pct" -ge 70 ]; then bar_color="$COLOR_YELLOW"
-    else                          bar_color="$COLOR_GREEN"
+    local FILL_IDX FILL_IDX
+    if   [ "$pct" -ge 90 ]; then FILL_IDX=203
+    elif [ "$pct" -ge 70 ]; then FILL_IDX=220
+    else                          FILL_IDX=110
     fi
+    local EMPTY_IDX=236
 
-    case "$full" in
-        0) printf '%s%s%s'     "$DIM"       "$_BEL$_BEM$_BEM$_BEM$_BER"                   "$RESET" ;;
-        1) printf '%s%s%s%s%s' "$bar_color" "$_BFL"          "$DIM" "$_BEM$_BEM$_BEM$_BER" "$RESET" ;;
-        2) printf '%s%s%s%s%s' "$bar_color" "$_BFL$_BFM"     "$DIM" "$_BEM$_BEM$_BER"      "$RESET" ;;
-        3) printf '%s%s%s%s%s' "$bar_color" "$_BFL$_BFM$_BFM"     "$DIM" "$_BEM$_BER"      "$RESET" ;;
-        4) printf '%s%s%s%s%s' "$bar_color" "$_BFL$_BFM$_BFM$_BFM"     "$DIM" "$_BER"      "$RESET" ;;
-        5) printf '%s%s%s'     "$bar_color" "$_BFL$_BFM$_BFM$_BFM$_BFR"                    "$RESET" ;;
-    esac
+    local BG_FILL=$(printf '\033[48;5;%sm' "$FILL_IDX")
+    local BG_EMPTY=$(printf '\033[48;5;%sm' "$EMPTY_IDX")
+    local FG_FILL=$(printf '\033[1;38;5;236m')  # bold dark charcoal on fill
+    local FG_EMPTY=$(printf '\033[1;38;5;245m') # bold medium gray on empty
+
+
+    local pad_r=$(( WIDTH - label_len - 1 ))
+    local content
+    printf -v content " %s%${pad_r}s" "$label" ""
+
+    local bar="" i
+    for ((i=0; i<WIDTH; i++)); do
+        if [ "$i" -lt "$filled" ]; then
+            bar="${bar}${BG_FILL}${FG_FILL}${content:$i:1}"
+        else
+            bar="${bar}${BG_EMPTY}${FG_EMPTY}${content:$i:1}"
+        fi
+    done
+    printf '%s%s' "$bar" "$RESET"
 }
 
 ctx_bar=$(make_bar "$ctx_pct")
@@ -222,8 +233,8 @@ seven_d_bar=$(make_bar "$seven_d_pct")
 five_h_remaining=$(format_remaining "$five_h_reset")
 seven_d_remaining=$(format_remaining "$seven_d_reset")
 
-five_h_part=" ${SEP} ${DIM}${COLOR_KEY}5h${RESET} ${five_h_bar} ${BOLD}${COLOR_GOLD}${five_h_pct}%${RESET} ${DIM}󰔛 ${five_h_remaining}${RESET}"
-seven_d_part=" ${SEP} ${DIM}${COLOR_KEY}7d${RESET} ${seven_d_bar} ${BOLD}${COLOR_GOLD}${seven_d_pct}%${RESET} ${DIM}󰔛 ${seven_d_remaining}${RESET}"
+five_h_part=" ${SEP} ${DIM}${COLOR_KEY}5h${RESET} ${five_h_bar} ${DIM}󰔛 ${five_h_remaining}${RESET}"
+seven_d_part=" ${SEP} ${DIM}${COLOR_KEY}7d${RESET} ${seven_d_bar} ${DIM}󰔛 ${seven_d_remaining}${RESET}"
 
 # # Helper: format milliseconds as Xm YYs or Xh Ym YYs
 # format_duration() {
@@ -252,11 +263,10 @@ seven_d_part=" ${SEP} ${DIM}${COLOR_KEY}7d${RESET} ${seven_d_bar} ${BOLD}${COLOR
 # --- Output ---
 printf '%s%s%s%s%s\n' \
     "$BOLD" "$COLOR_DIR" "$dir_display" "$RESET" "$git_part"
-printf '%s%s%s %s %s %s%s %s%s%s\n' \
+printf '%s%s%s %s %s %s%s%s\n' \
     "$BOLD" "$COLOR_CLAUDE" "$model" \
     "$SEP" \
     "${DIM}${COLOR_KEY}${RESET} ${ctx_bar}" \
-    "${BOLD}${COLOR_GOLD}" "${ctx_pct}%${RESET}" \
     "${BOLD}${DIM}${ctx_used_fmt}/${ctx_size_fmt}${RESET}" \
     "$five_h_part" \
     "$seven_d_part"
