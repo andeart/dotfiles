@@ -9,10 +9,6 @@
         "anuragdevanapally",
         "Devanapally"
     ],
-    "cursor.composer.shouldChimeAfterChatFinishes": true,
-    "cursor.cpp.disabledLanguages": [
-        "scminput"
-    ],
     "[dart]": {
         "editor.formatOnSave": true,
         "editor.formatOnType": true,

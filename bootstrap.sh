@@ -5,7 +5,6 @@ REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 DOTFILES_CONFIG="$REPO_ROOT/dotfiles.yml"
 ZSH_CUSTOM="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
 VSCODE_USER="$HOME/Library/Application Support/Code/User"
-CURSOR_USER="$HOME/Library/Application Support/Cursor/User"
 
 info()    { printf "\r\033[00;34m•\033[0m %s\n" "$1"; }
 success() { printf "\r    \033[00;32mOK\033[0m · %s\n" "$1"; }
@@ -132,29 +131,6 @@ if is_enabled '.vscode.extensions'; then
         done < "$DOTFILES_ROOT/vscode/extensions.txt"
     else
         info "VS Code CLI not found — skipping extensions install"
-    fi
-fi
-
-# --- cursor ---
-if is_enabled '.cursor.settings'; then
-    info "Linking Cursor settings"
-    for file in settings.json keybindings.json; do
-        src="$DOTFILES_ROOT/cursor/$file"
-        [ -f "$src" ] || [ -L "$src" ] || continue
-        link_file "$src" "$CURSOR_USER/$file"
-    done
-fi
-
-if is_enabled '.cursor.extensions'; then
-    info "Installing Cursor extensions"
-    if command -v cursor &>/dev/null; then
-        while IFS= read -r ext; do
-            [[ "$ext" =~ ^# ]] && continue
-            [ -z "$ext" ] && continue
-            cursor --install-extension "$ext" --force 2>/dev/null && success "installed $ext" || fail "failed to install $ext"
-        done < "$DOTFILES_ROOT/cursor/extensions.txt"
-    else
-        info "Cursor CLI not found — skipping extensions install"
     fi
 fi
 
