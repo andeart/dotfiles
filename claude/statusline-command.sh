@@ -17,7 +17,8 @@ COLOR_YELLOW=$(printf '\033[38;5;220m')
 COLOR_RED=$(printf '\033[38;5;203m')
 COLOR_CYAN=$(printf '\033[38;5;117m')
 COLOR_CLAUDE=$(printf '\033[38;5;173m') # terracotta orange (Claude brand)
-COLOR_GOLD=$(printf '\033[38;5;179m')  # muted gold for labels + percentages
+COLOR_KEY=$(printf '\033[38;5;174m')   # section keys (close to Claude brand)
+COLOR_GOLD=$(printf '\033[38;5;179m')  # muted gold for percentages
 COLOR_LABEL=$(printf '\033[38;5;245m')
 # COLOR_DUR=$(printf '\033[38;5;215m')  # soft orange for durations (used by timing)
 SEP="${COLOR_LABEL}│${RESET}"
@@ -221,8 +222,8 @@ seven_d_bar=$(make_bar "$seven_d_pct")
 five_h_remaining=$(format_remaining "$five_h_reset")
 seven_d_remaining=$(format_remaining "$seven_d_reset")
 
-five_h_part=" ${SEP} ${BOLD}${COLOR_GOLD}5h${RESET} ${five_h_bar} ${BOLD}${COLOR_GOLD}${five_h_pct}%${RESET} ${DIM}󰔛 ${five_h_remaining}${RESET}"
-seven_d_part=" ${SEP} ${BOLD}${COLOR_GOLD}7d${RESET} ${seven_d_bar} ${BOLD}${COLOR_GOLD}${seven_d_pct}%${RESET} ${DIM}󰔛 ${seven_d_remaining}${RESET}"
+five_h_part=" ${SEP} ${DIM}${COLOR_KEY}5h${RESET} ${five_h_bar} ${BOLD}${COLOR_GOLD}${five_h_pct}%${RESET} ${DIM}󰔛 ${five_h_remaining}${RESET}"
+seven_d_part=" ${SEP} ${DIM}${COLOR_KEY}7d${RESET} ${seven_d_bar} ${BOLD}${COLOR_GOLD}${seven_d_pct}%${RESET} ${DIM}󰔛 ${seven_d_remaining}${RESET}"
 
 # # Helper: format milliseconds as Xm YYs or Xh Ym YYs
 # format_duration() {
@@ -254,7 +255,7 @@ printf '%s%s%s%s%s\n' \
 printf '%s%s%s %s %s %s%s %s%s%s\n' \
     "$BOLD" "$COLOR_CLAUDE" "$model" \
     "$SEP" \
-    "${BOLD}${COLOR_GOLD}Session${RESET} ${ctx_bar}" \
+    "${DIM}${COLOR_KEY}${RESET} ${ctx_bar}" \
     "${BOLD}${COLOR_GOLD}" "${ctx_pct}%${RESET}" \
     "${BOLD}${DIM}${ctx_used_fmt}/${ctx_size_fmt}${RESET}" \
     "$five_h_part" \
