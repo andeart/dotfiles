@@ -4,7 +4,6 @@ export PATH="${DOTFILES_ROOT}/git/bin:${PATH}"
 export PATH="${HOME}/.pub-cache/bin:${PATH}"
 export PATH="${HOME}/.gem/bin:${PATH}"
 export PATH="${HOME}/.local/bin:${PATH}"
-export PATH="${BREW_PREFIX}/lib/ruby/gems/3.4.0/bin:${PATH}"
 export PATH="${BREW_PREFIX}/opt/ruby/bin:${PATH}"
 export PATH="${BREW_PREFIX}/opt/ruby/bin:${PATH}"
 # ^ All lines above are PREFIXED to the default PATH, with lower lines being earlier in the final PATH.

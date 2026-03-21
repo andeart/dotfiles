@@ -13,3 +13,6 @@ export PATH="${FVM_CACHE_PATH}/default/bin:${PATH}"
 
 export PATH="${HOME}/user-sdks/protoc/bin:${PATH}"
 export PATH="${HOME}/user-sdks/protoc/include:${PATH}"
+
+# Customise to your Ruby version
+export PATH="${BREW_PREFIX}/lib/ruby/gems/4.0.0/bin:${PATH}"
