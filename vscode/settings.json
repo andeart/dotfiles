@@ -56,7 +56,6 @@
     "security.workspace.trust.untrustedFiles": "open",
     "testing.automaticallyOpenPeekView": "failureAnywhere",
     "window.commandCenter": true,
-    "window.confirmBeforeClose": "always",
     "window.openFoldersInNewWindow": "on",
     "window.title": "${rootName}${separator}${profileName}${separator}${activeEditorShort}",
     "window.zoomLevel": 1.5,
