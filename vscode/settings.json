@@ -35,6 +35,8 @@
     "editor.guides.bracketPairs": true,
     "editor.hover.delay": 1000,
     "editor.renderWhitespace": "all",
+    "editor.minimap.showSlider": "always",
+    "editor.minimap.showRegionSectionHeaders": true,
     "editor.wordWrap": "on",
     "explorer.openEditors.sortOrder": "alphabetical",
     "explorer.openEditors.visible": 100,
