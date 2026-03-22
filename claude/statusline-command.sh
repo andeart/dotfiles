@@ -166,8 +166,8 @@ ctx_bar=$(make_bar "$ctx_pct")
 # --- Claude.ai rate limits ---
 # Format seconds remaining as "Xd Yh", "Xh", or "Xm"
 format_remaining() {
+    [ -z "$1" ] || [ "$1" -eq 0 ] 2>/dev/null && echo "-" && return
     local remaining=$(( $1 - $(date +%s) ))
-    [ "$1" -eq 0 ] && echo "-" && return
     [ "$remaining" -le 0 ] && echo "now" && return
     local days=$(( remaining / 86400 ))
     local hours=$(( (remaining % 86400) / 3600 ))
