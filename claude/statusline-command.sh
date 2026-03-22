@@ -160,19 +160,7 @@ make_bar() {
 
 ctx_bar=$(make_bar "$ctx_pct")
 
-# --- Claude.ai usage (cached, TTL 5 min) ---
-USAGE_CACHE="${HOME}/.claude/usage_cache"
-five_h_pct=0
-seven_d_pct=0
-
-# Parse an ISO 8601 UTC timestamp (e.g. "2026-03-21T06:00:00.247097+00:00") to epoch
-parse_reset_epoch() {
-    local ts="$1"
-    local clean
-    clean=$(echo "$ts" | sed 's/\.[0-9]*//' | sed 's/[+-][0-9][0-9]:[0-9][0-9]$//')
-    TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "$clean" +%s 2>/dev/null || echo 0
-}
-
+# --- Claude.ai rate limits ---
 # Format seconds remaining as "Xd Yh", "Xh", or "Xm"
 format_remaining() {
     local remaining=$(( $1 - $(date +%s) ))
@@ -189,40 +177,10 @@ format_remaining() {
     fi
 }
 
-fetch_usage() {
-    local now
-    now=$(date +%s)
-    if [ -f "$USAGE_CACHE" ]; then
-        local cache_time
-        cache_time=$(head -1 "$USAGE_CACHE" 2>/dev/null)
-        if [ -n "$cache_time" ] && [ $((now - cache_time)) -lt 300 ]; then
-            tail -1 "$USAGE_CACHE"
-            return
-        fi
-    fi
-
-    local token
-    token=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
-        | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
-    [ -z "$token" ] && echo "0 0 0 0" && return
-
-    local response
-    response=$(curl -s --max-time 5 "https://api.anthropic.com/api/oauth/usage" \
-        -H "Authorization: Bearer $token" \
-        -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null)
-
-    local fh sd fh_reset sd_reset
-    fh=$(echo "$response" | jq -r '.five_hour.utilization // 0' 2>/dev/null | cut -d. -f1)
-    sd=$(echo "$response" | jq -r '.seven_day.utilization // 0' 2>/dev/null | cut -d. -f1)
-    fh_reset=$(parse_reset_epoch "$(echo "$response" | jq -r '.five_hour.resets_at // empty')")
-    sd_reset=$(parse_reset_epoch "$(echo "$response" | jq -r '.seven_day.resets_at // empty')")
-    fh=${fh:-0}; sd=${sd:-0}; fh_reset=${fh_reset:-0}; sd_reset=${sd_reset:-0}
-
-    printf '%s\n%s %s %s %s\n' "$now" "$fh" "$sd" "$fh_reset" "$sd_reset" > "$USAGE_CACHE"
-    echo "$fh $sd $fh_reset $sd_reset"
-}
-
-read -r five_h_pct seven_d_pct five_h_reset seven_d_reset <<< "$(fetch_usage)"
+five_h_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // 0' | cut -d. -f1)
+seven_d_pct=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // 0' | cut -d. -f1)
+five_h_reset=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // 0')
+seven_d_reset=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // 0')
 five_h_pct=${five_h_pct:-0}
 seven_d_pct=${seven_d_pct:-0}
 five_h_reset=${five_h_reset:-0}
