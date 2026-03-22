@@ -55,6 +55,7 @@ dotfiles/
 └── claude/
     ├── CLAUDE.md                      → ~/.claude/CLAUDE.md
     ├── statusline-command.sh          → ~/.claude/statusline-command.sh
+    ├── agents/*                       → ~/.claude/agents/
     └── skills/*                       → ~/.claude/skills/
 ```
 
