@@ -1,4 +1,21 @@
+brew "brotli"
+brew "lz4"
+brew "webp"
+
+brew "ffmpeg"
+brew "imagemagick"
+
+brew "git"
+brew "git-lfs"
 brew "gitleaks"
+
+brew "jq"
+brew "yamllint"
 brew "yq"
+
+brew "ruby"
+
 brew "zsh-autosuggestions"
 brew "zsh-syntax-highlighting"
+
+cask "alt-tab"
