@@ -167,6 +167,7 @@ ctx_bar=$(make_bar "$ctx_pct")
 # Format seconds remaining as "Xd Yh", "Xh", or "Xm"
 format_remaining() {
     local remaining=$(( $1 - $(date +%s) ))
+    [ "$1" -eq 0 ] && echo "-" && return
     [ "$remaining" -le 0 ] && echo "now" && return
     local days=$(( remaining / 86400 ))
     local hours=$(( (remaining % 86400) / 3600 ))
