@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Tear down a git worktree from the main working tree, with safety checks.
+# Usage: git ws-stop <branch-name> [--pr]
 set -euo pipefail
 
 # ─── argument parsing ──────────────────────────────────────────────────────────

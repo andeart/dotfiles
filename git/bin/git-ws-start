@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Create a new git worktree with an auto-generated or named branch.
+# Usage: git ws-start [branch-name] [--base <branch>] [--dir <path>]
 set -euo pipefail
 
 # ─── word lists ───────────────────────────────────────────────────────────────
