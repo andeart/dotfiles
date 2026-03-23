@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  echo "Usage: ha-backup [DEST_DIR]"
+  echo ""
+  echo "Create, download, and clean up a Home Assistant backup."
+  echo "Backup is saved as ha_manual_backup_YYYYMMDD.tar."
+  echo ""
+  echo "Arguments:"
+  echo "  DEST_DIR  Directory to save the backup (default: ~/Downloads)"
+  echo ""
+  echo "Environment:"
+  echo "  HA_HOST   SSH host for Home Assistant (required)"
+  exit 0
+fi
+
+if [[ -z "${HA_HOST:-}" ]]; then
+  echo "Error: HA_HOST environment variable is not set." >&2
+  exit 1
+fi
+
+DATE=$(date +%Y%m%d)
+BACKUP_NAME="ha_manual_backup_${DATE}"
+DEST_DIR="${1:-$HOME/Downloads}"
+
+if [[ ! -d "$DEST_DIR" ]]; then
+  echo "Error: destination directory '${DEST_DIR}' does not exist." >&2
+  exit 1
+fi
+
+TMPFILE=$(mktemp)
+trap 'rm -f "$TMPFILE"' EXIT
+
+echo "Creating backup '${BACKUP_NAME}' on Home Assistant..."
+ssh "$HA_HOST" "ha backups new --name '${BACKUP_NAME}'" | tee "$TMPFILE"
+SLUG=$(grep '^slug:' "$TMPFILE" | awk '{print $2}' | tr -d '[:space:]')
+
+if [[ -z "$SLUG" ]]; then
+  echo "Error: failed to read slug from backup output." >&2
+  exit 1
+fi
+
+if [[ ! "$SLUG" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+  echo "Error: slug contains unexpected characters: '${SLUG}'" >&2
+  exit 1
+fi
+
+echo ""
+echo "Downloading /backup/${SLUG}.tar to ${DEST_DIR}..."
+scp "$HA_HOST:/backup/${SLUG}.tar" "$DEST_DIR/${BACKUP_NAME}.tar"
+
+if [[ ! -s "$DEST_DIR/${BACKUP_NAME}.tar" ]]; then
+  echo "Error: downloaded file is missing or empty, skipping remote cleanup." >&2
+  exit 1
+fi
+
+echo "Removing backup from Home Assistant..."
+ssh "$HA_HOST" "ha backups remove ${SLUG}"
+
+echo ""
+echo "Done. Backup saved to ${DEST_DIR}/${BACKUP_NAME}.tar"
