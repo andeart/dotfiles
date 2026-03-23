@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── word lists ───────────────────────────────────────────────────────────────
+adjectives=(
+  bold    brave   bright  calm    clean   clear   cool    deep
+  dry     fair    fast    firm    flat    free    fresh   full
+  great   hard    high    keen    kind    lean    light   long
+  neat    new     noble   old     open    pure    quiet   raw
+  rich    safe    sharp   slim    smart   soft    still   strong
+  swift   thin    true    vast    warm    wide    wild    wise
+  young   dark    fine    late
+)
+nouns=(
+  arch    arrow   birch   blade   bluff   brook   cedar   cliff
+  cloud   coral   cove    crest   dawn    dune    ember   falcon
+  fern    field   flame   forest  gate    glade   grove   harbor
+  knoll   lake    maple   marsh   meadow  mesa    oak     pass
+  peak    pine    plain   pond    reef    ridge   river   shore
+  spark   stone   storm   tide    torch   trail   vale    willow
+  shield  frost   mist    north
+)
+# 36-character set: digits + uppercase letters
+charset='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+# ─── argument parsing ──────────────────────────────────────────────────────────
+branch_name=""
+base_branch=""
+custom_dir=""
+
+usage() {
+  echo "usage: git ws-start [branch-name] [--base <branch>] [--dir <path>]" >&2
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --base)
+      [[ $# -lt 2 ]] && { echo "error: --base requires a value" >&2; usage; exit 1; }
+      base_branch="$2"; shift 2 ;;
+    --dir)
+      [[ $# -lt 2 ]] && { echo "error: --dir requires a value" >&2; usage; exit 1; }
+      custom_dir="$2"; shift 2 ;;
+    --*)
+      echo "error: unknown option: $1" >&2; usage; exit 1 ;;
+    *)
+      [[ -n "$branch_name" ]] && { echo "error: unexpected argument: $1" >&2; usage; exit 1; }
+      branch_name="$1"; shift ;;
+  esac
+done
+
+# ─── git repo check ────────────────────────────────────────────────────────────
+if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+  echo "error: not inside a git repository." >&2
+  exit 1
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+# ─── resolve base branch ──────────────────────────────────────────────────────
+if [[ -z "$base_branch" ]]; then
+  if git rev-parse --verify main &>/dev/null; then
+    base_branch="main"
+  elif git rev-parse --verify master &>/dev/null; then
+    base_branch="master"
+  else
+    echo "error: no 'main' or 'master' branch found. Specify one with --base <branch>." >&2
+    exit 1
+  fi
+else
+  if ! git rev-parse --verify "$base_branch" &>/dev/null; then
+    echo "error: branch '$base_branch' does not exist." >&2
+    exit 1
+  fi
+fi
+
+# ─── resolve branch name ──────────────────────────────────────────────────────
+if [[ -z "$branch_name" ]]; then
+  adj="${adjectives[$((RANDOM % ${#adjectives[@]}))]}"
+  noun="${nouns[$((RANDOM % ${#nouns[@]}))]}"
+  c1="${charset:$((RANDOM % 36)):1}"
+  c2="${charset:$((RANDOM % 36)):1}"
+  branch_name="${adj}-${noun}-${c1}${c2}"
+
+  printf "Generated branch name: %s\nProceed? [y/n] " "$branch_name"
+  read -r answer
+  case "$answer" in
+    y|Y) ;;
+    *) echo "Aborted. Re-run to generate a new name."; exit 0 ;;
+  esac
+fi
+
+# ─── validate branch doesn't exist ────────────────────────────────────────────
+if git rev-parse --verify "$branch_name" &>/dev/null; then
+  echo "error: branch '$branch_name' already exists." >&2
+  exit 1
+fi
+
+# ─── resolve worktree path ────────────────────────────────────────────────────
+if [[ -n "$custom_dir" ]]; then
+  worktree_path="$custom_dir"
+else
+  repo_parent="$(dirname "$repo_root")"
+  repo_name="$(basename "$repo_root")"
+  sibling_dir="${repo_parent}/${repo_name}-worktrees"
+  worktree_path="${sibling_dir}/${branch_name}"
+
+  if [[ ! -d "$sibling_dir" ]]; then
+    printf "Directory '%s' does not exist. Create it? [y/n] " "$sibling_dir"
+    read -r answer
+    case "$answer" in
+      y|Y) ;;
+      *) echo "Aborted."; exit 0 ;;
+    esac
+  fi
+fi
+
+# ─── create worktree ──────────────────────────────────────────────────────────
+mkdir -p "$(dirname "$worktree_path")"
+git worktree add -b "$branch_name" "$worktree_path" "$base_branch"
+
+# ─── success ──────────────────────────────────────────────────────────────────
+printf "\nWorktree '%s' is ready. Start working by running:\n\n  cd %s\n\n" \
+  "$branch_name" "$worktree_path"
