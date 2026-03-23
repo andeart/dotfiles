@@ -91,7 +91,7 @@ fi
 
 # ─── validate branch doesn't exist ────────────────────────────────────────────
 if git rev-parse --verify "$branch_name" &>/dev/null; then
-  echo "error: branch '$branch_name' already exists." >&2
+  echo "error: '$branch_name' already exists as a branch or tag." >&2
   exit 1
 fi
 

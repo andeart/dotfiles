@@ -86,6 +86,12 @@ if [[ -n "$unpushed" ]]; then
   exit 1
 fi
 
+# ─── verify worktree directory is accessible ──────────────────────────────────
+if [[ ! -d "$worktree_path" ]]; then
+  echo "error: worktree directory '$worktree_path' does not exist on disk." >&2
+  exit 1
+fi
+
 # ─── optional PR creation ─────────────────────────────────────────────────────
 pr_url=""
 if [[ "$create_pr" == true ]]; then
