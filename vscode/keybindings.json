@@ -136,5 +136,35 @@
     {
         "key": "ctrl+shift+r",
         "command": "workbench.action.quickOpen"
+    },
+    {
+        "key": "alt+down",
+        "command": "-showNextParameterHint",
+        "when": "editorFocus && parameterHintsMultipleSignatures && parameterHintsVisible"
+    },
+    {
+        "key": "alt+down",
+        "command": "-workbench.action.navigateModalEditorNext",
+        "when": "editorPartModal && editorPartModalNavigation"
+    },
+    {
+        "key": "alt+down",
+        "command": "editor.action.marker.nextInFiles",
+        "when": "editorFocus"
+    },
+    {
+        "key": "alt+up",
+        "command": "-showPrevParameterHint",
+        "when": "editorFocus && parameterHintsMultipleSignatures && parameterHintsVisible"
+    },
+    {
+        "key": "alt+up",
+        "command": "-workbench.action.navigateModalEditorPrevious",
+        "when": "editorPartModal && editorPartModalNavigation"
+    },
+    {
+        "key": "alt+up",
+        "command": "editor.action.marker.prevInFiles",
+        "when": "editorFocus"
     }
 ]
