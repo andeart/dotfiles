@@ -61,9 +61,9 @@ read -rp "  Ready to continue? (y/n) " confirm
 [ "$confirm" = "y" ] || { echo "Aborted."; exit 0; }
 echo ''
 
-# Verify DOTFILES_ROOT will be available at shell startup
-if ! grep -q 'export DOTFILES_ROOT=' "$REPO_ROOT/zsh/zshrc.local.symlink" 2>/dev/null; then
-    fail "zshrc.local.symlink must export DOTFILES_ROOT (see zshrc.local.symlink.example)"
+# Verify DOTFILES_ROOT is available in the environment
+if [ -z "$DOTFILES_ROOT" ]; then
+    fail "DOTFILES_ROOT must be exported in your environment (see zshrc.local.symlink.example)"
 fi
 
 # From here on, use DOTFILES_ROOT as the canonical name
