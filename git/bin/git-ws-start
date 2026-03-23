@@ -121,3 +121,4 @@ git worktree add -b "$branch_name" "$worktree_path" "$base_branch"
 # ─── success ──────────────────────────────────────────────────────────────────
 printf "\nWorktree '%s' is ready. Start working by running:\n\n  cd %s\n\n" \
   "$branch_name" "$worktree_path"
+
