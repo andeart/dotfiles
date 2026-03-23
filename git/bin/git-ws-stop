@@ -93,14 +93,14 @@ if [[ "$create_pr" == true ]]; then
     echo "error: 'gh' (GitHub CLI) is not installed. Install it or omit --pr." >&2
     exit 1
   fi
-  pr_url="$(gh pr create --head "$branch_name" --fill)"
+  pr_url="$(cd "$worktree_path" && gh pr create --head "$branch_name" --fill)"
 fi
 
 # ─── remove worktree and branch ───────────────────────────────────────────────
 git worktree remove "$worktree_path"
 
 if ! git branch -d "$branch_name" 2>/dev/null; then
-  echo "error: could not delete branch '$branch_name' — it may have unmerged changes." >&2
+  echo "error: could not delete branch '$branch_name' - it may have unmerged changes." >&2
   printf "       To force-delete it: git branch -D %s\n" "$branch_name" >&2
   exit 1
 fi
