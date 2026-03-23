@@ -149,6 +149,11 @@ if is_enabled '.claude.agents'; then
     link_file "$DOTFILES_ROOT/claude/agents" "$HOME/.claude/agents"
 fi
 
+if is_enabled '.claude.commands'; then
+    info "Linking Claude Code commands"
+    link_file "$DOTFILES_ROOT/claude/commands" "$HOME/.claude/commands"
+fi
+
 if is_enabled '.claude.skills'; then
     info "Linking Claude Code skills"
     link_file "$DOTFILES_ROOT/claude/skills" "$HOME/.claude/skills"

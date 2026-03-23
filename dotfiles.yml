@@ -17,4 +17,5 @@ iterm2:
 claude:
   settings: true
   agents: true
+  commands: true
   skills: true
