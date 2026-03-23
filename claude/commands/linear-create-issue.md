@@ -3,8 +3,9 @@ name: linear-create-issue
 description: >
   Conventions and formatting rules for writing Linear issues for Anurag.
   Use this skill whenever creating, editing, or reviewing Linear issues. Also trigger when the user
-  asks to "make an issue", "create a ticket", "write a task", or describes a feature/bug/improvement
-  they want tracked in Linear, even if they don't mention Linear by name. This skill covers issue
+  asks to "make an issue", "create a ticket", "write a task", "log a bug", "file a bug",
+  "report a problem", or describes a feature/bug/improvement they want tracked in Linear, even if
+  they don't mention Linear by name. This skill covers issue
   structure, section ordering, sentence style, and acceptance criteria patterns. Use it alongside the
   Linear MCP tools (save_issue, list_issues, etc.).
 ---
@@ -40,13 +41,16 @@ Another valid example with a simpler structure:
 
 Rules:
 - Exactly one bullet point.
-- Starts with "This will...".
+- Always starts with "This will...". For bugs, describe the functional outcome the fix achieves,
+  not just that a bug is being fixed.
+  - Good: "This will restore reliable presence detection so the away-mode automation triggers consistently"
+  - Avoid: "This will fix the presence detection bug"
 - Communicates a clear benefit. A "so [reason]" clause is fine but not required as long as the benefit is evident.
 - Speaks from the perspective of the people affected ("us", "I", "Bry and me"), not the system.
 
 ### 2. Notes (optional)
 
-Additional context, flavour, links, constraints, or open questions that help someone understand the
+Additional context, flavor, links, constraints, or open questions that help someone understand the
 issue beyond the Impact and Acceptance Criteria. Each bullet is a self-contained thought.
 
 Notes should **add information that doesn't belong in the other two sections**, such as background
@@ -68,7 +72,7 @@ Rules:
 - Open questions or decisions that need investigation should be called out explicitly (e.g. "**Open question:** ...").
 - References to other issues should use Linear's Markdown link format.
 
-### 3. Acceptance Criteria (required)
+### 3. Acceptance criteria (required)
 
 A checkbox list of specific, testable conditions that must be true for the issue to be considered done.
 Written in declarative present tense.
@@ -89,13 +93,15 @@ Rules:
 - Order: core behavior first, then edge cases, then dashboard/notification integration, then testing steps last.
 - Testing criteria typically appear at the end and start with "The behavior is tested with...".
 - Avoid implementation details. Say *what* must be true, not *how* to make it true. Implementation guidance belongs in Notes.
+- For bugs, describe the corrected behavior, not the broken state.
 
 ## Title Conventions
 
 - Concise, action-oriented.
 - Starts with a verb or noun phrase describing the deliverable.
+- Bug titles must start with "Fix " (e.g. "Fix stale data in dashboard card after refreshing").
 - Use sentence case.
-- Examples: "Alert when the oven runs continuously for over 1 hour", "Set up Ollama on Windows laptop for local AI commands", "Dashboard card for currently watching shows with instant launch".
+- Examples: "Alert when the oven runs continuously for over 1 hour", "Set up Ollama on Windows laptop for local AI commands", "Fix away-mode automation not triggering when Wi-Fi presence times out".
 
 ## Default Field Values
 
@@ -104,7 +110,7 @@ When creating issues unless the user specifies otherwise:
 - **Project**: Do not set. Leave blank so the issue appears in triage.
 - **Priority**: Do not set. Leave blank so the issue appears in triage.
 
-The user will specify the team, or it can be inferred from context (e.g. the project being discussed).
+The user will specify the team, or it can be inferred from context (e.g. the project being discussed). If the team cannot be confidently inferred, ask the user.
 
 Do not set labels, cycles, or estimates unless the user explicitly provides them. Leave them blank so the issue appears in triage.
 
