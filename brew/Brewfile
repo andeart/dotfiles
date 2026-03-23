@@ -10,6 +10,7 @@ brew "git-lfs"
 brew "gitleaks"
 
 brew "jq"
+brew "markdownlint-cli2"
 brew "yamllint"
 brew "yq"
 

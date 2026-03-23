@@ -3,6 +3,7 @@
 # alias lsa="ls -AFGhoT -D '%FT%T%z' -t"
 alias lsa="ls -AFGho"
 
+alias mdlint='markdownlint-cli2 --config ~/.markdownlint.yml'
 alias pip='python3 -m pip'
 
 allansicolors() {

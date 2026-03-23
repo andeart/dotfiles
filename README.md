@@ -48,6 +48,8 @@ dotfiles/
 ├── iterm2/
 │   ├── com.googlecode.iterm2.plist    # loaded via iTerm2's custom folder pref
 │   └── iterm-filter.sh                # git clean/smudge filter for the plist
+├── markdownlint/
+│   └── markdownlint.yml.symlink        → ~/.markdownlint.yml
 ├── vscode/
 │   ├── settings.json                  → ~/Library/Application Support/Code/User/settings.json
 │   ├── keybindings.json               → ~/Library/Application Support/Code/User/keybindings.json

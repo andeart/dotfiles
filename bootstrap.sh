@@ -111,6 +111,16 @@ if is_enabled '.oh-my-zsh.zshrc'; then
     done
 fi
 
+# --- markdownlint ---
+if is_enabled '.markdownlint.config'; then
+    info "Linking markdownlint config"
+    for src in "$DOTFILES_ROOT"/markdownlint/*.symlink; do
+        [ -f "$src" ] || continue
+        dst="$HOME/.$(basename "$src" '.symlink')"
+        link_file "$src" "$dst"
+    done
+fi
+
 # --- vscode ---
 if is_enabled '.vscode.settings'; then
     info "Linking VS Code settings"
