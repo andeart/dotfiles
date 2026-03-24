@@ -27,10 +27,6 @@ DIM=$(printf '\033[2m')
 COLOR_DIR=$(printf '\033[1;34m')      # bold ANSI blue   (headline PATH)
 COLOR_GIT=$(printf '\033[1;36m')      # bold ANSI cyan   (headline BRANCH)
 COLOR_STATUS=$(printf '\033[1;35m')   # bold magenta     (headline STATUS)
-COLOR_GREEN=$(printf '\033[38;5;109m') # cool slate
-COLOR_YELLOW=$(printf '\033[38;5;220m')
-COLOR_RED=$(printf '\033[38;5;203m')
-COLOR_CYAN=$(printf '\033[38;5;117m')
 COLOR_CLAUDE=$(printf '\033[38;5;173m') # terracotta orange (Claude brand)
 COLOR_KEY=$(printf '\033[38;5;174m')   # section keys (close to Claude brand)
 COLOR_LABEL=$(printf '\033[38;5;245m')
@@ -125,14 +121,23 @@ else
     ctx_size_fmt="$ctx_size"
 fi
 
-# Helper: 10-char wide bar with rounded caps (Nerd Font U+E0B6/U+E0B4)
-# Caps use bar bg color as fg against terminal default, creating a pill effect
+# Helper: 10-char wide bar.
+# Optional second arg: time_pct (0-100) marks current position in the time window;
+# -1 (default) means no marker. Cells after the marker get strikethrough.
 make_bar() {
     local pct=$1
+    local time_pct=${2:--1}
     local WIDTH=10
     local label="${pct}%"
     local label_len=${#label}
     local filled=$(( pct * WIDTH / 100 ))
+
+    # Compute marker cell index (-1 = none)
+    local marker_pos=-1
+    if [ "$time_pct" -ge 0 ] 2>/dev/null; then
+        marker_pos=$(( time_pct * WIDTH / 100 ))
+        [ "$marker_pos" -ge "$WIDTH" ] && marker_pos=$(( WIDTH - 1 ))
+    fi
 
     local FILL_IDX
     if   [ "$pct" -ge 90 ]; then FILL_IDX=203
@@ -145,17 +150,25 @@ make_bar() {
     local BG_EMPTY=$(printf '\033[48;5;%sm' "$EMPTY_IDX")
     local FG_FILL=$(printf '\033[1;38;5;236m')  # bold dark charcoal on fill
     local FG_EMPTY=$(printf '\033[1;38;5;245m') # bold medium gray on empty
+    local ST=$(printf '\033[9m')
+    local NO_ST=$(printf '\033[29m')
 
     local pad_r=$(( WIDTH - label_len - 1 ))
     local content
     printf -v content " %s%${pad_r}s" "$label" ""
 
-    local bar="" i
+    local bar="" i st
     for ((i=0; i<WIDTH; i++)); do
-        if [ "$i" -lt "$filled" ]; then
-            bar="${bar}${BG_FILL}${FG_FILL}${content:$i:1}"
+        # Strikethrough all cells after the marker position (remaining time)
+        if [ "$marker_pos" -ge 0 ] && [ "$i" -gt "$marker_pos" ]; then
+            st="$ST"
         else
-            bar="${bar}${BG_EMPTY}${FG_EMPTY}${content:$i:1}"
+            st="$NO_ST"
+        fi
+        if [ "$i" -lt "$filled" ]; then
+            bar="${bar}${BG_FILL}${FG_FILL}${st}${content:$i:1}"
+        else
+            bar="${bar}${BG_EMPTY}${FG_EMPTY}${st}${content:$i:1}"
         fi
     done
     printf '%s%s' "$bar" "$RESET"
@@ -164,10 +177,12 @@ make_bar() {
 ctx_bar=$(make_bar "$ctx_pct")
 
 # --- Claude.ai rate limits ---
+now=$(date +%s)
+
 # Format seconds remaining as "Xd Yh", "Xh", or "Xm"
 format_remaining() {
     [ -z "$1" ] || [ "$1" -eq 0 ] 2>/dev/null && echo "-" && return
-    local remaining=$(( $1 - $(date +%s) ))
+    local remaining=$(( $1 - now ))
     [ "$remaining" -le 0 ] && echo "now" && return
     local days=$(( remaining / 86400 ))
     local hours=$(( (remaining % 86400) / 3600 ))
@@ -181,8 +196,22 @@ format_remaining() {
     fi
 }
 
-five_h_bar=$(make_bar "$five_h_pct")
-seven_d_bar=$(make_bar "$seven_d_pct")
+# How far through each window are we right now?
+# Returns 0-100 (percent elapsed), or -1 if no reset timestamp available.
+compute_time_pct() {
+    local reset_at=$1 window_secs=$2
+    [ -z "$reset_at" ] || [ "$reset_at" -eq 0 ] 2>/dev/null && echo -1 && return
+    local elapsed=$(( window_secs - (reset_at - now) ))
+    [ "$elapsed" -le 0 ] && echo 0 && return
+    [ "$elapsed" -ge "$window_secs" ] && echo 100 && return
+    echo $(( elapsed * 100 / window_secs ))
+}
+
+five_h_time_pct=$(compute_time_pct "$five_h_reset" 18000)
+seven_d_time_pct=$(compute_time_pct "$seven_d_reset" 604800)
+
+five_h_bar=$(make_bar "$five_h_pct" "$five_h_time_pct")
+seven_d_bar=$(make_bar "$seven_d_pct" "$seven_d_time_pct")
 five_h_remaining=$(format_remaining "$five_h_reset")
 seven_d_remaining=$(format_remaining "$seven_d_reset")
 
