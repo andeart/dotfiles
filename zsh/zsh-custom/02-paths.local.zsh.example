@@ -1,8 +1,8 @@
-export JAVA_HOME=$(/usr/libexec/java_home)
-
 # Required: Set this to your dotfiles repo path.
 # Other dotfiles configs depend on this env var at shell startup.
 export DOTFILES_ROOT="$HOME/user-settings/dotfiles"
+
+export JAVA_HOME=$(/usr/libexec/java_home)
 
 # Simple Flutter...
 export PATH="${HOME}/user-sdks/flutter/bin:${PATH}"

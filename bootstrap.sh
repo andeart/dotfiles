@@ -61,14 +61,6 @@ read -rp "  Ready to continue? (y/n) " confirm
 [ "$confirm" = "y" ] || { echo "Aborted."; exit 0; }
 echo ''
 
-# Verify DOTFILES_ROOT is available in the environment
-if [ -z "$DOTFILES_ROOT" ]; then
-    fail "DOTFILES_ROOT must be exported in your environment (see zshrc.local.symlink.example)"
-fi
-
-# From here on, use DOTFILES_ROOT as the canonical name
-DOTFILES_ROOT="$REPO_ROOT"
-
 link_file() {
     local src="$1" dst="$2"
 
@@ -91,20 +83,39 @@ link_file() {
     success "linked $src → $dst"
 }
 
-# --- git ---
-if is_enabled '.git.gitconfig'; then
-    info "Linking git config"
-    for src in "$DOTFILES_ROOT"/git/*gitconfig*.symlink; do
+# --- oh-my-zsh: zshrc ---
+if is_enabled '.oh-my-zsh.zshrc'; then
+    info "Linking zshrc"
+    for src in "$REPO_ROOT"/zsh/*zshrc*.symlink; do
         [ -f "$src" ] || continue
         dst="$HOME/.$(basename "$src" '.symlink')"
         link_file "$src" "$dst"
     done
 fi
 
-# --- oh-my-zsh: zshrc ---
-if is_enabled '.oh-my-zsh.zshrc'; then
-    info "Linking zshrc"
-    for src in "$DOTFILES_ROOT"/zsh/*zshrc*.symlink; do
+# Source ~/.zshrc in a zsh subprocess to pick up DOTFILES_ROOT. This must happen
+# after the zshrc symlink step so that ZSH_CUSTOM resolves to the repo's
+# zsh-custom/ dir and all local files are sourced in order.
+if [ -f "$HOME/.zshrc" ]; then
+    _dotfiles_root="$(zsh -c 'source ~/.zshrc 2>/dev/null; echo "$DOTFILES_ROOT"' 2>/dev/null)"
+    [ -n "$_dotfiles_root" ] && DOTFILES_ROOT="$_dotfiles_root"
+fi
+
+# Verify DOTFILES_ROOT is available in the environment. This is required by other
+# dotfiles configs (e.g. Claude settings, git hooks) that reference $DOTFILES_ROOT
+# at shell startup outside of this script's scope. If this fails, create
+# zsh/zsh-custom/02-paths.local.zsh from the .example file and set DOTFILES_ROOT.
+if [ -z "$DOTFILES_ROOT" ]; then
+    fail "DOTFILES_ROOT is not set. Create zsh/zsh-custom/02-paths.local.zsh from the .example file and export DOTFILES_ROOT before re-running."
+fi
+
+# From here on, use DOTFILES_ROOT as the canonical name (repo root)
+DOTFILES_ROOT="$REPO_ROOT"
+
+# --- git ---
+if is_enabled '.git.gitconfig'; then
+    info "Linking git config"
+    for src in "$DOTFILES_ROOT"/git/*gitconfig*.symlink; do
         [ -f "$src" ] || continue
         dst="$HOME/.$(basename "$src" '.symlink')"
         link_file "$src" "$dst"

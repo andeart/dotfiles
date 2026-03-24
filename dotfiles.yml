@@ -1,11 +1,11 @@
 # Configuration used by bootstrap.sh
 
-git:
-  gitconfig: true
-
 oh-my-zsh:
   zshrc: true
-  # Note that the zshrc symlink also automatically covers pointing to the zsh-custom directory.
+  # Note that the zshrc symlink also implicitly covers pointing to the zsh-custom directory.
+
+git:
+  gitconfig: true
 
 markdownlint:
   config: true
