@@ -30,9 +30,9 @@ fi
 
 BREWFILE="$REPO_ROOT/brew/Brewfile"
 if [ -f "$BREWFILE" ]; then
-    info "Checking Brewfile dependencies"
-    if ! brew bundle check --file="$BREWFILE" --verbose; then
-        fail "Missing Brewfile dependencies. Run: brew bundle --file=$BREWFILE"
+    info "Installing missing Brewfile dependencies"
+    if ! brew bundle install --file="$BREWFILE" --no-upgrade; then
+        fail "Failed to install Brewfile dependencies."
     fi
     success "All Brewfile dependencies installed"
 fi
