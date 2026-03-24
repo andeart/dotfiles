@@ -1,5 +1,5 @@
-export LDFLAGS="-L/opt/homebrew/opt/ruby/lib"
-export CPPFLAGS="-I/opt/homebrew/opt/ruby/include"
+export LDFLAGS="-L/${BREW_PREFIX}/opt/ruby/lib"
+export CPPFLAGS="-I/${BREW_PREFIX}/opt/ruby/include"
 
 # Export $ZSH_CUSTOM explicitly for access in bash scripts.
 export ZSH_CUSTOM="$ZSH_CUSTOM"
