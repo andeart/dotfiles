@@ -5,7 +5,3 @@ export CPPFLAGS="-I${BREW_PREFIX}/opt/ruby/include"
 export PAGER='less'
 export LESS='-R'
 export GIT_PAGER=""
-
-export EDITOR="code --wait"
-export VISUAL="code --wait"
-export GIT_EDITOR="code --wait"

@@ -1,0 +1,4 @@
+# Set your preferred editor here
+export EDITOR="code --wait"
+export VISUAL="code --wait"
+export GIT_EDITOR="code --wait"

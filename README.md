@@ -36,6 +36,7 @@ dotfiles/
 │       ├── 02-paths.local.zsh         # machine-specific paths
 │       ├── 05-paths-additional.zsh    # extra PATH entries
 │       ├── 10-flags.zsh               # shell flags
+│       ├── 12-flags.local.zsh         # machine-specific flags
 │       ├── 30-aliases.zsh             # shared aliases
 │       ├── 31-aliases.local.zsh       # machine-specific aliases
 │       ├── 60-prompt.zsh              # prompt config
