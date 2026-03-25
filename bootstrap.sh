@@ -148,7 +148,7 @@ if is_enabled '.vscode.extensions'; then
             code --install-extension "$ext" --force 2>/dev/null && success "installed $ext" || { warn "failed to install $ext"; _failed_extensions+=("$ext"); }
         done < "$DOTFILES_ROOT/vscode/extensions.txt"
     else
-        info "VS Code CLI not found — skipping extensions install"
+        info "VS Code CLI not found - skipping extensions install"
     fi
 fi
 

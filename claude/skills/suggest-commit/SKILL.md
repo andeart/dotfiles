@@ -19,15 +19,15 @@ Generate a commit message from the current state of the working tree, copy it to
 
 Run `git diff --staged` first. If that's empty (nothing staged), fall back to `git diff`. If both are empty, tell the user there's nothing to base a commit message on.
 
-The diff is the primary source of truth for the commit message. The conversation history is secondary — it can add flavor or clarify intent, but the message must accurately reflect what the diff shows, not what was discussed.
+The diff is the primary source of truth for the commit message. The conversation history is secondary - it can add flavor or clarify intent, but the message must accurately reflect what the diff shows, not what was discussed.
 
 ## Writing the commit message
 
-**Voice and tense:** Use the imperative present tense, as if giving a command. "Add validation" not "Added validation" or "Adds validation". This is the standard Git convention — the message completes the sentence "If applied, this commit will ___."
+**Voice and tense:** Use the imperative present tense, as if giving a command. "Add validation" not "Added validation" or "Adds validation". This is the standard Git convention - the message completes the sentence "If applied, this commit will ___."
 
 **Length:** Aim for a single line under 100 characters. Most commits change one thing and one line is enough.
 
-**When to use a body:** If the diff touches multiple concerns or the change needs explanation that doesn't fit in 100 characters, use a subject line + blank line + body. The body should be a short bulleted list of what changed, also in imperative tense. Keep the body concise — a few bullets, not an essay.
+**When to use a body:** If the diff touches multiple concerns or the change needs explanation that doesn't fit in 100 characters, use a subject line + blank line + body. The body should be a short bulleted list of what changed, also in imperative tense. Keep the body concise - a few bullets, not an essay.
 
 **What to focus on:** Describe *what* the change does and *why*, not *how*. The diff already shows the how. For example, "Fix crash when user has no email" is better than "Add null check on line 42 of user.py".
 
@@ -59,4 +59,4 @@ EOF
 
 ## Output
 
-After copying, display the commit message to the user in a code block so they can see what was copied. Keep your surrounding commentary minimal — just show the message and confirm it's in the clipboard.
+After copying, display the commit message to the user in a code block so they can see what was copied. Keep your surrounding commentary minimal - just show the message and confirm it's in the clipboard.

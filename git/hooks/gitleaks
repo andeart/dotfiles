@@ -5,14 +5,14 @@
 # Standalone (no existing pre-commit hook):
 #   ln -sf $DOTFILES_ROOT/git/hooks/gitleaks .git/hooks/pre-commit
 #
-# Alongside an existing pre-commit hook — add this line to your hook:
+# Alongside an existing pre-commit hook - add this line to your hook:
 #   $DOTFILES_ROOT/git/hooks/gitleaks
 #
 # Bypass (for false positives):
 #   git commit --no-verify
 
 if ! command -v gitleaks &>/dev/null; then
-    echo "warning: gitleaks is not installed — skipping secret scan"
+    echo "warning: gitleaks is not installed - skipping secret scan"
     echo "  install: brew install gitleaks"
     exit 0
 fi

@@ -57,7 +57,7 @@ if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         behind="${BASH_REMATCH[1]}"
     fi
 
-    # Parse status lines — priority order matches headline's headline-git-status-counts()
+    # Parse status lines - priority order matches headline's headline-git-status-counts()
     staged=0; changed=0; untracked=0; conflicts=0
     while IFS= read -r line; do
         xy="${line:0:2}"
@@ -85,7 +85,7 @@ if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         stashed=${stashed:-0}
     fi
 
-    # Build status string — HL_GIT_STATUS_ORDER: STAGED CHANGED UNTRACKED BEHIND AHEAD STASHED CONFLICTS
+    # Build status string - HL_GIT_STATUS_ORDER: STAGED CHANGED UNTRACKED BEHIND AHEAD STASHED CONFLICTS
     # format is count+symbol (e.g. 3!)
     entries=("${staged}:+" "${changed}:!" "${untracked}:?" "${behind}:↓" "${ahead}:↑" "${stashed}:*" "${conflicts}:✘")
     git_status_str=""
