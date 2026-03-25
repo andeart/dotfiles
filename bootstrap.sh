@@ -9,6 +9,9 @@ VSCODE_USER="$HOME/Library/Application Support/Code/User"
 info()    { printf "\r\033[00;34m•\033[0m %s\n" "$1"; }
 success() { printf "\r    \033[00;32mOK\033[0m · %s\n" "$1"; }
 fail()    { printf "\r    \033[0;31mFAIL\033[0m · %s\n" "$1"; echo ''; exit 1; }
+warn()    { printf "\r    \033[00;33mWARN\033[0m · %s\n" "$1"; }
+
+_failed_extensions=()
 
 # Read a boolean value from dotfiles.yml. Returns 0 (true) or 1 (false).
 is_enabled() {
@@ -148,7 +151,7 @@ if is_enabled '.vscode.extensions'; then
         while IFS= read -r ext; do
             [[ "$ext" =~ ^# ]] && continue
             [ -z "$ext" ] && continue
-            code --install-extension "$ext" --force 2>/dev/null && success "installed $ext" || fail "failed to install $ext"
+            code --install-extension "$ext" --force 2>/dev/null && success "installed $ext" || { warn "failed to install $ext"; _failed_extensions+=("$ext"); }
         done < "$DOTFILES_ROOT/vscode/extensions.txt"
     else
         info "VS Code CLI not found — skipping extensions install"
@@ -197,4 +200,11 @@ if is_enabled '.iterm2.preferences'; then
 fi
 
 echo ''
+if [ ${#_failed_extensions[@]} -gt 0 ]; then
+    warn "The following VS Code extensions failed to install:"
+    for ext in "${_failed_extensions[@]}"; do
+        printf "    %s\n" "$ext"
+    done
+    echo ''
+fi
 success "All done!"
