@@ -18,7 +18,7 @@
 [color "diff"]
 	meta = bold cyan
 	frag = cyan
-	new = bold green	
+	new = bold green
 	newMoved = bold green
 	old = bold red
 	oldMoved = bold red
