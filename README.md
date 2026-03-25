@@ -6,6 +6,8 @@ The setup is macOS-only because I made choices in life and I'm living with them.
 
 2026-03-16: I'm consolidating multiple machines/images so I'm using this opportunity to clean my dotfiles up. Things will keep moving around for a minute.
 
+Updates on this repo tend to land late at night. I tinker with this after I've finished other coding projects.
+
 ## Getting started
 
 ```sh
