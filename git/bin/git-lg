@@ -2,6 +2,6 @@
 args=()
 [ -n "$1" ] && args+=("-$1")
 git log --color --graph \
-  --pretty=format:'%C(bold yellow)%h%Creset%C(auto)%d%Creset %C(bold blue)%cd%Creset %s %C(bold magenta)-%an%Creset' \
+  --pretty=format:'%C(bold black)%h%Creset %C(bold blue)%cd%Creset%C(auto)%d%Creset %s %C(bold magenta)-%an%Creset' \
   --date=format-local:'%Y-%m-%d %H:%M' \
   --abbrev-commit "${args[@]}" | sed 's/\*/•/g'
