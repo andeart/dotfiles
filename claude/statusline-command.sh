@@ -121,6 +121,14 @@ else
     ctx_size_fmt="$ctx_size"
 fi
 
+# Convert ASCII digits to superscript equivalents
+to_super() {
+    local s="$1"
+    s="${s//0/⁰}"; s="${s//1/¹}"; s="${s//2/²}"; s="${s//3/³}"; s="${s//4/⁴}"
+    s="${s//5/⁵}"; s="${s//6/⁶}"; s="${s//7/⁷}"; s="${s//8/⁸}"; s="${s//9/⁹}"
+    printf '%s' "$s"
+}
+
 # Helper: 10-char wide bar.
 # Optional second arg: time_pct (0-100) marks current position in the time window;
 # -1 (default) means no marker. Cells after the marker get strikethrough.
@@ -128,7 +136,8 @@ make_bar() {
     local pct=$1
     local time_pct=${2:--1}
     local WIDTH=10
-    local label="${pct}%"
+    local label
+    label="$(to_super "$(printf '%02d' "$pct")")"
     local label_len=${#label}
     local filled=$(( pct * WIDTH / 100 ))
 
@@ -153,9 +162,9 @@ make_bar() {
     local ST=$(printf '\033[9m')
     local NO_ST=$(printf '\033[29m')
 
-    local pad_r=$(( WIDTH - label_len - 1 ))
+    local pad_r=$(( WIDTH - label_len ))
     local content
-    printf -v content " %s%${pad_r}s" "$label" ""
+    printf -v content "%s%${pad_r}s" "$label" ""
 
     local bar="" i st
     for ((i=0; i<WIDTH; i++)); do
