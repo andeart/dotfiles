@@ -51,7 +51,7 @@ echo ''
 
 # Remind user to set up .local files before symlinking begins
 info "Before continuing, ensure the following .local files exist and are up to date:"
-find -H "$REPO_ROOT" -maxdepth 3 -name '*.local.symlink.example' -not -path '*/.git/*' | while read -r example; do
+find -H "$REPO_ROOT" -maxdepth 3 -name '*.local*.example' -not -path '*/.git/*' | while read -r example; do
     local_file="${example%.example}"
     relative="${local_file#$REPO_ROOT/}"
     printf "    %s\n" "$relative"
