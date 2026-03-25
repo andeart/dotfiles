@@ -74,7 +74,7 @@ link_file() {
         read -rp "File exists: $dst (b)ackup, (s)kip, (o)verwrite? " action
         case "$action" in
             o) rm -rf "$dst" ;;
-            b) mv "$dst" "${dst}.backup"; success "backed up $dst" ;;
+            b) mv "$dst" "${dst}.backup.$(date +%Y%m%d%H%M%S)"; success "backed up $dst" ;;
             s) success "skipped $dst"; return ;;
         esac
     fi
