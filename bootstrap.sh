@@ -96,23 +96,17 @@ if is_enabled '.oh-my-zsh.zshrc'; then
     done
 fi
 
-# Source ~/.zshrc in a zsh subprocess to pick up DOTFILES_ROOT. This must happen
-# after the zshrc symlink step so that ZSH_CUSTOM resolves to the repo's
-# zsh-custom/ dir and all local files are sourced in order.
-if [ -f "$HOME/.zshrc" ]; then
-    _dotfiles_root="$(zsh -c 'source ~/.zshrc 2>/dev/null; echo "$DOTFILES_ROOT"' 2>/dev/null)"
-    [ -n "$_dotfiles_root" ] && DOTFILES_ROOT="$_dotfiles_root"
-fi
-
-# Verify DOTFILES_ROOT is available in the environment. This is required by other
+# Verify DOTFILES_ROOT is exported by the shell config. This is required by other
 # dotfiles configs (e.g. Claude settings, git hooks) that reference $DOTFILES_ROOT
 # at shell startup outside of this script's scope. If this fails, create
-# zsh/zsh-custom/02-paths.local.zsh from the .example file and set DOTFILES_ROOT.
-if [ -z "$DOTFILES_ROOT" ]; then
-    fail "DOTFILES_ROOT is not set. Create zsh/zsh-custom/02-paths.local.zsh from the .example file and export DOTFILES_ROOT before re-running."
+# zsh/zsh-custom/02-paths.local.zsh from the .example file and export DOTFILES_ROOT.
+if [ -f "$HOME/.zshrc" ]; then
+    if ! zsh -c 'source ~/.zshrc 2>/dev/null && [ -n "$DOTFILES_ROOT" ]' 2>/dev/null; then
+        fail "DOTFILES_ROOT is not set. Create zsh/zsh-custom/02-paths.local.zsh from the .example file and export DOTFILES_ROOT before re-running."
+    fi
 fi
 
-# From here on, use DOTFILES_ROOT as the canonical name (repo root)
+# Use the repo root as the canonical DOTFILES_ROOT for this script.
 DOTFILES_ROOT="$REPO_ROOT"
 
 # --- git ---
