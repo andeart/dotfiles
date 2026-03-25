@@ -1,2 +1,2 @@
 # Add machine-specific aliases here...
-alias ha-code='ssh username@ha_host:1234 && code config.code-workspace'
+alias ha-code='ssh -p 1234 username@ha_host && code config.code-workspace'
