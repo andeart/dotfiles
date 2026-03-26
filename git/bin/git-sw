@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Interactive branch switcher with gum.
+# Usage: git sw [branch-name]
+set -euo pipefail
+
+BOLD=$'\033[1m'
+CYAN=$'\033[1;36m'
+BLUE=$'\033[1;34m'
+MAGENTA=$'\033[1;35m'
+RED=$'\033[1;31m'
+INVERT=$'\033[7m'
+DIM=$'\033[2m'
+RESET=$'\033[0m'
+
+# ─── direct switch ────────────────────────────────────────────────────────────
+if [[ -n "${1:-}" ]]; then
+  echo "Switching to ${CYAN}$1${RESET}"
+  git switch "$1"
+  exit 0
+fi
+
+# ─── build branch list ───────────────────────────────────────────────────────
+current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo "")
+
+i=0
+branches=()
+display_lines=()
+
+while IFS=$'\t' read -r branch author; do
+  [[ -z "$branch" ]] && continue
+  branches+=("$branch")
+
+  if [[ "$current_branch" == "$branch" ]]; then
+    branch_colored="${CYAN}${INVERT} ${branch} ${RESET}"
+  else
+    branch_colored="${CYAN}${branch}${RESET}"
+  fi
+
+  commit_info=$(git log -1 --pretty=format:"%cd%x09%s" --date=format-local:'%Y-%m-%d %H:%M' "$branch" --)
+  date_part="${commit_info%%	*}"
+  subject="${commit_info#*	}"
+
+  display_lines+=("${i}. ${branch_colored} ${BLUE}${date_part}${RESET} ${subject} ${MAGENTA}-${author}${RESET}")
+  ((i++))
+done < <(git for-each-ref --sort=-committerdate --format='%(refname:short)%09%(authorname)' refs/heads/)
+
+if [[ ${#branches[@]} -eq 0 ]]; then
+  echo "No local branches found."
+  exit 0
+fi
+
+if [[ ${#branches[@]} -eq 1 && "$current_branch" == "${branches[0]}" ]]; then
+  echo "Only the current branch (${CYAN}${current_branch}${RESET}) exists."
+  exit 0
+fi
+
+# ─── select ───────────────────────────────────────────────────────────────────
+echo ""
+selection=$(printf '%s\n' "${display_lines[@]}" "${BOLD}✕ ${RED}Cancel${RESET}" \
+  | gum choose --no-strip-ansi --height 20 --cursor "❯ " || true)
+
+if [[ -z "$selection" || "$selection" == *"Cancel"* ]]; then
+  echo "Cancelled."
+  exit 0
+fi
+
+selected_index="${selection%%.*}"
+
+if [[ ! "$selected_index" =~ ^[0-9]+$ ]] || [[ $selected_index -ge ${#branches[@]} ]]; then
+  echo "Invalid selection."
+  exit 1
+fi
+
+branch_to_switch="${branches[$selected_index]}"
+
+if [[ "$current_branch" == "$branch_to_switch" ]]; then
+  echo "Already on ${CYAN}${branch_to_switch}${RESET}."
+  exit 0
+fi
+
+git switch "$branch_to_switch"
+echo "Switched to ${CYAN}${branch_to_switch}${RESET}."

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Open remote links (repo, commits, CI, PR/MR) in the browser.
+# Detects GitHub vs GitLab from the origin remote.
+# Usage: git lnx
+set -euo pipefail
+
+BOLD=$'\033[1m'
+CYAN=$'\033[1;36m'
+RED=$'\033[1;31m'
+DIM=$'\033[2m'
+ITALIC=$'\033[3m'
+RESET=$'\033[0m'
+
+# ─── resolve remote to HTTPS ─────────────────────────────────────────────────
+remote_url=$(git remote get-url origin 2>/dev/null)
+
+https_url=$(printf '%s' "$remote_url" | sed -E \
+  -e 's|^ssh://git@([^/]+)/|https://\1/|' \
+  -e 's|^git@([^:]+):|https://\1/|' \
+  -e 's|\.git$||')
+
+# ─── detect host ─────────────────────────────────────────────────────────────
+if [[ "$https_url" =~ github\.com ]]; then
+  host="github"
+elif [[ "$https_url" =~ gitlab ]]; then
+  host="gitlab"
+else
+  echo "Unsupported remote host: ${remote_url}" >&2
+  exit 1
+fi
+
+# ─── build URLs ──────────────────────────────────────────────────────────────
+branch=$(git branch --show-current)
+
+if [[ "$host" == "github" ]]; then
+  commits_url="${https_url}/commits/${branch}"
+  ci_url="${https_url}/actions?query=branch%3A${branch}"
+  pr_url="${https_url}/compare/${branch}?expand=1"
+  pr_label="PR"
+else
+  commits_url="${https_url}/-/commits/${branch}"
+  ci_url="${https_url}/-/pipelines?ref=${branch}"
+  pr_url="${https_url}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${branch}"
+  pr_label="MR"
+fi
+
+# ─── copy branch name ────────────────────────────────────────────────────────
+printf '%s' "$branch" | pbcopy
+echo "${DIM}${ITALIC}Branch name copied to clipboard.${RESET}"
+echo ""
+
+# ─── select ───────────────────────────────────────────────────────────────────
+selection=$(printf '%s\n' \
+  "• ${CYAN}Repo${RESET}    ${DIM}${https_url}${RESET}" \
+  "• ${CYAN}Commits${RESET} ${DIM}${commits_url}${RESET}" \
+  "• ${CYAN}CI${RESET}      ${DIM}${ci_url}${RESET}" \
+  "• ${CYAN}${pr_label}${RESET}      ${DIM}${pr_url}${RESET}" \
+  "${BOLD}✕ ${RED}Cancel${RESET}" \
+  | gum choose --no-strip-ansi --height 20 --cursor "❯ " --no-show-help || true)
+
+if [[ -z "$selection" || "$selection" == *"Cancel"* ]]; then
+  echo "Cancelled."
+  exit 0
+fi
+
+# ─── open ─────────────────────────────────────────────────────────────────────
+case "$selection" in
+  *Repo*)    open "$https_url";    echo "Opened ${CYAN}Repo${RESET}."    ;;
+  *Commits*) open "$commits_url";  echo "Opened ${CYAN}Commits${RESET}." ;;
+  *CI*)      open "$ci_url";       echo "Opened ${CYAN}CI${RESET}."      ;;
+  *${pr_label}*)
+             open "$pr_url";       echo "Opened ${CYAN}${pr_label}${RESET}."     ;;
+esac

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Show the latest commit for each git repo in the current directory.
+# Usage: git sup [filter]
+set -euo pipefail
+
+BOLD=$'\033[1m'
+MAGENTA=$'\033[1;35m'
+RESET=$'\033[0m'
+
+filter="${1:-}"
+
+for dir in ./*${filter}*/; do
+  [[ ! -d "$dir" ]] && continue
+  (
+    cd "$dir" || exit
+    if git rev-parse --is-inside-work-tree &>/dev/null; then
+      dirname=$(basename "$PWD")
+      log=$(git log -1 --color \
+        --pretty=format:'%C(bold blue)%cd%Creset%C(auto)%d%Creset %C(bold magenta)-%an%Creset' \
+        --date=format-local:'%Y-%m-%d %H:%M' \
+        --abbrev-commit)
+      echo "${MAGENTA}• ${dirname}:${RESET}"
+      echo "  ${log}"
+    fi
+  )
+done
