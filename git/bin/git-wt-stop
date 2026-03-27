@@ -39,6 +39,15 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
   exit 1
 fi
 
+# ─── resolve default branch ─────────────────────────────────────────────────
+if git rev-parse --verify main &>/dev/null; then
+  base_branch="main"
+elif git rev-parse --verify master &>/dev/null; then
+  base_branch="master"
+else
+  base_branch=""
+fi
+
 # ─── must be run from the main working tree ────────────────────────────────────
 current_dir="$(pwd -P)"
 first_wt=true
@@ -141,15 +150,46 @@ if [[ -n "$dirty" ]]; then
 fi
 
 # ─── safety gate: unpushed commits ────────────────────────────────────────────
+has_unpushed=false
+no_upstream=false
+
 if ! unpushed="$(git -C "$worktree_path" log '@{upstream}..' --oneline 2>/dev/null)"; then
-  echo "error: '$branch_name' has no upstream set. Push the branch first, then re-run." >&2
-  exit 1
+  no_upstream=true
+  has_unpushed=true
+elif [[ -n "$unpushed" ]]; then
+  has_unpushed=true
 fi
-if [[ -n "$unpushed" ]]; then
-  echo "error: '$branch_name' has unpushed commits:" >&2
-  echo "$unpushed" >&2
-  printf "\nPush your work, then re-run.\n" >&2
-  exit 1
+
+if [[ "$has_unpushed" == true ]]; then
+  if [[ "$no_upstream" == true ]]; then
+    echo "${BOLD}${branch_name}${RESET} has no upstream branch."
+    local_commits="$(git -C "$worktree_path" log --oneline "$base_branch.." 2>/dev/null || true)"
+    if [[ -n "$local_commits" ]]; then
+      echo "${DIM}Local commits:${RESET}"
+      echo "$local_commits"
+    fi
+  else
+    echo "${BOLD}${branch_name}${RESET} has unpushed commits:"
+    echo "$unpushed"
+  fi
+
+  echo ""
+  choice=$(gum choose --cursor "❯ " \
+    "Push and continue" \
+    "Continue without pushing (local commits will be lost)" \
+    "Cancel" || true)
+
+  case "$choice" in
+    "Push and continue")
+      git -C "$worktree_path" push -u origin "$branch_name"
+      ;;
+    "Continue without pushing"*)
+      ;;
+    *)
+      echo "Cancelled."
+      exit 0
+      ;;
+  esac
 fi
 
 # ─── verify worktree directory is accessible ──────────────────────────────────
