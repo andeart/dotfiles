@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Create a new git worktree with an auto-generated or named branch.
-# Usage: git ws-start [branch-name] [--base <branch>] [--dir <path>]
+# Usage: git wt-start [branch-name] [--base <branch>] [--dir <path>]
 set -euo pipefail
 
 # ─── word lists ───────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ base_branch=""
 custom_dir=""
 
 usage() {
-  echo "usage: git ws-start [branch-name] [--base <branch>] [--dir <path>]" >&2
+  echo "usage: git wt-start [branch-name] [--base <branch>] [--dir <path>]" >&2
 }
 
 while [[ $# -gt 0 ]]; do

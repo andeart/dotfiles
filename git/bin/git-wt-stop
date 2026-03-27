@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tear down a git worktree from the main working tree, with safety checks.
-# Usage: git ws-stop [branch-name] [--pr]
+# Usage: git wt-stop [branch-name] [--pr]
 #   If no branch name is given, presents an interactive picker.
 set -euo pipefail
 
@@ -18,7 +18,7 @@ create_pr=false
 branch_name=""
 
 usage() {
-  echo "usage: git ws-stop [branch-name] [--pr]" >&2
+  echo "usage: git wt-stop [branch-name] [--pr]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -49,7 +49,7 @@ while IFS= read -r line; do
     if [[ "$first_wt" == true ]]; then
       first_wt=false
     elif [[ "$current_dir" == "$wt_path" || "$current_dir" == "$wt_path/"* ]]; then
-      echo "error: git ws-stop must be run from the main working tree, not from inside a worktree." >&2
+      echo "error: git wt-stop must be run from the main working tree, not from inside a worktree." >&2
       exit 1
     fi
   fi
