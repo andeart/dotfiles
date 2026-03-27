@@ -66,7 +66,6 @@
     "window.zoomLevel": 1.5,
     "workbench.activityBar.compact": true,
     "workbench.activityBar.location": "top",
-    "workbench.colorTheme": "GitHub Dark Default",
     "workbench.editor.limit.value": 100,
     "workbench.editor.showTabs": "none",
     "workbench.iconTheme": "symbols"
