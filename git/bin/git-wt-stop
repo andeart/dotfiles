@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 # Tear down a git worktree from the main working tree, with safety checks.
-# Usage: git ws-stop <branch-name> [--pr]
+# Usage: git wt-stop [branch-name] [--pr]
+#   If no branch name is given, presents an interactive picker.
 set -euo pipefail
+
+BOLD=$'\033[1m'
+CYAN=$'\033[1;36m'
+BLUE=$'\033[1;34m'
+MAGENTA=$'\033[1;35m'
+RED=$'\033[1;31m'
+DIM=$'\033[2m'
+ITALIC=$'\033[3m'
+RESET=$'\033[0m'
 
 # ─── argument parsing ──────────────────────────────────────────────────────────
 create_pr=false
 branch_name=""
 
 usage() {
-  echo "usage: git ws-stop <branch-name> [--pr]" >&2
+  echo "usage: git wt-stop [branch-name] [--pr]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -23,18 +33,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$branch_name" ]]; then
-  echo "error: branch name required." >&2; usage; exit 1
-fi
-
 # ─── git repo check ────────────────────────────────────────────────────────────
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
   echo "error: not inside a git repository." >&2
   exit 1
 fi
 
+# ─── resolve default branch ─────────────────────────────────────────────────
+if git rev-parse --verify main &>/dev/null; then
+  base_branch="main"
+elif git rev-parse --verify master &>/dev/null; then
+  base_branch="master"
+else
+  base_branch=""
+fi
+
 # ─── must be run from the main working tree ────────────────────────────────────
-# Check if current dir is inside any non-primary worktree.
 current_dir="$(pwd -P)"
 first_wt=true
 while IFS= read -r line; do
@@ -44,11 +58,70 @@ while IFS= read -r line; do
     if [[ "$first_wt" == true ]]; then
       first_wt=false
     elif [[ "$current_dir" == "$wt_path" || "$current_dir" == "$wt_path/"* ]]; then
-      echo "error: git ws-stop must be run from the main working tree, not from inside a worktree." >&2
+      echo "error: git wt-stop must be run from the main working tree, not from inside a worktree." >&2
       exit 1
     fi
   fi
 done < <(git worktree list --porcelain)
+
+# ─── interactive selection when no branch given ────────────────────────────────
+if [[ -z "$branch_name" ]]; then
+  i=0
+  branches=()
+  wt_paths=()
+  display_lines=()
+
+  first_wt=true
+  current_wt=""
+  current_branch_ref=""
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^worktree\ (.+)$ ]]; then
+      current_wt="${BASH_REMATCH[1]}"
+      current_branch_ref=""
+    elif [[ "$line" =~ ^branch\ refs/heads/(.+)$ ]]; then
+      current_branch_ref="${BASH_REMATCH[1]}"
+    elif [[ -z "$line" ]]; then
+      if [[ "$first_wt" == true ]]; then
+        first_wt=false
+      elif [[ -n "$current_branch_ref" ]]; then
+        branches+=("$current_branch_ref")
+        wt_paths+=("$current_wt")
+
+        commit_info=$(git log -1 --pretty=format:"%cd%x09%s" --date=format-local:'%Y-%m-%d %H:%M' "$current_branch_ref" -- 2>/dev/null || echo "")
+        date_part="${commit_info%%	*}"
+        subject="${commit_info#*	}"
+
+        display_lines+=("${i}. ${CYAN}${current_branch_ref}${RESET} ${BLUE}${date_part}${RESET} ${subject} ${DIM}${current_wt}${RESET}")
+        ((i++))
+      fi
+      current_wt=""
+      current_branch_ref=""
+    fi
+  done < <(git worktree list --porcelain; echo "")
+
+  if [[ ${#branches[@]} -eq 0 ]]; then
+    echo "No worktrees to remove."
+    exit 0
+  fi
+
+  selection=$(printf '%s\n' "${display_lines[@]}" \
+    "${BOLD}✕ ${RED}Cancel${RESET}" \
+    | gum choose --no-strip-ansi --height 20 --cursor "❯ " || true)
+
+  if [[ -z "$selection" || "$selection" == *"Cancel"* ]]; then
+    echo "Cancelled."
+    exit 0
+  fi
+
+  selected_index="${selection%%.*}"
+
+  if [[ ! "$selected_index" =~ ^[0-9]+$ ]] || [[ $selected_index -ge ${#branches[@]} ]]; then
+    echo "Invalid selection."
+    exit 1
+  fi
+
+  branch_name="${branches[$selected_index]}"
+fi
 
 # ─── find the worktree for the given branch ────────────────────────────────────
 worktree_path=""
@@ -77,15 +150,46 @@ if [[ -n "$dirty" ]]; then
 fi
 
 # ─── safety gate: unpushed commits ────────────────────────────────────────────
+has_unpushed=false
+no_upstream=false
+
 if ! unpushed="$(git -C "$worktree_path" log '@{upstream}..' --oneline 2>/dev/null)"; then
-  echo "error: '$branch_name' has no upstream set. Push the branch first, then re-run." >&2
-  exit 1
+  no_upstream=true
+  has_unpushed=true
+elif [[ -n "$unpushed" ]]; then
+  has_unpushed=true
 fi
-if [[ -n "$unpushed" ]]; then
-  echo "error: '$branch_name' has unpushed commits:" >&2
-  echo "$unpushed" >&2
-  printf "\nPush your work, then re-run.\n" >&2
-  exit 1
+
+if [[ "$has_unpushed" == true ]]; then
+  if [[ "$no_upstream" == true ]]; then
+    echo "${BOLD}${branch_name}${RESET} has no upstream branch."
+    local_commits="$(git -C "$worktree_path" log --oneline "$base_branch.." 2>/dev/null || true)"
+    if [[ -n "$local_commits" ]]; then
+      echo "${DIM}Local commits:${RESET}"
+      echo "$local_commits"
+    fi
+  else
+    echo "${BOLD}${branch_name}${RESET} has unpushed commits:"
+    echo "$unpushed"
+  fi
+
+  echo ""
+  choice=$(gum choose --cursor "❯ " \
+    "Push and continue" \
+    "Continue without pushing (local commits will be lost)" \
+    "Cancel" || true)
+
+  case "$choice" in
+    "Push and continue")
+      git -C "$worktree_path" push -u origin "$branch_name"
+      ;;
+    "Continue without pushing"*)
+      ;;
+    *)
+      echo "Cancelled."
+      exit 0
+      ;;
+  esac
 fi
 
 # ─── verify worktree directory is accessible ──────────────────────────────────
@@ -108,11 +212,17 @@ fi
 git worktree remove "$worktree_path"
 
 if ! git branch -d "$branch_name" 2>/dev/null; then
-  echo "error: could not delete branch '$branch_name' - it may have unmerged changes." >&2
-  printf "       To force-delete it: git branch -D %s\n" "$branch_name" >&2
-  exit 1
+  if gum confirm "Not fully merged. Force delete ${CYAN}${branch_name}${RESET}?"; then
+    git branch -D "$branch_name"
+    echo "Force deleted branch ${CYAN}${branch_name}${RESET}."
+  else
+    echo "Worktree removed but branch ${CYAN}${branch_name}${RESET} kept."
+    exit 0
+  fi
 fi
 
 # ─── summary ──────────────────────────────────────────────────────────────────
 [[ -n "$pr_url" ]] && echo "PR created: $pr_url"
-echo "Worktree '$branch_name' removed. Branch deleted."
+echo "Worktree removed. Branch ${CYAN}${branch_name}${RESET} deleted."
+printf '%s' "$branch_name" | pbcopy
+echo "${DIM}${ITALIC}Branch name copied to clipboard.${RESET}"
