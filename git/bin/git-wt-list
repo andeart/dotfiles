@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# List all git worktrees (excluding the main working tree).
+# Usage: git wt-list
+set -euo pipefail
+
+CYAN=$'\033[1;36m'
+BLUE=$'\033[1;34m'
+DIM=$'\033[2m'
+RESET=$'\033[0m'
+
+if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+  echo "error: not inside a git repository." >&2
+  exit 1
+fi
+
+first_wt=true
+current_wt=""
+current_branch_ref=""
+found=false
+
+while IFS= read -r line; do
+  if [[ "$line" =~ ^worktree\ (.+)$ ]]; then
+    current_wt="${BASH_REMATCH[1]}"
+    current_branch_ref=""
+  elif [[ "$line" =~ ^branch\ refs/heads/(.+)$ ]]; then
+    current_branch_ref="${BASH_REMATCH[1]}"
+  elif [[ -z "$line" ]]; then
+    if [[ "$first_wt" == true ]]; then
+      first_wt=false
+    elif [[ -n "$current_branch_ref" ]]; then
+      found=true
+      commit_info=$(git log -1 --pretty=format:"%cd%x09%s" --date=format-local:'%Y-%m-%d %H:%M' "$current_branch_ref" -- 2>/dev/null || echo "")
+      date_part="${commit_info%%	*}"
+      subject="${commit_info#*	}"
+      echo "${CYAN}${current_branch_ref}${RESET} ${BLUE}${date_part}${RESET} ${subject} ${DIM}${current_wt}${RESET}"
+    fi
+    current_wt=""
+    current_branch_ref=""
+  fi
+done < <(git worktree list --porcelain; echo "")
+
+if [[ "$found" == false ]]; then
+  echo "No worktrees."
+fi
