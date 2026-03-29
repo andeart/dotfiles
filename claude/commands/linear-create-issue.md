@@ -10,7 +10,7 @@ description: >
   Linear MCP tools (save_issue, list_issues, etc.).
 ---
 
-# Linear Issue Conventions
+# Linear Create Issue
 
 These conventions define how issues are structured and written across all of Anurag's Linear projects.
 Follow them whenever creating or editing issues so every ticket has a consistent voice and shape.
