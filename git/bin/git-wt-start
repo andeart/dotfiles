@@ -121,6 +121,8 @@ mkdir -p "$(dirname "$worktree_path")"
 git worktree add -b "$branch_name" "$worktree_path" "$base_branch"
 
 # ─── success ──────────────────────────────────────────────────────────────────
-printf "\nWorktree '%s' is ready. Start working by running:\n\n  cd %s\n\n" \
-  "$branch_name" "$worktree_path"
+cd_cmd="cd $worktree_path"
+printf "%s" "$cd_cmd" | pbcopy
+printf "\nWorktree '%s' is ready. Start working by running:\n\n  %s\n\n(Copied to clipboard.)\n" \
+  "$branch_name" "$cd_cmd"
 
