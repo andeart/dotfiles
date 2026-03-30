@@ -16,6 +16,7 @@ brew "yq"
 
 brew "ruby"
 
+brew "gum"
 brew "zsh-autosuggestions"
 brew "zsh-syntax-highlighting"
 
