@@ -57,12 +57,14 @@ dotfiles/
 │   ├── settings.json                  → ~/Library/Application Support/Code/User/settings.json
 │   ├── keybindings.json               → ~/Library/Application Support/Code/User/keybindings.json
 │   └── extensions.txt                 # installed via `code --install-extension`
+├── agents/
+│   ├── AGENTS.md                      → ~/.agents/AGENTS.md (shared instructions)
+│   ├── agents/*                       → ~/.agents/agents/
+│   └── skills/*                       → ~/.agents/skills/
 └── claude/
-    ├── CLAUDE.md                      → ~/.claude/CLAUDE.md
+    ├── CLAUDE.md                      → ~/.claude/CLAUDE.md (imports AGENTS.md)
     ├── statusline-command.sh          → ~/.claude/statusline-command.sh
-    ├── agents/*                       → ~/.claude/agents/
-    ├── commands/*                     → ~/.claude/commands/
-    └── skills/*                       → ~/.claude/skills/
+    └── commands/*                     → ~/.claude/commands/
 ```
 
 All the `→` locations represent symlinks.
