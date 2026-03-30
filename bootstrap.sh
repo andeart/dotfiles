@@ -186,6 +186,17 @@ if is_enabled '.claude.commands'; then
     link_file "$DOTFILES_ROOT/claude/commands" "$HOME/.claude/commands"
 fi
 
+# Bridge ~/.claude/ to ~/.agents/ for tools that don't read ~/.agents/ natively
+if is_enabled '.agents.skills'; then
+    info "Bridging Claude Code skills to shared skills"
+    link_file "$HOME/.agents/skills" "$HOME/.claude/skills"
+fi
+
+if is_enabled '.agents.agents'; then
+    info "Bridging Claude Code agents to shared agents"
+    link_file "$HOME/.agents/agents" "$HOME/.claude/agents"
+fi
+
 # --- iterm2 ---
 if is_enabled '.iterm2.preferences'; then
     info "Configuring iTerm2 to load preferences from dotfiles"
