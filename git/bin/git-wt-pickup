@@ -2,7 +2,7 @@
 # Pick up unpushed commits from the current branch (e.g. main), move them to a
 # new worktree branch, push, create a PR, then clean up and reset the original
 # branch to its remote state.
-# Usage: git wt-pickup [--base <branch>] [--dir <path>]
+# Usage: git wt-pickup [--base <branch>] [--dir <path>] [--name <branch>]
 set -euo pipefail
 
 BOLD=$'\033[1m'
@@ -37,9 +37,10 @@ charset='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 # ─── argument parsing ──────────────────────────────────────────────────────────
 base_branch=""
 custom_dir=""
+custom_name=""
 
 usage() {
-  echo "usage: git wt-pickup [--base <branch>] [--dir <path>]" >&2
+  echo "usage: git wt-pickup [--base <branch>] [--dir <path>] [--name <branch>]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -50,6 +51,9 @@ while [[ $# -gt 0 ]]; do
     --dir)
       [[ $# -lt 2 ]] && { echo "error: --dir requires a value" >&2; usage; exit 1; }
       custom_dir="$2"; shift 2 ;;
+    --name)
+      [[ $# -lt 2 ]] && { echo "error: --name requires a value" >&2; usage; exit 1; }
+      custom_name="$2"; shift 2 ;;
     --*)
       echo "error: unknown option: $1" >&2; usage; exit 1 ;;
     *)
@@ -135,18 +139,22 @@ echo "${DIM}${commits}${RESET}"
 echo ""
 
 # ─── generate branch name (wt-start flow) ─────────────────────────────────────
-adj="${adjectives[$((RANDOM % ${#adjectives[@]}))]}"
-noun="${nouns[$((RANDOM % ${#nouns[@]}))]}"
-c1="${charset:$((RANDOM % 36)):1}"
-c2="${charset:$((RANDOM % 36)):1}"
-branch_name="${adj}-${noun}-${c1}${c2}"
+if [[ -n "$custom_name" ]]; then
+  branch_name="$custom_name"
+else
+  adj="${adjectives[$((RANDOM % ${#adjectives[@]}))]}"
+  noun="${nouns[$((RANDOM % ${#nouns[@]}))]}"
+  c1="${charset:$((RANDOM % 36)):1}"
+  c2="${charset:$((RANDOM % 36)):1}"
+  branch_name="${adj}-${noun}-${c1}${c2}"
 
-printf "Generated branch name: ${CYAN}%s${RESET}\nProceed? [y/n] " "$branch_name"
-read -r answer
-case "$answer" in
-  y|Y) ;;
-  *) echo "Aborted. Re-run to generate a new name."; exit 0 ;;
-esac
+  printf "Generated branch name: ${CYAN}%s${RESET}\nProceed? [y/n] " "$branch_name"
+  read -r answer
+  case "$answer" in
+    y|Y) ;;
+    *) echo "Aborted. Re-run to generate a new name."; exit 0 ;;
+  esac
+fi
 
 # ─── validate branch doesn't exist ────────────────────────────────────────────
 if git rev-parse --verify "$branch_name" &>/dev/null; then
