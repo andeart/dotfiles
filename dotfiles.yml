@@ -17,8 +17,11 @@ vscode:
 iterm2:
   preferences: true
 
-claude:
+agents:
   settings: true
   agents: true
-  commands: true
   skills: true
+
+claude:
+  settings: true
+  commands: true
