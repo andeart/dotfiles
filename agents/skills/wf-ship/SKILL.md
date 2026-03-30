@@ -92,12 +92,6 @@ git checkout <DEFAULT_BRANCH>
 git reset --hard @{upstream}
 ```
 
-Delete the local feature branch (it's been pushed, the remote copy is the source of truth):
-
-```bash
-git branch -D <branch-name>
-```
-
 ### 7. Report
 
 Display the PR URL and confirm the default branch has been reset. Copy it to the clipboard:
@@ -160,12 +154,6 @@ Switch back to the default branch:
 
 ```bash
 git checkout <DEFAULT_BRANCH>
-```
-
-Delete the local feature branch:
-
-```bash
-git branch -D <branch-name>
 ```
 
 ### 6. Report
