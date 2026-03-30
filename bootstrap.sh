@@ -152,6 +152,25 @@ if is_enabled '.vscode.extensions'; then
     fi
 fi
 
+# --- agents (tool-agnostic) ---
+if is_enabled '.agents.settings'; then
+    info "Linking shared agent settings"
+    mkdir -p "$HOME/.agents"
+    link_file "$DOTFILES_ROOT/agents/AGENTS.md" "$HOME/.agents/AGENTS.md"
+fi
+
+if is_enabled '.agents.agents'; then
+    info "Linking shared agents"
+    mkdir -p "$HOME/.agents"
+    link_file "$DOTFILES_ROOT/agents/agents" "$HOME/.agents/agents"
+fi
+
+if is_enabled '.agents.skills'; then
+    info "Linking shared skills"
+    mkdir -p "$HOME/.agents"
+    link_file "$DOTFILES_ROOT/agents/skills" "$HOME/.agents/skills"
+fi
+
 # --- claude ---
 if is_enabled '.claude.settings'; then
     info "Linking Claude Code settings"
@@ -162,19 +181,9 @@ if is_enabled '.claude.settings'; then
     done
 fi
 
-if is_enabled '.claude.agents'; then
-    info "Linking Claude Code agents"
-    link_file "$DOTFILES_ROOT/claude/agents" "$HOME/.claude/agents"
-fi
-
 if is_enabled '.claude.commands'; then
     info "Linking Claude Code commands"
     link_file "$DOTFILES_ROOT/claude/commands" "$HOME/.claude/commands"
-fi
-
-if is_enabled '.claude.skills'; then
-    info "Linking Claude Code skills"
-    link_file "$DOTFILES_ROOT/claude/skills" "$HOME/.claude/skills"
 fi
 
 # --- iterm2 ---
