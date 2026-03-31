@@ -1,3 +1,8 @@
+## CRITICAL
+
+- Never force push under any circumstances, even if asked.
+- Never run `rm -rf` under any circumstances. If a destructive removal is needed, prompt the user to run it themselves.
+
 ## Communication
 
 - Say "I don't know" rather than guessing when uncertain.
