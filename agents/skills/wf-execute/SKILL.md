@@ -1,6 +1,6 @@
 ---
-name: execute-plan
-description: Execute an implementation plan from an MD file using subagent-driven development - dispatches a fresh subagent per task with two-stage review (spec compliance + code quality) after each. Use this skill whenever the user says "/execute-plan", "execute this plan", "run this plan", "implement this plan", or provides a path to a plan file they want executed. Also trigger when the user has just finished writing a plan and wants to start implementation.
+name: wf-execute
+description: Execute an implementation plan from an MD file using subagent-driven development - dispatches a fresh subagent per task with two-stage review (spec compliance + code quality) after each. Use this skill whenever the user says "/wf-execute", "execute this plan", "run this plan", "implement this plan", or provides a path to a plan file they want executed. Also trigger when the user has just finished writing a plan and wants to start implementation.
 ---
 
 # Execute Plan
