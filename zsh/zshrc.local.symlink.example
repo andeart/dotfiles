@@ -5,3 +5,8 @@
     HL_CONTENT_SOURCE[USER]=''
     HL_CONTENT_SOURCE[HOST]=''
 }
+
+# Allows me to set the current path with the absolute part of "Users/..." abbreviated to ~, as a user variable in iTerm2, which I can then use in my prompt
+iterm2_print_user_vars() {
+    iterm2_set_user_var shortPath "${PWD/#$HOME/~}"
+}
