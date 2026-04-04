@@ -1,3 +1,6 @@
+# Rust
+. "$HOME/.cargo/env"
+
 # ---- PATH ----
 export PATH="${DOTFILES_ROOT}/bin:${PATH}"
 export PATH="${DOTFILES_ROOT}/git/bin:${PATH}"
