@@ -5,3 +5,5 @@ export CPPFLAGS="-I${BREW_PREFIX}/opt/ruby/include"
 export PAGER='less'
 export LESS='-R'
 export GIT_PAGER=""
+
+export CLAUDE_CODE_NO_FLICKER=1
