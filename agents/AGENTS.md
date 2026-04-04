@@ -31,6 +31,14 @@
     - `Remove deprecated API calls`
     - `Refactor settings page layout`
 
+## GitHub Issues & PRs
+
+- Write issue and PR descriptions in a human, personable voice. First-person observations over passive/abstract phrasing ("I traced this back to..." not "The root cause was identified as...").
+- Lead with your perspective or lived experience before getting into rationale. Share a take, then support it.
+- Keep technical detail rigorous and well-structured - the tone is friendly, not the standards.
+- Avoid formal/corporate phrasing like "undermines the contract" or "addresses this gracefully" - prefer plain language like "so users end up hunting for files they shouldn't have to know about" or "should be enough to cover that."
+- Nothing overly jovial or silly. The goal is to sound like a thoughtful contributor talking to maintainers, not a spec generator.
+
 ## Tool Usage
 
 - Never truncate output from linters, test runners, or compilers. Errors and summaries appear at the end - using `head` hides them. If output is long, use `tail` to see the summary.
