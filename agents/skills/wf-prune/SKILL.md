@@ -22,23 +22,34 @@ Do not proceed further.
 ## Step 1: Pull latest
 
 ```bash
-git fetch origin
+git fetch --prune origin
 git pull --ff-only origin <DEFAULT>
 ```
 
-If the pull fails (e.g. diverged history), stop and tell the user. Do not force anything.
+Use `--prune` so stale remote tracking refs get cleaned up. If the pull fails (e.g. diverged history), stop and tell the user. Do not force anything.
 
 ## Step 2: Find merged branches
 
-List local branches whose commits have all been incorporated into `<DEFAULT>`:
+A branch counts as "merged" if **either** of these is true:
 
+1. **Git ancestry** - `git branch --merged <DEFAULT>` lists it (works for true merge commits)
+2. **GitHub PR** - `gh pr list --head <branch-name> --state merged` returns a result (works for squash and rebase merges)
+
+First, get all local branches except `<DEFAULT>` (and `master`/`main` if the other exists). Then check each one against both criteria. A branch only needs to satisfy one to be considered merged.
+
+For criterion 1:
 ```bash
 git branch --merged <DEFAULT>
 ```
 
-Filter out `<DEFAULT>` itself (and `master`/`main` if the other exists). The remaining branches are candidates for cleanup.
+For any branches NOT caught by criterion 1, check criterion 2:
+```bash
+gh pr list --head <branch-name> --state merged --json number --jq 'length'
+```
 
-If none are found, tell the user everything is clean and stop.
+If neither criterion matches a branch, it is not merged - exclude it.
+
+If no merged branches are found, tell the user everything is clean and stop.
 
 ## Step 3: Gather PR and remote info
 
@@ -70,32 +81,27 @@ Present everything in a single consolidated list. Each line should show the bran
 Merged branches:
 - feature-xyz - PR #42: "Add xyz support" (https://github.com/...) - remote deleted
 - fix-abc - PR #18: "Fix abc bug" (https://github.com/...) - remote exists (in sync)
-- quick-patch - no obvious PR found - remote exists (1 commit ahead of local)
+- quick-patch - merged via git ancestry, no PR found - remote deleted
 ```
 
 Do NOT suggest deleting remote branches. That's not this skill's job.
 
 ## Step 5: Offer to delete
 
-Separate the branches into two groups:
+All branches from Step 2 are confirmed merged (via git ancestry or a merged GitHub PR). Present them all and ask the user for confirmation:
 
-1. **Safe to delete** - merged into `<DEFAULT>` AND remote branch is gone (or never existed)
-2. **Remote still exists** - merged but remote counterpart is still present
-
-If there are branches in group 2, mention them but explain you won't offer to delete those since their remote counterparts still exist - the user should clean those up through GitHub (or the remote) first.
-
-For group 1 (if any), ask the user:
-
-> These branches are merged and their remote counterparts are gone. Ready to delete them locally?
+> These branches are merged. Ready to delete them locally?
 > - branch-a
 > - branch-b
+
+Also note their remote status from Step 3 so the user has full context, but remote status does not change whether a branch is eligible - the merge evidence is what matters.
 
 Wait for explicit confirmation. If the user confirms, delete each one:
 
 ```bash
-git branch -d <branch-name>
+git branch -D <branch-name>
 ```
 
-Use `-d` (lowercase), not `-D`. Since these branches are confirmed merged, `-d` will succeed. If it somehow fails for a branch, report the error and continue with the rest.
+Use `-D` (uppercase) because squash-merged and rebase-merged branches won't be recognized as merged by git's `-d` check, even though we've independently confirmed they are merged.
 
 After deletion, confirm what was removed.
