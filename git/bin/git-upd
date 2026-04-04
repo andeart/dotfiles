@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Update the current feature branch from the default branch.
+# Stashes uncommitted work, pulls the latest default branch, merges it into the
+# current branch, then restores the stash.
+# Usage: git upd
+set -euo pipefail
+
+BOLD=$'\033[1m'
+CYAN=$'\033[1;36m'
+RED=$'\033[1;31m'
+DIM=$'\033[2m'
+RESET=$'\033[0m'
+
+# ─── prerequisites ────────────────────────────────────────────────────────────
+if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+  echo "${RED}error:${RESET} not inside a git repository." >&2
+  exit 1
+fi
+
+# ─── resolve default branch ──────────────────────────────────────────────────
+default_branch="$(git remote show origin 2>/dev/null | grep 'HEAD branch' | awk '{print $NF}')"
+
+if [[ -z "$default_branch" ]]; then
+  if git rev-parse --verify main &>/dev/null; then
+    default_branch="main"
+  elif git rev-parse --verify master &>/dev/null; then
+    default_branch="master"
+  else
+    echo "${RED}error:${RESET} could not determine the default branch." >&2
+    exit 1
+  fi
+fi
+
+# ─── verify we're on a feature branch ────────────────────────────────────────
+current_branch="$(git symbolic-ref --short HEAD)"
+
+if [[ "$current_branch" == "$default_branch" ]]; then
+  echo "${RED}error:${RESET} already on ${CYAN}${default_branch}${RESET}. Nothing to update from." >&2
+  exit 1
+fi
+
+# ─── stash uncommitted changes ───────────────────────────────────────────────
+stashed=false
+if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+  echo "Stashing uncommitted changes..."
+  git stash push -u -m "git-upd: auto-stash on $(date +%Y-%m-%d_%H:%M:%S)"
+  stashed=true
+fi
+
+# ─── helper: restore state on failure ────────────────────────────────────────
+restore_and_bail() {
+  local msg="$1"
+  # Make sure we're back on the original branch
+  if [[ "$(git symbolic-ref --short HEAD)" != "$current_branch" ]]; then
+    git checkout "$current_branch" 2>/dev/null || true
+  fi
+  if $stashed; then
+    echo "Restoring stashed changes..."
+    git stash pop
+  fi
+  echo "${RED}error:${RESET} $msg" >&2
+  exit 1
+}
+
+# ─── switch to default branch and pull ───────────────────────────────────────
+echo "Switching to ${CYAN}${default_branch}${RESET} and pulling latest..."
+git checkout "$default_branch"
+if ! git pull origin "$default_branch"; then
+  restore_and_bail "failed to pull ${default_branch} from origin."
+fi
+
+# ─── switch back and merge ───────────────────────────────────────────────────
+echo "Switching back to ${CYAN}${current_branch}${RESET}..."
+git checkout "$current_branch"
+
+echo "Merging ${CYAN}${default_branch}${RESET} into ${CYAN}${current_branch}${RESET}..."
+if ! git merge "$default_branch"; then
+  echo ""
+  echo "${RED}Merge conflicts detected.${RESET} Conflicted files:"
+  git diff --name-only --diff-filter=U
+  if $stashed; then
+    echo ""
+    echo "Your uncommitted changes are safe in the stash."
+    echo "After resolving conflicts, run ${DIM}git stash pop${RESET} to restore them."
+  fi
+  exit 1
+fi
+
+# ─── restore stash ───────────────────────────────────────────────────────────
+if $stashed; then
+  echo "Restoring stashed changes..."
+  if ! git stash pop; then
+    echo ""
+    echo "${RED}Stash conflicts.${RESET} Your changes are still in the stash."
+    echo "Run ${DIM}git stash show${RESET} to inspect, ${DIM}git stash pop${RESET} to retry."
+    exit 1
+  fi
+fi
+
+# ─── done ─────────────────────────────────────────────────────────────────────
+echo ""
+echo "${BOLD}Done.${RESET} ${CYAN}${current_branch}${RESET} is up to date with ${CYAN}${default_branch}${RESET}."
