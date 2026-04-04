@@ -15,6 +15,47 @@ description: >
 These conventions define how issues are structured and written across all of Anurag's Linear projects.
 Follow them whenever creating or editing issues so every ticket has a consistent voice and shape.
 
+See [examples.md](examples.md) for worked examples of each section and a full skeleton.
+
+## Repo-level defaults (.linear.yml)
+
+Before creating an issue, check for a `.linear.yml` file in the repo root. This file defines default
+field values for issues created from this repo.
+
+Supported keys:
+
+| Key | Description | Example |
+|-----|-------------|---------|
+| `project` | Linear project name | `DX` |
+| `assignee` | Linear username | `anurag.d` |
+| `state` | Initial issue state | `In Progress` |
+| `estimate` | Story point estimate | `3` |
+| `priority` | Issue priority (0-4) | `3` |
+
+When a key is present in `.linear.yml`, apply it automatically without asking. When a key is absent,
+ask the user to choose a value before creating the issue (unless the "Default Field Values" section
+below specifies a different fallback). User-provided values always override `.linear.yml` defaults.
+
+### Missing .linear.yml
+
+If no `.linear.yml` exists in the repo root, offer to create one before proceeding. Ask the user for
+confirmation first. If they accept, create the file with all supported keys commented out so they can
+uncomment and set values as needed:
+
+```yaml
+# project: 
+# assignee: 
+# state: 
+# estimate: 
+# priority: 
+```
+
+### Missing keys in existing .linear.yml
+
+After reading an existing `.linear.yml`, if any supported keys are absent, offer to append them in
+commented form. This makes it easy for the user to uncomment and set values later rather than looking
+up property names. Ask for confirmation before modifying the file.
+
 ## Issue Description Structure
 
 Every issue description uses up to three sections in this fixed order. Sections are separated by
@@ -24,20 +65,6 @@ horizontal rules (`---`). Use `###` for section headers.
 
 A single bullet point that begins with "This will..." and communicates the benefit of delivering this
 issue. The tone is outcome-oriented: describe what the user or household gains, not what the code does.
-
-```markdown
-### Impact
-
-* This will automatically secure and conserve the home when nobody is present so we can walk out without thinking about locking doors, turning off lights, or adjusting the thermostat.
-```
-
-Another valid example with a simpler structure:
-
-```markdown
-### Impact
-
-* This will enable local AI processing for simple Home Assistant commands like turning lights on and off.
-```
 
 Rules:
 - Exactly one bullet point.
@@ -50,21 +77,8 @@ Rules:
 
 ### 2. Notes (optional)
 
-Additional context, flavor, links, constraints, or open questions that help someone understand the
-issue beyond the Impact and Acceptance Criteria. Each bullet is a self-contained thought.
-
-Notes should **add information that doesn't belong in the other two sections**, such as background
-motivation, references to existing patterns, implementation hints, related links, or decisions that
-still need investigation. Notes should not restate what the acceptance criteria already cover in
-different words.
-
-```markdown
-### Notes
-
-* Presence detection should use Wi-Fi presence as the primary method for the first version.
-* A door-lock failure is a meaningful edge case that should surface as an alert rather than fail silently.
-* Inspired by a friend's setup that locks doors, turns off lights, and turns down heat on departure.
-```
+Additional context, links, constraints, or open questions that don't belong in Impact or AC.
+Each bullet is a self-contained thought.
 
 Rules:
 - Each bullet is one idea. Keep them independent so they can be reordered or removed without breaking context.
@@ -76,16 +90,6 @@ Rules:
 
 A checkbox list of specific, testable conditions that must be true for the issue to be considered done.
 Written in declarative present tense.
-
-```markdown
-### Acceptance criteria
-
-- [ ] Wi-Fi presence detection is set up for all tracked occupants.
-- [ ] An automation triggers when all tracked occupants are detected as away.
-- [ ] The automation locks all doors.
-- [ ] An alert is sent if a door lock fails to lock.
-- [ ] The behavior is tested with a simulated all-away state before relying on real presence detection.
-```
 
 Rules:
 - Each item is a **declarative present-tense statement** describing a condition or behavior (e.g. "A notification is sent..." not "Send a notification" or "We should send a notification").
@@ -105,45 +109,16 @@ Rules:
 
 ## Default Field Values
 
-When creating issues unless the user specifies otherwise:
+When creating issues unless the user specifies otherwise and no `.linear.yml` config is present:
 - **Assignee**: anurag.d
 - **Project**: Do not set. Leave blank so the issue appears in triage.
 - **Priority**: Do not set. Leave blank so the issue appears in triage.
 
 The user will specify the team, or it can be inferred from context (e.g. the project being discussed). If the team cannot be confidently inferred, ask the user.
 
-Do not set labels, cycles, or estimates unless the user explicitly provides them. Leave them blank so the issue appears in triage.
+Do not set labels, cycles, or estimates unless the user explicitly provides them or they come from
+`.linear.yml`. Leave them blank so the issue appears in triage.
 
 ## Blocking Relations
 
-When the user mentions blockers or dependencies, set them using the `blockedBy` or `blocks` fields.
-Only add blocking relations that the user explicitly requests or that are directly referenced in the
-conversation. Do not infer blockers from unrelated issues.
-
-## Formatting Reference
-
-The full Markdown skeleton for a well-formed issue:
-
-```markdown
-### Impact
-
-* This will [outcome and benefit].
-
----
-
-### Notes
-
-* [Context, constraint, or implementation hint.]
-* [Another independent thought.]
-
----
-
-### Acceptance criteria
-
-- [ ] [Declarative present-tense condition.]
-- [ ] [Another condition.]
-- [ ] The behavior is tested with [test scenario].
-```
-
-If there are no Notes, omit that section and its surrounding `---` dividers entirely. The result
-would be Impact, then `---`, then Acceptance criteria.
+Only set `blockedBy` or `blocks` when the user explicitly requests it or references a dependency in the conversation.
