@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-args=()
-[ -n "$1" ] && args+=("-$1")
+count="${1:-5}"
+args=("-$count")
 git log --color --graph \
   --pretty=format:'%C(bold black)%h%Creset %C(bold blue)%cd%Creset%C(auto)%d%Creset %s %C(bold magenta)-%an%Creset' \
   --date=format-local:'%Y-%m-%d %H:%M' \
