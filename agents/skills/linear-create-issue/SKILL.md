@@ -26,6 +26,7 @@ Supported keys:
 
 | Key | Description | Example |
 |-----|-------------|---------|
+| `mode` | `mcp` (default) or `manual` | `manual` |
 | `project` | Linear project name | `DX` |
 | `assignee` | Linear username | `anurag.d` |
 | `state` | Initial issue state | `In Progress` |
@@ -43,6 +44,7 @@ confirmation first. If they accept, create the file with all supported keys comm
 uncomment and set values as needed:
 
 ```yaml
+# mode: mcp
 # project: 
 # assignee: 
 # state: 
@@ -55,6 +57,39 @@ uncomment and set values as needed:
 After reading an existing `.linear.yml`, if any supported keys are absent, offer to append them in
 commented form. This makes it easy for the user to uncomment and set values later rather than looking
 up property names. Ask for confirmation before modifying the file.
+
+## Mode
+
+The `mode` key in `.linear.yml` (or a user-provided override) controls how the issue is delivered.
+If no mode is configured, default to `mcp`.
+
+| Mode | Behavior |
+|------|----------|
+| `mcp` | Create the issue directly via Linear MCP tools (`save_issue`, etc.). This is the current default. |
+| `manual` | Do not call Linear MCP tools. Instead, output the fully composed issue (title, description, and field values) as Markdown in the response so the user can copy-paste it into Linear. |
+
+### Manual mode output format
+
+When `mode` is `manual`, present the issue in this format:
+
+```
+**Title:** <issue title>
+
+**Fields**
+- Team: <team>
+- Assignee: <assignee>
+- Project: <project, or "none">
+- Priority: <priority, or "none">
+- Estimate: <estimate, or "none">
+- State: <state, or "none">
+
+**Description**
+
+<full issue description markdown, exactly as it would be sent to Linear>
+```
+
+All other rules in this skill (title conventions, section structure, acceptance criteria style, etc.)
+apply identically regardless of mode.
 
 ## Issue Description Structure
 
