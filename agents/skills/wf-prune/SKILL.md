@@ -79,8 +79,8 @@ Present everything in a single consolidated list. Each line should show the bran
 
 ```
 Merged branches:
-- feature-xyz - PR #42: "Add xyz support" (https://github.com/...) - remote deleted
-- fix-abc - PR #18: "Fix abc bug" (https://github.com/...) - remote exists (in sync)
+- feature-xyz - [PR #42](https://github.com/...): "Add xyz support" - remote deleted
+- fix-abc - [PR #18](https://github.com/...): "Fix abc bug" - remote exists (in sync)
 - quick-patch - merged via git ancestry, no PR found - remote deleted
 ```
 
