@@ -70,23 +70,29 @@ If no mode is configured, default to `mcp`.
 
 ### Manual mode output format
 
-When `mode` is `manual`, present the issue in this format:
+When `mode` is `manual`, present the title and fields as rendered markdown, then wrap the entire
+description in a fenced code block so the user can copy-paste it into Linear with markdown syntax
+(especially `- [ ]` checkboxes) preserved exactly.
 
-```
-**Title:** <issue title>
+The title and fields use normal markdown (rendered inline). The description is wrapped in a triple-backtick
+code block so that all markdown syntax is displayed literally and can be copied verbatim into Linear.
 
-**Fields**
-- Team: <team>
-- Assignee: <assignee>
-- Project: <project, or "none">
-- Priority: <priority, or "none">
-- Estimate: <estimate, or "none">
-- State: <state, or "none">
+Example structure:
 
-**Description**
+    **Title:** <issue title>
 
-<full issue description markdown, exactly as it would be sent to Linear>
-```
+    **Fields**
+    - Assignee: <assignee>
+    - Project: <project, or "none">
+    - Priority: <priority, or "none">
+    - Estimate: <estimate, or "none">
+    - State: <state, or "none">
+
+    **Description**
+
+    ```
+    <full issue description markdown, exactly as it would be sent to Linear>
+    ```
 
 All other rules in this skill (title conventions, section structure, acceptance criteria style, etc.)
 apply identically regardless of mode.
@@ -123,8 +129,9 @@ Rules:
 
 ### 3. Acceptance criteria (required)
 
-A checkbox list of specific, testable conditions that must be true for the issue to be considered done.
-Written in declarative present tense.
+A checkbox list (`- [ ]` per item) of specific, testable conditions that must be true for the issue to
+be considered done. Written in declarative present tense. Never use plain bullet points (`-` or `*`)
+for acceptance criteria - always use checkboxes.
 
 Rules:
 - Each item is a **declarative present-tense statement** describing a condition or behavior (e.g. "A notification is sent..." not "Send a notification" or "We should send a notification").
@@ -148,8 +155,6 @@ When creating issues unless the user specifies otherwise and no `.linear.yml` co
 - **Assignee**: anurag.d
 - **Project**: Do not set. Leave blank so the issue appears in triage.
 - **Priority**: Do not set. Leave blank so the issue appears in triage.
-
-The user will specify the team, or it can be inferred from context (e.g. the project being discussed). If the team cannot be confidently inferred, ask the user.
 
 Do not set labels, cycles, or estimates unless the user explicitly provides them or they come from
 `.linear.yml`. Leave them blank so the issue appears in triage.
