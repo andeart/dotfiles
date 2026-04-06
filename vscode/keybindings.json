@@ -166,5 +166,10 @@
         "key": "alt+up",
         "command": "editor.action.marker.prevInFiles",
         "when": "editorFocus"
+    },
+    {
+        "key": "ctrl+shift+d",
+        "command": "workbench.action.debug.restart",
+        "when": "inDebugMode"
     }
 ]
