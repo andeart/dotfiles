@@ -63,6 +63,7 @@ dotfiles/
 │   └── skills/*                       → ~/.agents/skills/
 └── claude/
     ├── CLAUDE.md                      → ~/.claude/CLAUDE.md (imports AGENTS.md)
+    ├── settings.json                  → ~/.claude/settings.json
     ├── statusline-command.sh          → ~/.claude/statusline-command.sh
     └── commands/*                     → ~/.claude/commands/
 ```

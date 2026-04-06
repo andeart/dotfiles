@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "defaultMode": "default"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.json) jq . \"$f\" > /dev/null ;; *.yml|*.yaml) yamllint \"$f\" ;; *.md) markdownlint-cli2 --config ~/.markdownlint.yml \"$f\" ;; esac; }"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": []
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash $HOME/.claude/statusline-command.sh"
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true
+  },
+  "effortLevel": "medium"
+}
