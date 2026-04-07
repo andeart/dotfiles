@@ -2,6 +2,7 @@
 
 - Never force push under any circumstances, even if asked.
 - Never run `rm -rf` under any circumstances. If a destructive removal is needed, prompt the user to run it themselves.
+- Never merge a PR without explicitly asking the user for confirmation first.
 
 ## Communication
 
