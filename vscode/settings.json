@@ -68,7 +68,6 @@
     "markdownlint.configFile": "~/.markdownlint.yml",
     "redhat.telemetry.enabled": false,
     "references.preferredLocation": "view",
-    "security.workspace.trust.untrustedFiles": "open",
     "testing.automaticallyOpenPeekView": "failureAnywhere",
     "window.commandCenter": true,
     "window.openFoldersInNewWindow": "on",
