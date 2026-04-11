@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
-set -e
+# Switch to a remote branch, fetch, and pull.
+# Usage: git swo <branch>
+set -euo pipefail
+
+if [[ -z "${1:-}" ]]; then
+  echo "Usage: git swo <branch>" >&2
+  exit 1
+fi
+
+branch="$1"
 git fetch --all --prune
 git fetch --tags --force
-git switch "$1"
-git pull --ff-only origin
+git switch "$branch"
+git pull --ff-only origin "$branch"
 git status
