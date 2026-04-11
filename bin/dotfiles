@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DOTFILES_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+BOLD='\033[1m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+RESET='\033[0m'
+
+usage() {
+  echo "Usage: dotfiles <command>"
+  echo ""
+  echo "Commands:"
+  echo "  freeze    Refresh snapshot files (Brewfile, extensions.txt) from live system state"
+  exit 0
+}
+
+# ---------------------------------------------------------------------------
+# freeze
+# ---------------------------------------------------------------------------
+
+freeze_vscode() {
+  echo -e "${BOLD}VS Code extensions${RESET}"
+
+  if ! command -v code &>/dev/null; then
+    echo -e "  ${RED}skipped${RESET} - 'code' CLI not found"
+    return
+  fi
+
+  local ext_file="$DOTFILES_ROOT/vscode/extensions.txt"
+  local live
+  live=$(code --list-extensions | sort)
+  local committed
+  committed=$(sort "$ext_file")
+
+  if [[ "$live" == "$committed" ]]; then
+    echo -e "  ${GREEN}up to date${RESET}"
+    return
+  fi
+
+  local added removed
+  added=$(comm -23 <(echo "$live") <(echo "$committed"))
+  removed=$(comm -13 <(echo "$live") <(echo "$committed"))
+
+  if [[ -n "$added" ]]; then
+    echo -e "  ${GREEN}added:${RESET}"
+    while IFS= read -r ext; do
+      echo "    + $ext"
+    done <<< "$added"
+  fi
+
+  if [[ -n "$removed" ]]; then
+    echo -e "  ${YELLOW}removed:${RESET}"
+    while IFS= read -r ext; do
+      echo "    - $ext"
+    done <<< "$removed"
+  fi
+
+  echo "$live" > "$ext_file"
+  echo -e "  ${GREEN}updated${RESET} vscode/extensions.txt"
+}
+
+freeze_brew() {
+  echo -e "${BOLD}Homebrew packages${RESET}"
+
+  if ! command -v brew &>/dev/null; then
+    echo -e "  ${RED}skipped${RESET} - brew not found"
+    return
+  fi
+
+  local brewfile="$DOTFILES_ROOT/brew/Brewfile"
+
+  # Collect what's declared in the Brewfile (strip comments and blank lines)
+  local declared_brew declared_cask
+  declared_brew=$(grep -E '^brew ' "$brewfile" | sed 's/brew "//;s/"//' | sort)
+  declared_cask=$(grep -E '^cask ' "$brewfile" | sed 's/cask "//;s/"//' | sort)
+
+  # Collect what's actually installed (leaf packages only - no auto-installed deps)
+  local installed_brew installed_cask
+  installed_brew=$(brew leaves | sort)
+  installed_cask=$(brew list --cask 2>/dev/null | sort)
+
+  local missing_brew extra_brew missing_cask extra_cask
+  missing_brew=$(comm -23 <(echo "$declared_brew") <(echo "$installed_brew"))
+  extra_brew=$(comm -13 <(echo "$declared_brew") <(echo "$installed_brew"))
+  missing_cask=$(comm -23 <(echo "$declared_cask") <(echo "$installed_cask"))
+  extra_cask=$(comm -13 <(echo "$declared_cask") <(echo "$installed_cask"))
+
+  if [[ -z "$missing_brew" && -z "$extra_brew" && -z "$missing_cask" && -z "$extra_cask" ]]; then
+    echo -e "  ${GREEN}up to date${RESET}"
+    return
+  fi
+
+  if [[ -n "$extra_brew" ]]; then
+    echo -e "  ${GREEN}installed but not in Brewfile (brew):${RESET}"
+    while IFS= read -r pkg; do
+      echo "    + $pkg"
+    done <<< "$extra_brew"
+  fi
+
+  if [[ -n "$extra_cask" ]]; then
+    echo -e "  ${GREEN}installed but not in Brewfile (cask):${RESET}"
+    while IFS= read -r pkg; do
+      echo "    + $pkg"
+    done <<< "$extra_cask"
+  fi
+
+  if [[ -n "$missing_brew" ]]; then
+    echo -e "  ${YELLOW}in Brewfile but not installed (brew):${RESET}"
+    while IFS= read -r pkg; do
+      echo "    - $pkg"
+    done <<< "$missing_brew"
+  fi
+
+  if [[ -n "$missing_cask" ]]; then
+    echo -e "  ${YELLOW}in Brewfile but not installed (cask):${RESET}"
+    while IFS= read -r pkg; do
+      echo "    - $pkg"
+    done <<< "$missing_cask"
+  fi
+
+  echo ""
+  echo -e "  ${YELLOW}Brewfile is manually curated - edit brew/Brewfile to reconcile.${RESET}"
+}
+
+freeze() {
+  echo ""
+  freeze_vscode
+  echo ""
+  freeze_brew
+  echo ""
+}
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
+case "${1:-}" in
+  freeze)   freeze ;;
+  -h|--help|"") usage ;;
+  *)
+    echo "Unknown command: $1" >&2
+    usage
+    ;;
+esac

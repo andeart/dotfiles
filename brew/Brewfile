@@ -1,19 +1,20 @@
-brew "brotli"
-brew "lz4"
-brew "webp"
-
 brew "ffmpeg"
+brew "fswatch"
 brew "imagemagick"
+brew "tesseract"
 
+brew "gh"
 brew "git"
 brew "git-lfs"
 brew "gitleaks"
 
 brew "jq"
 brew "markdownlint-cli2"
+brew "websocat"
 brew "yamllint"
 brew "yq"
 
+brew "oven-sh/bun/bun"
 brew "ruby"
 
 brew "gum"
@@ -22,3 +23,4 @@ brew "zsh-syntax-highlighting"
 
 cask "alt-tab"
 cask "font-jetbrains-mono-nerd-font"
+cask "pika"

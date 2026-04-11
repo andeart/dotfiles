@@ -27,7 +27,7 @@ Some files have `.local` variants (with `.example` templates) for machine-specif
 dotfiles/
 ├── dotfiles.yml                       # what bootstrap.sh should set up
 ├── bootstrap.sh                       # the installer
-├── bin/*                              # global functions
+├── bin/*                              # utility scripts
 ├── brew/
 │   └── Brewfile                       # brew bundle
 ├── zsh/
