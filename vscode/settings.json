@@ -39,7 +39,6 @@
     "debug.internalConsoleOptions": "openOnSessionStart",
     "debug.toolBarLocation": "commandCenter",
     "diffEditor.ignoreTrimWhitespace": false,
-    "editor.codeActionsOnSave": {},
     "editor.guides.bracketPairs": true,
     "editor.hover.delay": 1000,
     "editor.minimap.showRegionSectionHeaders": true,
