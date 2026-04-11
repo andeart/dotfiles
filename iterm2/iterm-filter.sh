@@ -15,8 +15,8 @@ set -e
 
 MODE="${1:?Usage: iterm-filter.sh clean|smudge}"
 
-TEMP_IN=$(mktemp)
-TEMP_OUT=$(mktemp)
+TEMP_IN=$(mktemp) || exit 1
+TEMP_OUT=$(mktemp) || { rm -f "$TEMP_IN"; exit 1; }
 trap 'rm -f "$TEMP_IN" "$TEMP_OUT"' EXIT
 
 cat > "$TEMP_IN"
