@@ -81,7 +81,17 @@ git push -u origin <branch-name>
 
 Create a PR with a proper summary (see "Writing the PR" section below). Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch, do NOT reset the default branch.
 
-### 6. Report
+### 6. Clean up the default branch
+
+Reset the default branch back to the upstream point so it doesn't diverge from the remote. Since you're already on the feature branch, no checkout is needed:
+
+```bash
+git branch -f <DEFAULT_BRANCH> <upstream-hash>
+```
+
+This removes the local commit from the default branch now that it lives on the feature branch.
+
+### 7. Report
 
 Display the PR URL. You are now on the feature branch.
 
