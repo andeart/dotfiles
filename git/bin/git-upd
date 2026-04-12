@@ -56,7 +56,7 @@ restore_and_bail() {
   local msg="$1"
   # Make sure we're back on the original branch
   if [[ "$(git symbolic-ref --short HEAD)" != "$current_branch" ]]; then
-    git checkout "$current_branch" 2>/dev/null || true
+    git switch "$current_branch" 2>/dev/null || true
   fi
   if $stashed; then
     echo "Restoring stashed changes..."
@@ -68,14 +68,14 @@ restore_and_bail() {
 
 # ─── switch to default branch and pull ───────────────────────────────────────
 echo "Switching to ${CYAN}${default_branch}${RESET} and pulling latest..."
-git checkout "$default_branch"
+git switch "$default_branch"
 if ! git pull origin "$default_branch"; then
   restore_and_bail "failed to pull ${default_branch} from origin."
 fi
 
 # ─── switch back and merge ───────────────────────────────────────────────────
 echo "Switching back to ${CYAN}${current_branch}${RESET}..."
-git checkout "$current_branch"
+git switch "$current_branch"
 
 echo "Merging ${CYAN}${default_branch}${RESET} into ${CYAN}${current_branch}${RESET}..."
 if ! git merge "$default_branch"; then
