@@ -224,5 +224,3 @@ fi
 # ─── summary ──────────────────────────────────────────────────────────────────
 [[ -n "$pr_url" ]] && echo "PR created: $pr_url"
 echo "Worktree removed. Branch ${CYAN}${branch_name}${RESET} deleted."
-printf '%s' "$branch_name" | pbcopy
-echo "${DIM}${ITALIC}Branch name copied to clipboard.${RESET}"
