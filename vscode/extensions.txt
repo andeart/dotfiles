@@ -8,6 +8,7 @@ github.github-vscode-theme
 github.vscode-github-actions
 golang.go
 miguelsolorio.symbols
+monokai.theme-monokai-pro-vscode
 ms-python.debugpy
 ms-python.python
 ms-python.vscode-pylance
