@@ -13,26 +13,8 @@ DIM=$'\033[2m'
 ITALIC=$'\033[3m'
 RESET=$'\033[0m'
 
-# ─── word lists (shared with wt-start) ───────────────────────────────────────
-adjectives=(
-  bold    brave   bright  calm    clean   clear   cool    deep
-  dry     fair    fast    firm    flat    free    fresh   full
-  great   hard    high    keen    kind    lean    light   long
-  neat    new     noble   old     open    pure    quiet   raw
-  rich    safe    sharp   slim    smart   soft    still   strong
-  swift   thin    true    vast    warm    wide    wild    wise
-  young   dark    fine    late
-)
-nouns=(
-  arch    arrow   birch   blade   bluff   brook   cedar   cliff
-  cloud   coral   cove    crest   dawn    dune    ember   falcon
-  fern    field   flame   forest  gate    glade   grove   harbor
-  knoll   lake    maple   marsh   meadow  mesa    oak     pass
-  peak    pine    plain   pond    reef    ridge   river   shore
-  spark   stone   storm   tide    torch   trail   vale    willow
-  shield  frost   mist    north
-)
-charset='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+# ─── word lists ───────────────────────────────────────────────────────────────
+source "$(dirname "$0")/_wt-words.sh"
 
 # ─── argument parsing ──────────────────────────────────────────────────────────
 base_branch=""
