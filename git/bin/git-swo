@@ -9,8 +9,7 @@ if [[ -z "${1:-}" ]]; then
 fi
 
 branch="$1"
-git fetch --all --prune
-git fetch --tags --force
+git fetch --all --prune --tags --force
 git switch "$branch"
 git pull --ff-only origin "$branch"
 git status
