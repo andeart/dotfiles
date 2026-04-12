@@ -20,6 +20,7 @@ brew "ruby"
 brew "gum"
 brew "zsh-autosuggestions"
 brew "zsh-syntax-highlighting"
+brew "rtk"
 
 cask "alt-tab"
 cask "font-jetbrains-mono-nerd-font"
