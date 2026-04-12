@@ -13,8 +13,7 @@
           }
         ]
       }
-    ],
-    "PreToolUse": []
+    ]
   },
   "statusLine": {
     "type": "command",
