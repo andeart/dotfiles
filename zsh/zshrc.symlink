@@ -22,8 +22,16 @@ source "$ZSH/oh-my-zsh.sh"
 test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
 
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# Lazy-load NVM: create stub functions that switch themselves out to the real NVM on first call.
+_nvm_lazy_load() {
+  unfunction nvm node npm npx 2>/dev/null
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+}
+for cmd in nvm node npm npx; do
+  eval "${cmd}() { _nvm_lazy_load; ${cmd} \"\$@\" }"
+done
 
 source "${BREW_PREFIX}/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
 
