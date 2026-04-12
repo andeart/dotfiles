@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Git clean/smudge filter for iTerm2 plist.
 #
