@@ -94,13 +94,7 @@ git reset --hard @{upstream}
 
 ### 7. Report
 
-Display the PR URL and confirm the default branch has been reset. Copy it to the clipboard:
-
-```bash
-echo -n "$PR_URL" | pbcopy
-```
-
-(macOS only - skip this step on Linux)
+Display the PR URL and confirm the default branch has been reset.
 
 ---
 
@@ -158,13 +152,7 @@ git checkout <DEFAULT_BRANCH>
 
 ### 6. Report
 
-Display the PR URL and confirm the switch back to the default branch. Copy it to the clipboard:
-
-```bash
-echo -n "$PR_URL" | pbcopy
-```
-
-(macOS only - skip this step on Linux)
+Display the PR URL and confirm the switch back to the default branch.
 
 ---
 

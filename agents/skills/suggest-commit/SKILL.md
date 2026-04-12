@@ -5,15 +5,14 @@ description: Suggest a git commit message based on the current diff and conversa
 
 # Suggest Commit Message
 
-Generate a commit message from the current state of the working tree, copy it to the clipboard, and display it.
+Generate a commit message from the current state of the working tree and display it.
 
 ## How it works
 
 1. Read the git diff to understand what actually changed
 2. Optionally glance at the conversation for motivation/context behind the changes
 3. Draft a commit message
-4. Copy it to the clipboard via `pbcopy`
-5. Display it to the user
+4. Display it to the user
 
 ## Gathering the diff
 
@@ -45,18 +44,6 @@ Refactor authentication flow
 - Update tests to use new auth helpers
 ```
 
-## Clipboard
-
-After drafting the message, copy it to the clipboard using `pbcopy` so the user can paste it directly into a commit message editor. Pipe the exact commit message text (no markdown formatting, no backticks, no extra commentary) into `pbcopy`.
-
-Use a heredoc to preserve newlines for multi-line messages:
-
-```bash
-pbcopy <<'EOF'
-the commit message here
-EOF
-```
-
 ## Output
 
-After copying, display the commit message to the user in a code block so they can see what was copied. Keep your surrounding commentary minimal - just show the message and confirm it's in the clipboard.
+Display the commit message to the user in a code block. Keep your surrounding commentary minimal - just show the message.
