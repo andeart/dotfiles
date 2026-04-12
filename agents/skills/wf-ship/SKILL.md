@@ -81,20 +81,9 @@ git push -u origin <branch-name>
 
 Create a PR with a proper summary (see "Writing the PR" section below). Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch, do NOT reset the default branch.
 
-### 6. Clean up
+### 6. Report
 
-Only proceed here if PR creation succeeded and you have a PR URL.
-
-Switch back to the default branch and reset it to its remote state:
-
-```bash
-git checkout <DEFAULT_BRANCH>
-git reset --hard @{upstream}
-```
-
-### 7. Report
-
-Display the PR URL and confirm the default branch has been reset.
+Display the PR URL. You are now on the feature branch.
 
 ---
 
@@ -140,19 +129,9 @@ If a PR URL is returned, use that URL - do not create a new PR, skip to Step 5.
 
 Otherwise, create a PR with a proper summary (see "Writing the PR" section below). Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
 
-### 5. Clean up
+### 5. Report
 
-Only proceed here if a PR URL exists (either from an existing PR or newly created).
-
-Switch back to the default branch:
-
-```bash
-git checkout <DEFAULT_BRANCH>
-```
-
-### 6. Report
-
-Display the PR URL and confirm the switch back to the default branch.
+Display the PR URL. You remain on the feature branch.
 
 ---
 

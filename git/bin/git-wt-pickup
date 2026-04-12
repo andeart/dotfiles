@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Pick up unpushed commits from the current branch (e.g. main), move them to a
-# new branch, push, create a PR, then reset the original branch to its remote
-# state.
+# new branch, push, and create a PR.
 # Usage: git wt-pickup [--base <branch>] [--name <branch>]
 set -euo pipefail
 
@@ -91,8 +90,6 @@ if [[ -z "$commits" ]]; then
 fi
 
 commit_count="$(echo "$commits" | wc -l | tr -d ' ')"
-reset_target="$(git rev-parse '@{upstream}')"
-head_sha="$(git rev-parse HEAD)"
 
 echo "Found ${BOLD}${commit_count}${RESET} unpushed commit(s) on ${CYAN}${current_branch}${RESET}:"
 echo "${DIM}${commits}${RESET}"
@@ -122,13 +119,10 @@ if git rev-parse --verify "$branch_name" &>/dev/null; then
   exit 1
 fi
 
-# ─── create branch at current HEAD, then reset current branch ────────────────
-echo "Creating branch ${CYAN}${branch_name}${RESET}..."
-git branch "$branch_name" HEAD
-
-echo "Resetting ${CYAN}${current_branch}${RESET} to ${DIM}${reset_target:0:10}${RESET}..."
-if ! git reset --hard "$reset_target"; then
-  echo "error: failed to reset ${current_branch}. Your commits are safe on ${branch_name}." >&2
+# ─── create branch at current HEAD and switch to it ─────────────────────────
+echo "Creating branch ${CYAN}${branch_name}${RESET} and switching to it..."
+if ! git switch -c "$branch_name"; then
+  echo "error: failed to create branch ${branch_name}." >&2
   exit 1
 fi
 
@@ -147,16 +141,7 @@ if [[ -z "$pr_url" ]]; then
   exit 1
 fi
 
-# ─── clean up: delete local branch ───────────────────────────────────────────
-# The branch is pushed and has a PR - force delete is safe here.
-if ! git branch -D "$branch_name" 2>/dev/null; then
-  echo "warning: could not delete local branch '${branch_name}'." >&2
-fi
-
 # ─── summary ──────────────────────────────────────────────────────────────────
 echo ""
-echo "Done. ${BOLD}${commit_count}${RESET} commit(s) moved to ${CYAN}${branch_name}${RESET}."
+echo "Done. ${BOLD}${commit_count}${RESET} commit(s) shipped from ${CYAN}${branch_name}${RESET}."
 echo "PR created: ${pr_url}"
-echo "${CYAN}${current_branch}${RESET} has been reset to its remote state."
-printf '%s' "$pr_url" | pbcopy
-echo "${DIM}${ITALIC}PR URL copied to clipboard.${RESET}"
