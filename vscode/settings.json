@@ -15,6 +15,7 @@
         "stddev",
         "webbrowser"
     ],
+    "claudeCode.preferredLocation": "panel",
     "[dart]": {
         "editor.formatOnSave": true,
         "editor.formatOnType": true,
@@ -74,7 +75,8 @@
     "window.zoomLevel": 1.5,
     "workbench.activityBar.compact": true,
     "workbench.activityBar.location": "top",
+    "workbench.colorTheme": "Monokai Pro (Filter Spectrum)",
     "workbench.editor.limit.value": 100,
     "workbench.editor.showTabs": "none",
-    "workbench.iconTheme": "symbols"
+    "workbench.iconTheme": "Monokai Pro (Filter Spectrum) Icons"
 }
