@@ -27,7 +27,9 @@ You're on the default branch with unpushed commits that need to move to their ow
 - Verify you're inside a git repo (`git rev-parse --is-inside-work-tree`).
 - Verify `gh` is available.
 - Verify the `origin` remote is configured: `git remote get-url origin`. If this fails, stop and tell the user no remote named `origin` is configured.
-- Check for uncommitted changes with `git status --porcelain`. If there are unstaged or staged-but-uncommitted changes, use the `suggest-commit` skill to get a commit message, then immediately stage all changes and commit using that message - do NOT stop or wait for user input after suggest-commit returns, continue wf-ship without pausing.
+- Check for uncommitted changes with `git status --porcelain`. If there are unstaged or staged-but-uncommitted changes, use the `suggest-commit` skill to get a commit message, then immediately stage all changes and commit using that message.
+
+  > **IMPORTANT: After suggest-commit returns, immediately continue executing wf-ship. Do NOT pause, display the message to the user, ask for confirmation, or wait for any input. The commit message is ready to use as-is. Resume the next step of wf-ship without interruption.**
 - Verify the branch has an upstream (`git rev-parse --verify @{upstream}`).
 
 ### 2. Find unpushed commits
@@ -110,7 +112,9 @@ You're on a feature branch with work that's ready for review.
 
 ### 2. Stage and commit
 
-Check `git status --porcelain`. If there are uncommitted changes (staged or unstaged), use the `suggest-commit` skill to craft a commit message, then immediately stage all changes and commit using that message - do NOT stop or wait for user input after suggest-commit returns, continue wf-ship without pausing.
+Check `git status --porcelain`. If there are uncommitted changes (staged or unstaged), use the `suggest-commit` skill to craft a commit message, then immediately stage all changes and commit using that message.
+
+> **IMPORTANT: After suggest-commit returns, immediately continue executing wf-ship. Do NOT pause, display the message to the user, ask for confirmation, or wait for any input. The commit message is ready to use as-is. Resume the next step of wf-ship without interruption.**
 
 After committing (or if there was nothing to commit), check whether there are unpushed commits:
 
