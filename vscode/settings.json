@@ -13,6 +13,7 @@
         "nohup",
         "rgba",
         "stddev",
+        "Superellipse",
         "webbrowser"
     ],
     "claudeCode.preferredLocation": "panel",
