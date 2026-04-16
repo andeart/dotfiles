@@ -114,18 +114,28 @@ IDs for the target project (they vary by project), then `transitionJiraIssue` to
 Only look up transitions once per project (the IDs are the same for all issues in the same project),
 then apply them to each issue that needs it.
 
-### 6. Create blocking relationships
+### 6. Create issue relationships
 
-If any Linear issues have `blockedBy` or `blocks` relations to other issues that are also part of this
-migration, recreate those as Jira issue links after all issues have been created (you need the Jira keys
-to exist first).
+After all issues have been created (you need the Jira keys to exist first), recreate any relations
+between Linear issues that are both part of this migration. Linear exposes three relation types -
+map each to the corresponding Jira link type:
 
-Use `createIssueLink` with type `"Blocks"`. The directionality is:
-- `inwardIssue` = the blocker (the issue that blocks)
-- `outwardIssue` = the blocked issue (the one waiting)
+| Linear relation | Jira link type | Directionality |
+|-----------------|---------------|----------------|
+| `blocks` / `blockedBy` | Blocks | `inwardIssue` = blocker, `outwardIssue` = blocked |
+| `relatedTo` | Relates | Either direction (symmetric) |
+| `duplicateOf` | Duplicate | `inwardIssue` = duplicate, `outwardIssue` = original |
 
-So if Linear says "BYA-10 is blocked by BYA-5", and those mapped to FOSS-3 and FOSS-1 respectively,
-the link would be `inwardIssue: "FOSS-1"`, `outwardIssue: "FOSS-3"`, `type: "Blocks"`.
+Use `createIssueLink` for each relation. Examples:
+- Linear says "BYA-10 is blocked by BYA-5", mapped to FOSS-3 and FOSS-1:
+  `inwardIssue: "FOSS-1"`, `outwardIssue: "FOSS-3"`, `type: "Blocks"`
+- Linear says BYA-10 is related to BYA-12, mapped to FOSS-3 and FOSS-5:
+  `inwardIssue: "FOSS-3"`, `outwardIssue: "FOSS-5"`, `type: "Relates"`
+- Linear says BYA-10 is a duplicate of BYA-8, mapped to FOSS-3 and FOSS-2:
+  `inwardIssue: "FOSS-3"`, `outwardIssue: "FOSS-2"`, `type: "Duplicate"`
+
+Deduplicate before creating - a `relatedTo` link between A and B appears in both issues' relation
+data, but should only produce one Jira link. Track created pairs to avoid duplicates.
 
 Skip relations where one side points to an issue outside the migration set (it won't have a Jira key).
 Note any skipped relations in the report.
@@ -133,7 +143,7 @@ Note any skipped relations in the report.
 ### 7. Report results
 
 Show a summary table with columns: Linear ID, Jira key (linked), title, priority, and status.
-If any blocking relationships were created or skipped, list those too.
+If any issue relationships were created or skipped, list those too (grouped by type).
 
 ## Priority mapping
 
