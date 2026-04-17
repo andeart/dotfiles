@@ -70,6 +70,7 @@ dotfiles/
 
 All the `→` locations represent symlinks.
 
+
 ### How linking works
 
 - `*.symlink` files get linked to `$HOME` as dotfiles (so `gitconfig.symlink` becomes `~/.gitconfig`, etc). Straightforward.
