@@ -25,8 +25,12 @@ See the [Examples](#examples) section at the bottom for a worked example with al
 
 ## Repo-level defaults (.jira.yml)
 
-Before creating an issue, check for a `.jira.yml` file in the repo root. This file defines default
-field values for issues created from this repo.
+Before creating an issue, check for a `.jira.yml` file in the repo root, or at `tmp/.jira.yml`
+if the repo root doesn't have one. This file defines default field values for issues created from
+this repo. The `tmp/.jira.yml` location is for public repos where a root-level `.jira.yml` (or a
+`.gitignore` entry for it) would look out of place - `tmp/` is conventionally gitignored for
+scratch/local files, so the config stays out of the committed tree without calling attention to
+itself. If both exist, the root-level `.jira.yml` wins.
 
 Supported keys:
 
