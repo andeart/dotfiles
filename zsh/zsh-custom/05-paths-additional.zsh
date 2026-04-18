@@ -1,11 +1,14 @@
 # Rust
 . "$HOME/.cargo/env"
 
+# Ruby gems (CocoaPods, etc.)
+export GEM_HOME="${HOME}/.gem"
+
 # ---- PATH ----
 export PATH="${DOTFILES_ROOT}/bin:${PATH}"
 export PATH="${DOTFILES_ROOT}/git/bin:${PATH}"
 export PATH="${HOME}/.pub-cache/bin:${PATH}"
-export PATH="${HOME}/.gem/bin:${PATH}"
+export PATH="${GEM_HOME}/bin:${PATH}"
 export PATH="${HOME}/.local/bin:${PATH}"
 export PATH="${BREW_PREFIX}/opt/ruby/bin:${PATH}"
 # ^ All lines above are PREFIXED to the default PATH, with lower lines being earlier in the final PATH.
