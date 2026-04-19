@@ -47,7 +47,6 @@ dotfiles/
 │       ├── 30-aliases.zsh             # shared aliases
 │       ├── 31-aliases.local.zsh       # machine-specific aliases
 │       ├── 60-prompt.zsh              # prompt config
-│       ├── README.md                  # zsh-custom conventions
 │       └── themes/*                   # themes
 ├── git/
 │   ├── gitconfig.symlink              → ~/.gitconfig
