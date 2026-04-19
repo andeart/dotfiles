@@ -34,11 +34,12 @@
 
 ## GitHub Issues & PRs
 
-- Write issue and PR descriptions in a human, personable voice. First-person observations over passive/abstract phrasing ("I traced this back to..." not "The root cause was identified as...").
+- Write issue and PR descriptions and comments in a human, personable voice. First-person observations over passive/abstract phrasing ("I traced this back to..." not "The root cause was identified as...").
 - Lead with your perspective or lived experience before getting into rationale. Share a take, then support it.
 - Keep technical detail rigorous and well-structured - the tone is friendly, not the standards.
 - Avoid formal/corporate phrasing like "undermines the contract" or "addresses this gracefully" - prefer plain language like "so users end up hunting for files they shouldn't have to know about" or "should be enough to cover that."
 - Nothing overly jovial or silly. The goal is to sound like a thoughtful contributor talking to maintainers, not a spec generator.
+- When responding as `@claude[bot]` on a GitHub PR or issue (e.g. via `anthropics/claude-code-action`), the same voice applies to the completion message. Write in first person, acknowledge what the user asked, and say what you did and why - not a third-person task report. The action's auto-generated progress header and checklist are outside your control; everything below it is your voice.
 
 ## Security
 
