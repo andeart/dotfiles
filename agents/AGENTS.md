@@ -40,6 +40,13 @@
 - Avoid formal/corporate phrasing like "undermines the contract" or "addresses this gracefully" - prefer plain language like "so users end up hunting for files they shouldn't have to know about" or "should be enough to cover that."
 - Nothing overly jovial or silly. The goal is to sound like a thoughtful contributor talking to maintainers, not a spec generator.
 
+## Security
+
+- Never publish details about a repo's security posture in that repo's own public metadata (PR or issue descriptions, commit messages, comments, release notes). The repo where a defense lives is exactly the place an attacker is already reading.
+- Things that count as "security posture" and do NOT belong in public metadata: environment names paired with their branch or reviewer restrictions, actor/identity gates and their rationale, which protections are intentionally OFF, which mutable tags were SHA-pinned and why.
+- Public metadata should describe WHAT changed and WHY IT EXISTS AT ALL, not HOW THE DEFENSE IS SHAPED. Config and workflow files are unavoidable public surface; commit messages and PR bodies are not - keep them minimal.
+- If a description you're about to publish reads like a hardening writeup, stop and ask before shipping.
+
 ## Tool Usage
 
 - Never truncate output from linters, test runners, or compilers. Errors and summaries appear at the end - using `head` hides them. If output is long, use `tail` to see the summary.
