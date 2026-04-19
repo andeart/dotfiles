@@ -27,6 +27,10 @@ Some files have `.local` variants (with `.example` templates) for machine-specif
 dotfiles/
 ├── dotfiles.yml                       # what bootstrap.sh should set up
 ├── bootstrap.sh                       # the installer
+├── .github/
+│   ├── dependabot.yml                 # weekly bumps for pinned action SHAs
+│   └── workflows/
+│       └── claude.yml                 # dispatches Claude Code on @claude mentions
 ├── bin/*                              # utility scripts
 ├── brew/
 │   └── Brewfile                       # brew bundle
