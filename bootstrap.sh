@@ -13,18 +13,28 @@ warn()    { printf "\r    \033[00;33mWARN\033[0m · %s\n" "$1"; }
 
 _failed_extensions=()
 
-# Read a boolean value from dotfiles.yml. Returns 0 (true) or 1 (false).
-is_enabled() {
-    local key="$1"
-    local val
-    val=$(yq "$key" "$DOTFILES_CONFIG" 2>/dev/null)
-    [ "$val" = "true" ]
-}
-
 # Config file is required
 if [ ! -f "$DOTFILES_CONFIG" ]; then
     fail "dotfiles.yml not found at $DOTFILES_CONFIG"
 fi
+
+# Pre-parse dotfiles.yml once into an associative array; every is_enabled
+# check then reduces to an O(1) lookup instead of forking a yq subprocess.
+# _dotfiles_flag_order preserves document order for the plan log below.
+declare -A _dotfiles_flags
+_dotfiles_flag_order=()
+while IFS=$'\t' read -r section key val; do
+    [ -z "$section" ] && continue
+    full_key="$section.$key"
+    _dotfiles_flags["$full_key"]="$val"
+    _dotfiles_flag_order+=("$full_key")
+done < <(yq -r 'to_entries[] | .key as $section | .value | to_entries[] | [$section, .key, (.value | tostring)] | @tsv' "$DOTFILES_CONFIG" 2>/dev/null)
+
+# Read a boolean value from dotfiles.yml. Returns 0 (true) or 1 (false).
+is_enabled() {
+    local key="${1#.}"
+    [ "${_dotfiles_flags[$key]:-}" = "true" ]
+}
 
 # Check that all Brewfile dependencies are installed
 if ! command -v brew &>/dev/null; then
@@ -43,13 +53,13 @@ fi
 # Log the full bootstrap plan derived from dotfiles.yml
 echo ''
 info "Bootstrap plan (from dotfiles.yml):"
-while IFS=$'\t' read -r section key val; do
-    if [ "$val" = "true" ]; then
-        printf "    [  \033[00;32mON\033[0m ] %s.%s\n" "$section" "$key"
+for flag_key in "${_dotfiles_flag_order[@]}"; do
+    if [ "${_dotfiles_flags[$flag_key]}" = "true" ]; then
+        printf "    [  \033[00;32mON\033[0m ] %s\n" "$flag_key"
     else
-        printf "    [ \033[00;31mOFF\033[0m ] %s.%s\n" "$section" "$key"
+        printf "    [ \033[00;31mOFF\033[0m ] %s\n" "$flag_key"
     fi
-done < <(yq 'to_entries[] | .key as $section | .value | to_entries[] | [$section, .key, (.value | tostring)] | join("\t")' "$DOTFILES_CONFIG" 2>/dev/null)
+done
 echo ''
 
 # Remind user to set up .local files before symlinking begins
