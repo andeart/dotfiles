@@ -11,7 +11,7 @@
 #   iterm-filter.sh clean
 #   iterm-filter.sh smudge
 
-set -e
+set -euo pipefail
 
 MODE="${1:?Usage: iterm-filter.sh clean|smudge}"
 
@@ -43,8 +43,10 @@ if [ "$MODE" = "clean" ]; then
     # We extract just the key name. LC_ALL=C handles non-UTF8 bytes in values.
     plist_keys() {
         local pattern="$1"
+        # `|| true` so pipefail doesn't propagate a PlistBuddy failure
+        # (e.g. unexpected plist state) up into the caller's while loop.
         LC_ALL=C /usr/libexec/PlistBuddy -c "Print" "$TEMP_IN" 2>/dev/null \
-            | LC_ALL=C sed -nE "s/^    ($pattern.*) = .*$/\1/p"
+            | LC_ALL=C sed -nE "s/^    ($pattern.*) = .*$/\1/p" || true
     }
 
     # --- Strip top-level keys by pattern ---
@@ -67,7 +69,10 @@ if [ "$MODE" = "clean" ]; then
         for key in "BM Growl" "Sync Title" "Thin Strokes"; do
             /usr/libexec/PlistBuddy -c "Delete ':New Bookmarks:$i:$key'" "$TEMP_IN" 2>/dev/null || true
         done
-        ((i++))
+        # Pre-increment form (`++i` expands to the new, non-zero value) so the
+        # arithmetic command doesn't exit 1 on the first iteration when i was 0,
+        # which would otherwise trip `set -e`.
+        ((++i))
     done
 
     # --- Replace $HOME with placeholder ---
