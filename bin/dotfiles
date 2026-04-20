@@ -10,11 +10,16 @@ RED='\033[0;31m'
 RESET='\033[0m'
 
 usage() {
-  echo "Usage: dotfiles <command>"
-  echo ""
-  echo "Commands:"
-  echo "  freeze    Refresh snapshot files (Brewfile, extensions.txt) from live system state"
-  exit 0
+  local code="${1:-0}"
+  local out=1
+  [[ "$code" -ne 0 ]] && out=2
+  {
+    echo "Usage: dotfiles <command>"
+    echo ""
+    echo "Commands:"
+    echo "  freeze    Refresh snapshot files (Brewfile, extensions.txt) from live system state"
+  } >&"$out"
+  exit "$code"
 }
 
 # ---------------------------------------------------------------------------
@@ -142,6 +147,6 @@ case "${1:-}" in
   -h|--help|"") usage ;;
   *)
     echo "Unknown command: $1" >&2
-    usage
+    usage 1
     ;;
 esac
