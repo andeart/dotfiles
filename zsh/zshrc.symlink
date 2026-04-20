@@ -33,8 +33,12 @@ for cmd in nvm node npm npx; do
   eval "${cmd}() { _nvm_lazy_load; ${cmd} \"\$@\" }"
 done
 
-source "${BREW_PREFIX}/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+_autosuggest="${BREW_PREFIX}/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+[ -r "$_autosuggest" ] && source "$_autosuggest"
+unset _autosuggest
 
 # This loads syntax highlighting.
 # This must always be at the very end of this file to process syntax highlighting correctly.
-source "${BREW_PREFIX}/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+_syntax_hl="${BREW_PREFIX}/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+[ -r "$_syntax_hl" ] && source "$_syntax_hl"
+unset _syntax_hl
