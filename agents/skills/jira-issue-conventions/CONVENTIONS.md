@@ -9,7 +9,7 @@ See the [Examples](#examples) section at the bottom for a worked example with al
 ## Description format
 
 Pass descriptions as markdown (`contentFormat: "markdown"`). Jira renders `### Header`, `---`,
-`- ` bullets, and `- [ ]` / `- [x]` checkbox lines acceptably - checkboxes appear as bullet-style
+`- ` bullets, and `[ ]` / `[x]` checkbox lines acceptably - checkboxes appear as bullet-style
 items rather than interactive task items, but that's a fine trade-off for the simplicity.
 
 ADF is supported by the `createJiraIssue` / `editJiraIssue` MCP tools in principle, but has been
