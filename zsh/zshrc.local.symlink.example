@@ -1,7 +1,7 @@
 # Add your local customizations here
 
 # For example, hide user/host on local machine for Headline prompt
-[[ $USER == "USERNAME" && ${HOST%%.*} == "USERMACHINE" && -z "$SSH_TTY" ]] && {
+[[ $USER == "USERNAME" && ${HOST%%.*} == "USERMACHINE" && -z "$SSH_TTY" ]] && (( ${+HL_CONTENT_SOURCE} )) && {
     HL_CONTENT_SOURCE[USER]=''
     HL_CONTENT_SOURCE[HOST]=''
 }
