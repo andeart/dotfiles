@@ -43,11 +43,22 @@ fi
 
 BREWFILE="$REPO_ROOT/brew/Brewfile"
 if [ -f "$BREWFILE" ]; then
-    info "Installing missing Brewfile dependencies"
-    if ! brew bundle install --file="$BREWFILE" --no-upgrade; then
-        fail "Failed to install Brewfile dependencies."
+    if brew bundle check --file="$BREWFILE" &>/dev/null; then
+        success "All Brewfile dependencies already installed"
+    else
+        info "Brewfile has missing dependencies:"
+        brew bundle check --file="$BREWFILE" --verbose || true
+        echo ''
+        read -rp "  Install missing Brewfile dependencies? (y/n) " confirm
+        if [ "$confirm" = "y" ]; then
+            if ! brew bundle install --file="$BREWFILE" --no-upgrade; then
+                fail "Failed to install Brewfile dependencies."
+            fi
+            success "All Brewfile dependencies installed"
+        else
+            warn "Skipping Brewfile install"
+        fi
     fi
-    success "All Brewfile dependencies installed"
 fi
 
 # Log the full bootstrap plan derived from dotfiles.yml
