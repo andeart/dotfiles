@@ -17,6 +17,7 @@
         "webbrowser"
     ],
     "claudeCode.preferredLocation": "panel",
+    "claudeCode.useTerminal": true,
     "[dart]": {
         "editor.formatOnSave": true,
         "editor.formatOnType": true,
@@ -77,6 +78,7 @@
     "workbench.activityBar.compact": true,
     "workbench.activityBar.location": "top",
     "workbench.colorTheme": "Monokai Pro (Filter Spectrum)",
+    "workbench.editor.enablePreview": false,
     "workbench.editor.limit.value": 100,
     "workbench.editor.showTabs": "none",
     "workbench.iconTheme": "Monokai Pro (Filter Spectrum) Icons"
