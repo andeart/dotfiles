@@ -45,9 +45,7 @@ dotfiles/
 │       ├── 12-flags.local.zsh         # machine-specific flags
 │       ├── 20-secrets.local.zsh       # machine-specific secrets
 │       ├── 30-aliases.zsh             # shared aliases
-│       ├── 31-aliases.local.zsh       # machine-specific aliases
-│       ├── 60-prompt.zsh              # prompt config
-│       └── themes/*                   # themes
+│       └── 31-aliases.local.zsh       # machine-specific aliases
 ├── git/
 │   ├── gitconfig.symlink              → ~/.gitconfig
 │   ├── gitconfig.local.symlink        → ~/.gitconfig.local (machine-specific)
