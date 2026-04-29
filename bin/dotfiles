@@ -13,8 +13,26 @@ usage() {
   echo "Usage: dotfiles <command>"
   echo ""
   echo "Commands:"
-  echo "  freeze    Refresh snapshot files (Brewfile, extensions.txt) from live system state"
+  echo "  freeze    Snapshot live state into the repo (vscode, brew, agents)"
+  echo "  push      Apply repo state to live ~/.claude and ~/.agents files"
+  echo "  status    Show drift between repo and live agent/claude files"
   exit 0
+}
+
+# ---------------------------------------------------------------------------
+# push / status / freeze_agents (stubs; filled in across Tasks 4-9)
+# ---------------------------------------------------------------------------
+
+push() {
+  echo "push: not implemented yet"
+}
+
+status() {
+  echo "status: not implemented yet"
+}
+
+freeze_agents() {
+  echo "freeze_agents: not implemented yet"
 }
 
 # ---------------------------------------------------------------------------
@@ -131,17 +149,23 @@ freeze() {
   echo ""
   freeze_brew
   echo ""
+  freeze_agents
+  echo ""
 }
 
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
-case "${1:-}" in
-  freeze)   freeze ;;
-  -h|--help|"") usage ;;
-  *)
-    echo "Unknown command: $1" >&2
-    usage
-    ;;
-esac
+if [ -z "${_DOTFILES_LIB_ONLY:-}" ]; then
+  case "${1:-}" in
+    freeze)         shift; freeze "$@" ;;
+    push)           shift; push "$@" ;;
+    status)         shift; status "$@" ;;
+    -h|--help|"")   usage ;;
+    *)
+      echo "Unknown command: $1" >&2
+      usage
+      ;;
+  esac
+fi
