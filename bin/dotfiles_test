@@ -10,10 +10,10 @@ _DOTFILES_LIB_ONLY=1
 source "$DOTFILES_ROOT/bin/dotfiles"
 
 case "${1:-}" in
-  sha256)         _sha256_file "$2" ;;
-  manifest_read)  _manifest_read "$2" ;;
-  manifest_write) _manifest_write "$2" "$3" ;;
-  classify)       _classify "$2" "$3" ;;
+  sha256)         _sha256_file "${2:?usage: dotfiles_test sha256 <file>}" ;;
+  manifest_read)  _manifest_read "${2:?usage: dotfiles_test manifest_read <live_path>}" ;;
+  manifest_write) _manifest_write "${2:?usage: dotfiles_test manifest_write <live_path> <hash>}" "${3:?usage: dotfiles_test manifest_write <live_path> <hash>}" ;;
+  classify)       _classify "${2:?usage: dotfiles_test classify <repo_path> <live_path>}" "${3:?usage: dotfiles_test classify <repo_path> <live_path>}" ;;
   walk)           _walk_mapping ;;
   freeze_agents)  freeze_agents ;;
   *)              echo "Unknown test command: ${1:-<none>}" >&2; exit 1 ;;
