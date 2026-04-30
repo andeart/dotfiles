@@ -9,6 +9,65 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 RESET='\033[0m'
 
+# ---------------------------------------------------------------------------
+# Path mapping (repo source → live destinations)
+# Each entry: "<repo_relpath>|<live_dest_1>[,<live_dest_2>,...]"
+# Tilde and $HOME in destinations are expanded at runtime.
+# ---------------------------------------------------------------------------
+PATH_MAPPING=(
+  "agents/AGENTS.md|~/.agents/AGENTS.md"
+  "agents/skills|~/.agents/skills,~/.claude/skills"
+  "claude/CLAUDE.md|~/.claude/CLAUDE.md"
+  "claude/settings.json|~/.claude/settings.json"
+  "claude/statusline-command.sh|~/.claude/statusline-command.sh"
+)
+
+DOTFILES_STATE_FILE="${DOTFILES_STATE_FILE:-$HOME/.dotfiles/sync-state.json}"
+
+_expand_tilde() {
+  local p="$1"
+  printf '%s' "${p/#\~/$HOME}"
+}
+
+_sha256_file() {
+  local f="$1"
+  if [ ! -f "$f" ]; then
+    return 0
+  fi
+  shasum -a 256 "$f" | awk '{print $1}'
+}
+
+_manifest_ensure() {
+  mkdir -p "$(dirname "$DOTFILES_STATE_FILE")"
+  if [ ! -f "$DOTFILES_STATE_FILE" ]; then
+    echo '{}' > "$DOTFILES_STATE_FILE"
+  fi
+}
+
+_manifest_read() {
+  local key="$1"
+  _manifest_ensure
+  jq -r --arg k "$key" '.[$k] // "null"' "$DOTFILES_STATE_FILE"
+}
+
+_manifest_write() {
+  local key="$1" value="$2"
+  _manifest_ensure
+  local tmp
+  tmp="$(mktemp)"
+  jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$DOTFILES_STATE_FILE" > "$tmp"
+  mv "$tmp" "$DOTFILES_STATE_FILE"
+}
+
+_manifest_delete() {
+  local key="$1"
+  _manifest_ensure
+  local tmp
+  tmp="$(mktemp)"
+  jq --arg k "$key" 'del(.[$k])' "$DOTFILES_STATE_FILE" > "$tmp"
+  mv "$tmp" "$DOTFILES_STATE_FILE"
+}
+
 usage() {
   echo "Usage: dotfiles <command>"
   echo ""
