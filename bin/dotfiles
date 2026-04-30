@@ -72,6 +72,61 @@ _manifest_delete() {
   trap - EXIT
 }
 
+_classify() {
+  local repo_path="$1" live_path="$2"
+  local repo_hash live_hash manifest_hash
+  repo_hash="$(_sha256_file "$repo_path")"
+  live_hash="$(_sha256_file "$live_path")"
+  manifest_hash="$(_manifest_read "$live_path")"
+
+  local repo_present=0 live_present=0 manifest_present=0
+  [ -n "$repo_hash" ] && repo_present=1
+  [ -n "$live_hash" ] && live_present=1
+  [ "$manifest_hash" != "null" ] && manifest_present=1
+
+  if [ $repo_present -eq 0 ] && [ $live_present -eq 0 ]; then
+    echo "both_removed"
+    return
+  fi
+
+  if [ $repo_present -eq 1 ] && [ $live_present -eq 0 ]; then
+    if [ $manifest_present -eq 1 ]; then echo "live_removed"; else echo "repo_added"; fi
+    return
+  fi
+
+  if [ $repo_present -eq 0 ] && [ $live_present -eq 1 ]; then
+    if [ $manifest_present -eq 1 ]; then echo "repo_removed"; else echo "live_added"; fi
+    return
+  fi
+
+  # Both present. Decide based on hash comparisons.
+  if [ "$repo_hash" = "$live_hash" ] && [ "$repo_hash" = "$manifest_hash" ]; then
+    echo "in_sync"; return
+  fi
+  if [ "$repo_hash" = "$live_hash" ] && [ $manifest_present -eq 0 ]; then
+    echo "in_sync"; return  # first-run: repo == live, no manifest yet
+  fi
+
+  local repo_changed=0 live_changed=0
+  if [ $manifest_present -eq 1 ]; then
+    [ "$repo_hash" != "$manifest_hash" ] && repo_changed=1
+    [ "$live_hash" != "$manifest_hash" ] && live_changed=1
+  else
+    # No manifest entry but repo and live differ — treat as both changed
+    # (we can't tell which side is canonical without the manifest anchor).
+    repo_changed=1
+    live_changed=1
+  fi
+
+  if [ $repo_changed -eq 1 ] && [ $live_changed -eq 1 ]; then
+    echo "both_changed"
+  elif [ $repo_changed -eq 1 ]; then
+    echo "repo_changed"
+  else
+    echo "live_changed"
+  fi
+}
+
 usage() {
   echo "Usage: dotfiles <command>"
   echo ""
