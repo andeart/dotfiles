@@ -50,3 +50,13 @@ load helpers/setup
   [ "$status" -eq 0 ]
   [ "$output" = "deadbeef" ]
 }
+
+@test "_manifest_delete removes a previously-written key" {
+  make_tmp_world
+  echo '{}' > "$TEST_STATE"
+  env DOTFILES_STATE_FILE="$TEST_STATE" "$DOTFILES_TEST_BIN" manifest_write "$TEST_LIVE/.agents/AGENTS.md" "deadbeef"
+  env DOTFILES_STATE_FILE="$TEST_STATE" "$DOTFILES_TEST_BIN" manifest_delete "$TEST_LIVE/.agents/AGENTS.md"
+  run env DOTFILES_STATE_FILE="$TEST_STATE" "$DOTFILES_TEST_BIN" manifest_read "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = "null" ]
+}

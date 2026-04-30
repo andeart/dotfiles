@@ -12,7 +12,7 @@ RESET='\033[0m'
 # ---------------------------------------------------------------------------
 # Path mapping (repo source → live destinations)
 # Each entry: "<repo_relpath>|<live_dest_1>[,<live_dest_2>,...]"
-# Tilde and $HOME in destinations are expanded at runtime.
+# Leading ~/ in destinations is expanded to $HOME at runtime.
 # ---------------------------------------------------------------------------
 PATH_MAPPING=(
   "agents/AGENTS.md|~/.agents/AGENTS.md"
@@ -55,8 +55,10 @@ _manifest_write() {
   _manifest_ensure
   local tmp
   tmp="$(mktemp)"
+  trap 'rm -f "$tmp"' EXIT
   jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$DOTFILES_STATE_FILE" > "$tmp"
   mv "$tmp" "$DOTFILES_STATE_FILE"
+  trap - EXIT
 }
 
 _manifest_delete() {
@@ -64,8 +66,10 @@ _manifest_delete() {
   _manifest_ensure
   local tmp
   tmp="$(mktemp)"
+  trap 'rm -f "$tmp"' EXIT
   jq --arg k "$key" 'del(.[$k])' "$DOTFILES_STATE_FILE" > "$tmp"
   mv "$tmp" "$DOTFILES_STATE_FILE"
+  trap - EXIT
 }
 
 usage() {
