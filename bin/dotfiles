@@ -206,6 +206,9 @@ _walk_one_pair() {
 # Print a unified diff between the repo and live versions of a both_changed
 # path. Used by status/push/freeze/precommit when surfacing conflicts so the
 # user can resolve without first running `diff` manually.
+# Precondition: callers must only invoke this when both files exist; this is
+# guaranteed by the `both_changed` classification, which requires both sides
+# to be present and have differing contents.
 _print_conflict_diff() {
   local repo_p="$1" live_p="$2"
   echo -e "    ${YELLOW}--- repo: $repo_p${RESET}"
@@ -269,10 +272,10 @@ status() {
 
   echo ""
   if [ $found_conflict -eq 1 ]; then
-    echo -e "  ${RED}conflicts present — resolve manually before running push or freeze${RESET}"
+    echo -e "  ${RED}conflicts present - resolve manually before running push or freeze${RESET}"
     return 2
   elif [ $has_drift -eq 1 ]; then
-    echo -e "  ${YELLOW}drift present — run 'dotfiles push' or 'dotfiles freeze' to reconcile${RESET}"
+    echo -e "  ${YELLOW}drift present - run 'dotfiles push' or 'dotfiles freeze' to reconcile${RESET}"
     return 0
   else
     echo -e "  ${GREEN}clean${RESET}"
