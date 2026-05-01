@@ -231,7 +231,99 @@ usage() {
 # ---------------------------------------------------------------------------
 
 push() {
-  echo "push: not implemented yet"
+  echo -e "${BOLD}push${RESET}  repo -> live"
+  echo ""
+
+  # Phase 1: classify everything; collect blockers and writable items.
+  local blockers=()
+  local conflicts=()
+  local writable=()
+  local symlink_blockers=()
+
+  local state repo_p live_p
+  while IFS=$'\t' read -r state repo_p live_p; do
+    if [ -L "$live_p" ]; then
+      symlink_blockers+=("$live_p")
+      continue
+    fi
+    case "$state" in
+      both_changed)
+        blockers+=("$state\t$live_p")
+        conflicts+=("$repo_p|$live_p")
+        ;;
+      live_changed|live_added|live_removed)
+        blockers+=("$state\t$live_p")
+        ;;
+      in_sync)
+        ;;
+      repo_changed|repo_added|repo_removed)
+        writable+=("$state\t$repo_p\t$live_p")
+        ;;
+    esac
+  done < <(_walk_mapping)
+
+  if [ ${#symlink_blockers[@]} -gt 0 ]; then
+    echo -e "  ${RED}refusing to overwrite symlink(s):${RESET}"
+    local s
+    for s in "${symlink_blockers[@]+"${symlink_blockers[@]}"}"; do
+      echo "    $s"
+    done
+    echo ""
+    echo -e "  ${YELLOW}delete the symlink manually, then re-run push${RESET}"
+    return 2
+  fi
+
+  if [ ${#blockers[@]} -gt 0 ]; then
+    echo -e "  ${RED}live has changes that haven't been captured:${RESET}"
+    local b
+    for b in "${blockers[@]+"${blockers[@]}"}"; do
+      echo -e "    $b"
+    done
+    if [ ${#conflicts[@]} -gt 0 ]; then
+      echo ""
+      echo -e "  ${RED}conflict diffs:${RESET}"
+      local pair r_p l_p
+      for pair in "${conflicts[@]+"${conflicts[@]}"}"; do
+        r_p="${pair%%|*}"
+        l_p="${pair#*|}"
+        _print_conflict_diff "$r_p" "$l_p"
+      done
+    fi
+    echo ""
+    echo -e "  ${YELLOW}run 'dotfiles freeze' first (or resolve conflicts manually)${RESET}"
+    return 2
+  fi
+
+  # Phase 2: apply.
+  local applied=0
+  local w
+  for w in "${writable[@]+"${writable[@]}"}"; do
+    state="$(echo -e "$w" | awk -F'\t' '{print $1}')"
+    repo_p="$(echo -e "$w" | awk -F'\t' '{print $2}')"
+    live_p="$(echo -e "$w" | awk -F'\t' '{print $3}')"
+    case "$state" in
+      repo_changed|repo_added)
+        mkdir -p "$(dirname "$live_p")"
+        cp "$repo_p" "$live_p"
+        _manifest_write "$live_p" "$(_sha256_file "$live_p")"
+        echo -e "  ${GREEN}wrote${RESET}  $live_p"
+        applied=$((applied + 1))
+        ;;
+      repo_removed)
+        rm -f "$live_p"
+        _manifest_delete "$live_p"
+        echo -e "  ${YELLOW}removed${RESET}  $live_p"
+        applied=$((applied + 1))
+        ;;
+    esac
+  done
+
+  echo ""
+  if [ $applied -eq 0 ]; then
+    echo -e "  ${GREEN}nothing to do - already in sync${RESET}"
+  else
+    echo -e "  ${GREEN}push complete (${applied} change(s))${RESET}"
+  fi
 }
 
 status() {

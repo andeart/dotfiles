@@ -10,9 +10,19 @@ load helpers/setup
   [[ "$output" == *"status"* ]]
 }
 
-@test "dotfiles push exits 0 when not implemented (stub)" {
-  run "$DOTFILES_BIN" push --dry-run
+@test "push exits 0 when everything is already in sync" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" push
   [ "$status" -eq 0 ]
+  [[ "$output" == *"nothing to do"* ]]
 }
 
 @test "dotfiles status exits 0 with clean state" {
@@ -283,4 +293,56 @@ EOF
   # Diff body is printed inline
   [[ "$output" == *"-edited in repo"* ]]
   [[ "$output" == *"+edited in live"* ]]
+}
+
+@test "push copies repo file to live and updates manifest" {
+  make_tmp_world
+  echo '{}' > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" push
+  [ "$status" -eq 0 ]
+  [ -f "$TEST_LIVE/.agents/AGENTS.md" ]
+  diff "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  manifest_hash=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_hash" = "$hash" ]
+}
+
+@test "push aborts when live has unharvested changes" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  manifest_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$manifest_hash\"}" > "$TEST_STATE"
+  echo "edited externally" > "$TEST_LIVE/.agents/AGENTS.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" push
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"live_changed"* ]]
+  [[ "$output" == *"freeze"* ]]
+  # Live file untouched
+  grep -q "edited externally" "$TEST_LIVE/.agents/AGENTS.md"
+}
+
+@test "push refuses to overwrite a symlink at the live destination" {
+  make_tmp_world
+  ln -s "/some/elsewhere" "$TEST_LIVE/.agents/AGENTS.md"
+  echo '{}' > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" push
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"symlink"* ]]
+  # Symlink untouched
+  [ -L "$TEST_LIVE/.agents/AGENTS.md" ]
 }
