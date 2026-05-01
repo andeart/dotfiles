@@ -15,8 +15,17 @@ load helpers/setup
   [ "$status" -eq 0 ]
 }
 
-@test "dotfiles status exits 0 when not implemented (stub)" {
-  run "$DOTFILES_BIN" status
+@test "dotfiles status exits 0 with clean state" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" status
   [ "$status" -eq 0 ]
 }
 
@@ -238,4 +247,40 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"live_added"* ]]
   [[ "$output" == *"external.md"* ]]
+}
+
+@test "status prints a summary header and per-state counts" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"agents/claude sync status"* ]]
+  [[ "$output" == *"in_sync"* ]]
+}
+
+@test "status returns non-zero and prints a diff when conflicts exist" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  echo "edited in repo" > "$TEST_REPO/agents/AGENTS.md"
+  echo "edited in live" > "$TEST_LIVE/.agents/AGENTS.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"both_changed"* ]]
+  # Diff body is printed inline
+  [[ "$output" == *"-edited in repo"* ]]
+  [[ "$output" == *"+edited in live"* ]]
 }

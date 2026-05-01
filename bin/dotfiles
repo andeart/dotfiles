@@ -203,6 +203,16 @@ _walk_one_pair() {
   fi
 }
 
+# Print a unified diff between the repo and live versions of a both_changed
+# path. Used by status/push/freeze/precommit when surfacing conflicts so the
+# user can resolve without first running `diff` manually.
+_print_conflict_diff() {
+  local repo_p="$1" live_p="$2"
+  echo -e "    ${YELLOW}--- repo: $repo_p${RESET}"
+  echo -e "    ${YELLOW}+++ live: $live_p${RESET}"
+  diff -u "$repo_p" "$live_p" | sed 's/^/      /' || true
+}
+
 usage() {
   echo "Usage: dotfiles <command>"
   echo ""
@@ -222,7 +232,52 @@ push() {
 }
 
 status() {
-  echo "status: not implemented yet"
+  echo -e "${BOLD}agents/claude sync status${RESET}"
+  echo ""
+
+  local found_conflict=0 has_drift=0
+  local conflicts=()
+  local state repo_p live_p
+  while IFS=$'\t' read -r state repo_p live_p; do
+    case "$state" in
+      in_sync)
+        echo -e "  ${GREEN}${state}${RESET}  $live_p"
+        ;;
+      both_changed)
+        echo -e "  ${RED}${state}${RESET}  $live_p"
+        conflicts+=("$repo_p|$live_p")
+        found_conflict=1
+        has_drift=1
+        ;;
+      *)
+        echo -e "  ${YELLOW}${state}${RESET}  $live_p"
+        has_drift=1
+        ;;
+    esac
+  done < <(_walk_mapping)
+
+  if [ ${#conflicts[@]} -gt 0 ]; then
+    echo ""
+    echo -e "  ${RED}conflict diffs:${RESET}"
+    local pair r_p l_p
+    for pair in "${conflicts[@]}"; do
+      r_p="${pair%%|*}"
+      l_p="${pair#*|}"
+      _print_conflict_diff "$r_p" "$l_p"
+    done
+  fi
+
+  echo ""
+  if [ $found_conflict -eq 1 ]; then
+    echo -e "  ${RED}conflicts present — resolve manually before running push or freeze${RESET}"
+    return 2
+  elif [ $has_drift -eq 1 ]; then
+    echo -e "  ${YELLOW}drift present — run 'dotfiles push' or 'dotfiles freeze' to reconcile${RESET}"
+    return 0
+  else
+    echo -e "  ${GREEN}clean${RESET}"
+    return 0
+  fi
 }
 
 freeze_agents() {
