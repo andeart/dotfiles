@@ -177,13 +177,14 @@ _walk_one_pair() {
     # skip them when enumerating the live side (avoids bash 4+ associative arrays).
     local seen_tmp
     seen_tmp="$(mktemp)"
+    trap 'rm -f "$seen_tmp"' EXIT
     if [ -d "$repo_path" ]; then
       while IFS= read -r f; do
         local rel="${f#$repo_path/}"
         printf '%s\n' "$rel" >> "$seen_tmp"
         local lp="$live_path/$rel"
         printf "%s\t%s\t%s\n" "$(_classify "$f" "$lp")" "$f" "$lp"
-      done < <(find "$repo_path" -type f 2>/dev/null)
+      done < <(find "$repo_path" -type f)
     fi
     if [ -d "$live_path" ]; then
       while IFS= read -r f; do
@@ -192,9 +193,10 @@ _walk_one_pair() {
           local rp="$repo_path/$rel"
           printf "%s\t%s\t%s\n" "$(_classify "$rp" "$f")" "$rp" "$f"
         fi
-      done < <(find "$live_path" -type f 2>/dev/null)
+      done < <(find "$live_path" -type f)
     fi
     rm -f "$seen_tmp"
+    trap - EXIT
   else
     # File mapping
     printf "%s\t%s\t%s\n" "$(_classify "$repo_path" "$live_path")" "$repo_path" "$live_path"

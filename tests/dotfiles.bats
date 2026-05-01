@@ -210,6 +210,32 @@ EOF
     DOTFILES_STATE_FILE="$TEST_STATE" \
     DOTFILES_MAPPING_OVERRIDE="agents/skills|~/.agents/skills,~/.claude/skills" \
     "$DOTFILES_TEST_BIN" walk
+  [ "$status" -eq 0 ]
   [[ "$output" == *"in_sync"* ]]
   [[ "$output" == *"live_changed"* ]]
+}
+
+@test "walk_mapping flags live_added when a directory mirror has an extra file" {
+  make_tmp_world
+  mkdir -p "$TEST_LIVE/.agents/skills" "$TEST_LIVE/.claude/skills"
+  cp -R "$TEST_REPO/agents/skills/example-skill" "$TEST_LIVE/.agents/skills/example-skill"
+  cp -R "$TEST_REPO/agents/skills/example-skill" "$TEST_LIVE/.claude/skills/example-skill"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/skills/example-skill/SKILL.md" | awk '{print $1}')
+  cat > "$TEST_STATE" <<EOF
+{
+  "$TEST_LIVE/.agents/skills/example-skill/SKILL.md": "$hash",
+  "$TEST_LIVE/.claude/skills/example-skill/SKILL.md": "$hash"
+}
+EOF
+  # Drop an extra file into one of the live mirrors that doesn't exist in the repo
+  echo "external addition" > "$TEST_LIVE/.agents/skills/external.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/skills|~/.agents/skills,~/.claude/skills" \
+    "$DOTFILES_TEST_BIN" walk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"live_added"* ]]
+  [[ "$output" == *"external.md"* ]]
 }
