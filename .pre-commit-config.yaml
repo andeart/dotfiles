@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: dotfiles-freeze-agents
+        name: harvest live agents/claude changes
+        entry: bin/dotfiles freeze --pre-commit
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: markdownlint
+        name: markdownlint
+        entry: markdownlint-cli2 --config .markdownlint.yml
+        language: system
+        files: \.md$
+
+      - id: yamllint
+        name: yamllint
+        entry: yamllint
+        language: system
+        files: \.(yml|yaml)$
+
+      - id: gitleaks
+        name: gitleaks
+        entry: gitleaks protect --staged --redact
+        language: system
+        pass_filenames: false
