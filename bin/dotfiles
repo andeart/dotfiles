@@ -257,6 +257,14 @@ push() {
         blockers+=("$state\t$live_p")
         ;;
       in_sync)
+        # Seed manifest on first-run sync so this path has an anchor for future
+        # classification. Without this, an unanchored in_sync path falls into
+        # the "no manifest, sides differ" branch the moment either side drifts
+        # (including the pre-commit framework's transient stashing of unstaged
+        # repo edits).
+        if [ "$(_manifest_read "$live_p")" = "null" ]; then
+          _manifest_write "$live_p" "$(_sha256_file "$live_p")"
+        fi
         ;;
       repo_changed|repo_added|repo_removed)
         writable+=("$state\t$repo_p\t$live_p")
@@ -395,6 +403,14 @@ freeze_agents() {
         blockers+=("$state\t$repo_p")
         ;;
       in_sync)
+        # Seed manifest on first-run sync so this path has an anchor for future
+        # classification. Without this, an unanchored in_sync path falls into
+        # the "no manifest, sides differ" branch the moment either side drifts
+        # (including the pre-commit framework's transient stashing of unstaged
+        # repo edits).
+        if [ "$(_manifest_read "$live_p")" = "null" ]; then
+          _manifest_write "$live_p" "$(_sha256_file "$live_p")"
+        fi
         ;;
       live_changed|live_added|live_removed)
         writable+=("$state\t$repo_p\t$live_p")

@@ -381,6 +381,26 @@ EOF
   [[ "$output" == *"push"* ]]
 }
 
+@test "push seeds manifest for in_sync paths on first run" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  echo '{}' > "$TEST_STATE"
+  # Pre-condition: no manifest entry for this live path
+  pre=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k] // "absent"' "$TEST_STATE")
+  [ "$pre" = "absent" ]
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" push
+  [ "$status" -eq 0 ]
+  # Post-condition: manifest now has an entry equal to the live file's hash
+  expected_hash=$(shasum -a 256 "$TEST_LIVE/.agents/AGENTS.md" | awk '{print $1}')
+  post=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$post" = "$expected_hash" ]
+}
+
 @test "freeze --pre-commit harvests live changes and skips repo_changed paths" {
   make_tmp_world
   cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
