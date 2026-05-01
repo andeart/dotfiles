@@ -3,10 +3,12 @@ brew "fswatch"
 brew "imagemagick"
 brew "tesseract"
 
+brew "bats-core"
 brew "gh"
 brew "git"
 brew "git-lfs"
 brew "gitleaks"
+brew "pre-commit"
 
 brew "jq"
 brew "markdownlint-cli2"

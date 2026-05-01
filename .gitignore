@@ -10,3 +10,6 @@
 # Secrets
 *[sS][eE][cC][rR][eE][tT]*
 !*[sS][eE][cC][rR][eE][tT]*.example
+
+# Personal spec/plan/notes scratchpad (kept out of the repo by design)
+docs/

@@ -17,7 +17,7 @@ default field values, mode (mcp/manual), and linking. Writing conventions (title
 structure, acceptance criteria style) live in a shared file so they stay consistent with the
 refine skill.
 
-**Before composing the issue body, Read `~/.claude/skills/jira-issue-conventions/CONVENTIONS.md`
+**Before composing the issue body, Read `~/.agents/skills/jira-issue-conventions/CONVENTIONS.md`
 and follow its rules for title, description format, description structure, and acceptance
 criteria style.**
 
@@ -39,7 +39,7 @@ itself. If both exist, the root-level `.jira.yml` wins.
 Supported keys:
 
 | Key | Description | Example |
-|-----|-------------|---------|
+| --- | ----------- | ------- |
 | `mode` | `mcp` (default) or `manual` | `manual` |
 | `space` | Jira space name or key (translated to `projectKey` when calling the API) | `ENG` |
 | `assignee` | Jira account email or display name (resolved via `lookupJiraAccountId`) | `anurag.devanapally@gmail.com` |
@@ -98,10 +98,8 @@ looking up property names. Ask for confirmation before modifying the file.
 The `mode` key in `.jira.yml` (or a user-provided override) controls how the issue is delivered.
 If no mode is configured, default to `mcp`.
 
-| Mode | Behavior |
-|------|----------|
-| `mcp` | Create the issue directly via Atlassian MCP tools (`createJiraIssue`, etc.). This is the default. |
-| `manual` | Do not call Atlassian MCP tools. Instead, output the fully composed issue (title, description, and field values) as Markdown in the response so the user can copy-paste it into Jira. |
+- **`mcp`** - Create the issue directly via Atlassian MCP tools (`createJiraIssue`, etc.). This is the default.
+- **`manual`** - Do not call Atlassian MCP tools. Instead, output the fully composed issue (title, description, and field values) as Markdown in the response so the user can copy-paste it into Jira.
 
 ### Manual mode output format
 
@@ -112,20 +110,22 @@ direct MCP access isn't available.
 
 Example structure:
 
-    **Title:** <issue title>
+````markdown
+**Title:** <issue title>
 
-    **Fields**
-    - Assignee: <assignee>
-    - Space: <space, or "none">
-    - Priority: <priority, or "Low">
-    - Estimate: <estimate, or "none">
-    - State: <state, or "To Do">
+**Fields**
+- Assignee: <assignee>
+- Space: <space, or "none">
+- Priority: <priority, or "Low">
+- Estimate: <estimate, or "none">
+- State: <state, or "To Do">
 
-    **Description**
+**Description**
 
-    ```
-    <full issue description markdown, exactly as it would be sent to Jira>
-    ```
+```
+<full issue description markdown, exactly as it would be sent to Jira>
+```
+````
 
 All rules in `CONVENTIONS.md` (title, section structure, acceptance criteria style, etc.) apply
 identically regardless of mode.

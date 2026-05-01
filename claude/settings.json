@@ -1,6 +1,15 @@
 {
+  "env": {
+    "CLAUDE_CODE_IDLE_NOTIFICATION_THRESHOLD_MS": "10000"
+  },
   "permissions": {
-    "defaultMode": "default"
+    "allow": [
+      "Read(~/.agents/skills/jira-issue-conventions/CONVENTIONS.md)"
+    ],
+    "defaultMode": "default",
+    "additionalDirectories": [
+      "$HOME/.agents"
+    ]
   },
   "hooks": {
     "PostToolUse": [
@@ -14,17 +23,7 @@
         ]
       }
     ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/hooks/rtk-rewrite.sh"
-          }
-        ]
-      }
-    ]
+    "PreToolUse": []
   },
   "statusLine": {
     "type": "command",
@@ -36,7 +35,8 @@
     "figma@claude-plugins-official": true,
     "atlassian@claude-plugins-official": true,
     "impeccable@impeccable": true,
-    "notion@claude-plugins-official": true
+    "notion@claude-plugins-official": true,
+    "warp@claude-code-warp": true
   },
   "extraKnownMarketplaces": {
     "impeccable": {
@@ -44,7 +44,15 @@
         "source": "github",
         "repo": "pbakaus/impeccable"
       }
+    },
+    "claude-code-warp": {
+      "source": {
+        "source": "github",
+        "repo": "warpdotdev/claude-code-warp"
+      }
     }
   },
-  "effortLevel": "medium"
+  "effortLevel": "high",
+  "remoteControlAtStartup": false,
+  "agentPushNotifEnabled": true
 }

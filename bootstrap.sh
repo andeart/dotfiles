@@ -173,49 +173,15 @@ if is_enabled '.vscode.extensions'; then
     fi
 fi
 
-# --- agents (tool-agnostic) ---
-if is_enabled '.agents.settings'; then
-    info "Linking shared agent settings"
-    mkdir -p "$HOME/.agents"
-    link_file "$DOTFILES_ROOT/agents/AGENTS.md" "$HOME/.agents/AGENTS.md"
-fi
-
-if is_enabled '.agents.agents'; then
-    info "Linking shared agents"
-    mkdir -p "$HOME/.agents"
-    link_file "$DOTFILES_ROOT/agents/agents" "$HOME/.agents/agents"
-fi
-
-if is_enabled '.agents.skills'; then
-    info "Linking shared skills"
-    mkdir -p "$HOME/.agents"
-    link_file "$DOTFILES_ROOT/agents/skills" "$HOME/.agents/skills"
-fi
-
-# --- claude ---
-if is_enabled '.claude.settings'; then
-    info "Linking Claude Code settings"
-    for file in settings.json statusline-command.sh CLAUDE.md; do
-        src="$DOTFILES_ROOT/claude/$file"
-        [ -f "$src" ] || continue
-        link_file "$src" "$HOME/.claude/$file"
-    done
-fi
-
-if is_enabled '.claude.commands'; then
-    info "Linking Claude Code commands"
-    link_file "$DOTFILES_ROOT/claude/commands" "$HOME/.claude/commands"
-fi
-
-# Bridge ~/.claude/ to ~/.agents/ for tools that don't read ~/.agents/ natively
-if is_enabled '.agents.skills'; then
-    info "Bridging Claude Code skills to shared skills"
-    link_file "$HOME/.agents/skills" "$HOME/.claude/skills"
-fi
-
-if is_enabled '.agents.agents'; then
-    info "Bridging Claude Code agents to shared agents"
-    link_file "$HOME/.agents/agents" "$HOME/.claude/agents"
+# --- agents-and-claude (file sync via dotfiles push) ---
+if is_enabled '.agents-and-claude.sync'; then
+    info "Syncing agents/claude files to live destinations"
+    mkdir -p "$HOME/.dotfiles" "$HOME/.agents" "$HOME/.claude"
+    if "$DOTFILES_ROOT/bin/dotfiles" push; then
+        success "agents/claude files synced"
+    else
+        warn "dotfiles push reported issues - run 'dotfiles status' for details"
+    fi
 fi
 
 # --- iterm2 ---
@@ -232,6 +198,13 @@ if is_enabled '.iterm2.preferences'; then
     defaults write com.googlecode.iterm2 PrefsCustomFolder -string "$DOTFILES_ROOT/iterm2"
     defaults write com.googlecode.iterm2 LoadPrefsFromCustomFolder -bool true
     success "iTerm2 will load preferences from $DOTFILES_ROOT/iterm2"
+fi
+
+# --- pre-commit hook installation ---
+if command -v pre-commit &>/dev/null; then
+    info "Installing pre-commit hooks"
+    (cd "$DOTFILES_ROOT" && pre-commit install) >/dev/null
+    success "pre-commit hooks installed"
 fi
 
 echo ''
