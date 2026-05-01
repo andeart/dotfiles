@@ -27,6 +27,7 @@ Some files have `.local` variants (with `.example` templates) for machine-specif
 dotfiles/
 ├── dotfiles.yml                       # what bootstrap.sh should set up
 ├── bootstrap.sh                       # the installer
+├── .markdownlint.yml                  → markdownlint/markdownlint.yml.symlink (in-repo .yml needed by pre-commit)
 ├── .github/
 │   ├── dependabot.yml                 # weekly bumps for pinned action SHAs
 │   └── workflows/

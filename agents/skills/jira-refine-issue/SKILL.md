@@ -17,7 +17,7 @@ conventions. The writing rules themselves live in a shared file that this skill 
 `jira-create-issue` both Read, so refined issues come out indistinguishable from freshly created
 ones.
 
-**Before proposing any rewrite, Read `~/.claude/skills/jira-issue-conventions/CONVENTIONS.md`
+**Before proposing any rewrite, Read `~/.agents/skills/jira-issue-conventions/CONVENTIONS.md`
 and follow its rules for title, description format, description structure, and acceptance
 criteria style.**
 
