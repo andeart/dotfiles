@@ -346,3 +346,88 @@ EOF
   # Symlink untouched
   [ -L "$TEST_LIVE/.agents/AGENTS.md" ]
 }
+
+@test "freeze_agents copies live changes to repo and updates manifest" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  echo "edited in live" > "$TEST_LIVE/.agents/AGENTS.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_TEST_BIN" freeze_agents
+  [ "$status" -eq 0 ]
+  diff "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  grep -q "edited in live" "$TEST_REPO/agents/AGENTS.md"
+}
+
+@test "freeze_agents aborts when repo has unpushed changes" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  echo "edited in repo" > "$TEST_REPO/agents/AGENTS.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_TEST_BIN" freeze_agents
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"repo_changed"* ]]
+  [[ "$output" == *"push"* ]]
+}
+
+@test "freeze --pre-commit harvests live changes and skips repo_changed paths" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  cp "$TEST_REPO/claude/CLAUDE.md" "$TEST_LIVE/.claude/CLAUDE.md"
+  hash_a=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  hash_c=$(shasum -a 256 "$TEST_REPO/claude/CLAUDE.md" | awk '{print $1}')
+  cat > "$TEST_STATE" <<EOF
+{
+  "$TEST_LIVE/.agents/AGENTS.md": "$hash_a",
+  "$TEST_LIVE/.claude/CLAUDE.md": "$hash_c"
+}
+EOF
+  # Live drift: AGENTS.md edited externally
+  echo "drifted" > "$TEST_LIVE/.agents/AGENTS.md"
+  # Repo drift: CLAUDE.md edited and presumed staged for commit
+  echo "user edit" > "$TEST_REPO/claude/CLAUDE.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md
+claude/CLAUDE.md|~/.claude/CLAUDE.md" \
+    DOTFILES_PRECOMMIT_DRYRUN_GIT=1 \
+    "$DOTFILES_BIN" freeze --pre-commit
+  [ "$status" -eq 0 ]
+  # AGENTS.md harvested
+  grep -q "drifted" "$TEST_REPO/agents/AGENTS.md"
+  # CLAUDE.md left alone (user edit preserved)
+  grep -q "user edit" "$TEST_REPO/claude/CLAUDE.md"
+}
+
+@test "freeze --pre-commit aborts on both_changed conflict and prints a diff" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  echo "repo edit" > "$TEST_REPO/agents/AGENTS.md"
+  echo "live edit" > "$TEST_LIVE/.agents/AGENTS.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    DOTFILES_PRECOMMIT_DRYRUN_GIT=1 \
+    "$DOTFILES_BIN" freeze --pre-commit
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"both_changed"* ]]
+  [[ "$output" == *"-repo edit"* ]]
+  [[ "$output" == *"+live edit"* ]]
+}
