@@ -454,13 +454,14 @@ freeze_agents() {
 }
 
 # Pre-commit mode: selective harvest only.
-# - Aborts only on both_changed.
+# - Aborts only on both_changed (status 2). No side effects when aborting.
 # - For each live_changed / live_added: copy to repo, git add, update manifest.
 # - Skips repo_changed (those are the user's commit content).
 freeze_agents_precommit() {
   local conflicts=()
-  local harvested=()
+  local writable=()
 
+  # Phase 1: triage. No side effects.
   local state repo_p live_p
   while IFS=$'\t' read -r state repo_p live_p; do
     case "$state" in
@@ -468,17 +469,12 @@ freeze_agents_precommit() {
         conflicts+=("$repo_p|$live_p")
         ;;
       live_changed|live_added)
-        mkdir -p "$(dirname "$repo_p")"
-        cp "$live_p" "$repo_p"
-        _manifest_write "$live_p" "$(_sha256_file "$repo_p")"
-        if [ -z "${DOTFILES_PRECOMMIT_DRYRUN_GIT:-}" ]; then
-          git -C "$DOTFILES_ROOT" add "$repo_p"
-        fi
-        harvested+=("$repo_p")
+        writable+=("$state\t$repo_p\t$live_p")
         ;;
     esac
   done < <(_walk_mapping)
 
+  # Abort before any side effects if conflicts exist.
   if [ ${#conflicts[@]} -gt 0 ]; then
     echo -e "  ${RED}both_changed paths block this commit:${RESET}"
     local c r_p l_p
@@ -492,6 +488,22 @@ freeze_agents_precommit() {
     echo -e "  ${YELLOW}resolve manually (pick repo or live), then re-commit${RESET}"
     return 2
   fi
+
+  # Phase 2: apply.
+  local harvested=()
+  local w
+  for w in "${writable[@]+"${writable[@]}"}"; do
+    state="$(echo -e "$w" | awk -F'\t' '{print $1}')"
+    repo_p="$(echo -e "$w" | awk -F'\t' '{print $2}')"
+    live_p="$(echo -e "$w" | awk -F'\t' '{print $3}')"
+    mkdir -p "$(dirname "$repo_p")"
+    cp "$live_p" "$repo_p"
+    _manifest_write "$live_p" "$(_sha256_file "$repo_p")"
+    if [ -z "${DOTFILES_PRECOMMIT_DRYRUN_GIT:-}" ]; then
+      git -C "$DOTFILES_ROOT" add "$repo_p"
+    fi
+    harvested+=("$repo_p")
+  done
 
   if [ ${#harvested[@]} -gt 0 ]; then
     echo -e "  ${GREEN}auto-harvested ${#harvested[@]} file(s) into this commit:${RESET}"

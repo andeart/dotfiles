@@ -410,24 +410,47 @@ claude/CLAUDE.md|~/.claude/CLAUDE.md" \
   grep -q "drifted" "$TEST_REPO/agents/AGENTS.md"
   # CLAUDE.md left alone (user edit preserved)
   grep -q "user edit" "$TEST_REPO/claude/CLAUDE.md"
+  # Manifest updated for the harvested file
+  new_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  manifest_a=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_a" = "$new_hash" ]
+  # Manifest for CLAUDE.md unchanged (user edit was preserved, no harvest happened)
+  manifest_c=$(jq -r --arg k "$TEST_LIVE/.claude/CLAUDE.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_c" = "$hash_c" ]
 }
 
-@test "freeze --pre-commit aborts on both_changed conflict and prints a diff" {
+@test "freeze --pre-commit aborts on both_changed without harvesting other live_changed files" {
   make_tmp_world
   cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
-  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
-  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
-  echo "repo edit" > "$TEST_REPO/agents/AGENTS.md"
-  echo "live edit" > "$TEST_LIVE/.agents/AGENTS.md"
+  cp "$TEST_REPO/claude/CLAUDE.md" "$TEST_LIVE/.claude/CLAUDE.md"
+  hash_a=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  hash_c=$(shasum -a 256 "$TEST_REPO/claude/CLAUDE.md" | awk '{print $1}')
+  cat > "$TEST_STATE" <<EOF
+{
+  "$TEST_LIVE/.agents/AGENTS.md": "$hash_a",
+  "$TEST_LIVE/.claude/CLAUDE.md": "$hash_c"
+}
+EOF
+  # AGENTS.md: live_changed only (would harvest cleanly under the buggy flow)
+  echo "live drift only" > "$TEST_LIVE/.agents/AGENTS.md"
+  # CLAUDE.md: both_changed (forces an abort)
+  echo "repo edit" > "$TEST_REPO/claude/CLAUDE.md"
+  echo "live edit" > "$TEST_LIVE/.claude/CLAUDE.md"
+  # Snapshot AGENTS.md repo content before run
+  agents_before=$(cat "$TEST_REPO/agents/AGENTS.md")
   run env \
     DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
     DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
     DOTFILES_STATE_FILE="$TEST_STATE" \
-    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md
+claude/CLAUDE.md|~/.claude/CLAUDE.md" \
     DOTFILES_PRECOMMIT_DRYRUN_GIT=1 \
     "$DOTFILES_BIN" freeze --pre-commit
   [ "$status" -eq 2 ]
   [[ "$output" == *"both_changed"* ]]
   [[ "$output" == *"-repo edit"* ]]
   [[ "$output" == *"+live edit"* ]]
+  # AGENTS.md repo file was NOT mutated despite being live_changed (proves abort happened before harvest)
+  agents_after=$(cat "$TEST_REPO/agents/AGENTS.md")
+  [ "$agents_before" = "$agents_after" ]
 }
