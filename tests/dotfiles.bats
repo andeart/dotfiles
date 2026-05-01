@@ -149,3 +149,67 @@ load helpers/setup
   [ "$status" -eq 0 ]
   [ "$output" = "live_removed" ]
 }
+
+@test "walk_mapping classifies a single-file mapping (in_sync)" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_TEST_BIN" walk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"in_sync"* ]]
+  [[ "$output" == *"$TEST_REPO/agents/AGENTS.md"* ]]
+  [[ "$output" == *"$TEST_LIVE/.agents/AGENTS.md"* ]]
+}
+
+@test "walk_mapping recurses into a directory and mirrors to multiple destinations" {
+  make_tmp_world
+  mkdir -p "$TEST_LIVE/.agents/skills" "$TEST_LIVE/.claude/skills"
+  cp -R "$TEST_REPO/agents/skills/example-skill" "$TEST_LIVE/.agents/skills/example-skill"
+  cp -R "$TEST_REPO/agents/skills/example-skill" "$TEST_LIVE/.claude/skills/example-skill"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/skills/example-skill/SKILL.md" | awk '{print $1}')
+  cat > "$TEST_STATE" <<EOF
+{
+  "$TEST_LIVE/.agents/skills/example-skill/SKILL.md": "$hash",
+  "$TEST_LIVE/.claude/skills/example-skill/SKILL.md": "$hash"
+}
+EOF
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/skills|~/.agents/skills,~/.claude/skills" \
+    "$DOTFILES_TEST_BIN" walk
+  [ "$status" -eq 0 ]
+  # Two mirror destinations, each with one file -> two in_sync lines
+  count=$(echo "$output" | grep -c "in_sync")
+  [ "$count" -eq 2 ]
+}
+
+@test "walk_mapping flags live_changed when one mirror drifts" {
+  make_tmp_world
+  mkdir -p "$TEST_LIVE/.agents/skills" "$TEST_LIVE/.claude/skills"
+  cp -R "$TEST_REPO/agents/skills/example-skill" "$TEST_LIVE/.agents/skills/example-skill"
+  cp -R "$TEST_REPO/agents/skills/example-skill" "$TEST_LIVE/.claude/skills/example-skill"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/skills/example-skill/SKILL.md" | awk '{print $1}')
+  cat > "$TEST_STATE" <<EOF
+{
+  "$TEST_LIVE/.agents/skills/example-skill/SKILL.md": "$hash",
+  "$TEST_LIVE/.claude/skills/example-skill/SKILL.md": "$hash"
+}
+EOF
+  echo "drifted" > "$TEST_LIVE/.claude/skills/example-skill/SKILL.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/skills|~/.agents/skills,~/.claude/skills" \
+    "$DOTFILES_TEST_BIN" walk
+  [[ "$output" == *"in_sync"* ]]
+  [[ "$output" == *"live_changed"* ]]
+}

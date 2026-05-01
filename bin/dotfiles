@@ -133,6 +133,74 @@ _classify() {
   fi
 }
 
+# Returns 0 and prints lines: "<state>\t<repo_path>\t<live_path>"
+# for every (repo_file, live_file) pair across all entries in PATH_MAPPING.
+# Recurses into directory mappings; processes each mirror destination
+# independently. Honors DOTFILES_ROOT_OVERRIDE / DOTFILES_HOME_OVERRIDE
+# / DOTFILES_MAPPING_OVERRIDE for testing.
+_walk_mapping() {
+  local repo_root="${DOTFILES_ROOT_OVERRIDE:-$DOTFILES_ROOT}"
+  local home_root="${DOTFILES_HOME_OVERRIDE:-$HOME}"
+
+  local mapping=()
+  if [ -n "${DOTFILES_MAPPING_OVERRIDE:-}" ]; then
+    mapping=("$DOTFILES_MAPPING_OVERRIDE")
+  else
+    mapping=("${PATH_MAPPING[@]}")
+  fi
+
+  local entry repo_rel live_dests_csv repo_full live_dest live_full
+  for entry in "${mapping[@]}"; do
+    repo_rel="${entry%%|*}"
+    live_dests_csv="${entry#*|}"
+    repo_full="$repo_root/$repo_rel"
+
+    local IFS_save="$IFS"
+    IFS=','
+    for live_dest in $live_dests_csv; do
+      IFS="$IFS_save"
+      # Expand ~ relative to home_root (not literal $HOME) so tests can swap
+      live_full="${live_dest/#\~/$home_root}"
+      _walk_one_pair "$repo_full" "$live_full"
+      IFS=','
+    done
+    IFS="$IFS_save"
+  done
+}
+
+_walk_one_pair() {
+  local repo_path="$1" live_path="$2"
+
+  if [ -d "$repo_path" ] || [ -d "$live_path" ]; then
+    # Directory mapping: enumerate the union of files on both sides.
+    # Use a temp file to track relative paths seen on the repo side so we can
+    # skip them when enumerating the live side (avoids bash 4+ associative arrays).
+    local seen_tmp
+    seen_tmp="$(mktemp)"
+    if [ -d "$repo_path" ]; then
+      while IFS= read -r f; do
+        local rel="${f#$repo_path/}"
+        printf '%s\n' "$rel" >> "$seen_tmp"
+        local lp="$live_path/$rel"
+        printf "%s\t%s\t%s\n" "$(_classify "$f" "$lp")" "$f" "$lp"
+      done < <(find "$repo_path" -type f 2>/dev/null)
+    fi
+    if [ -d "$live_path" ]; then
+      while IFS= read -r f; do
+        local rel="${f#$live_path/}"
+        if ! grep -qxF "$rel" "$seen_tmp" 2>/dev/null; then
+          local rp="$repo_path/$rel"
+          printf "%s\t%s\t%s\n" "$(_classify "$rp" "$f")" "$rp" "$f"
+        fi
+      done < <(find "$live_path" -type f 2>/dev/null)
+    fi
+    rm -f "$seen_tmp"
+  else
+    # File mapping
+    printf "%s\t%s\t%s\n" "$(_classify "$repo_path" "$live_path")" "$repo_path" "$live_path"
+  fi
+}
+
 usage() {
   echo "Usage: dotfiles <command>"
   echo ""
