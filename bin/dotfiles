@@ -227,7 +227,7 @@ usage() {
 }
 
 # ---------------------------------------------------------------------------
-# push / status / freeze_agents (stubs; filled in across Tasks 4-9)
+# push / status / freeze_agents
 # ---------------------------------------------------------------------------
 
 push() {
@@ -355,7 +355,7 @@ status() {
     echo ""
     echo -e "  ${RED}conflict diffs:${RESET}"
     local pair r_p l_p
-    for pair in "${conflicts[@]}"; do
+    for pair in "${conflicts[@]+"${conflicts[@]}"}"; do
       r_p="${pair%%|*}"
       l_p="${pair#*|}"
       _print_conflict_diff "$r_p" "$l_p"
