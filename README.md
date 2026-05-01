@@ -61,17 +61,15 @@ dotfiles/
 │   ├── keybindings.json               → ~/Library/Application Support/Code/User/keybindings.json
 │   └── extensions.txt                 # installed via `code --install-extension`
 ├── agents/
-│   ├── AGENTS.md                      → ~/.agents/AGENTS.md (shared instructions)
-│   ├── agents/*                       → ~/.agents/agents/
-│   └── skills/*                       → ~/.agents/skills/
+│   ├── AGENTS.md                      # synced to ~/.agents/AGENTS.md
+│   └── skills/*                       # synced to ~/.agents/skills/ and ~/.claude/skills/
 └── claude/
-    ├── CLAUDE.md                      → ~/.claude/CLAUDE.md (imports AGENTS.md)
-    ├── settings.json                  → ~/.claude/settings.json
-    ├── statusline-command.sh          → ~/.claude/statusline-command.sh
-    └── commands/*                     → ~/.claude/commands/
+    ├── CLAUDE.md                      # synced to ~/.claude/CLAUDE.md
+    ├── settings.json                  # synced to ~/.claude/settings.json
+    └── statusline-command.sh          # synced to ~/.claude/statusline-command.sh
 ```
 
-All the `→` locations represent symlinks.
+The `agents/` and `claude/` subtrees are no longer symlinked - they're materialised by `bin/dotfiles push`. See "Why I dropped symlinks for agents/ and claude/" below for the why and "Editing claude / agents files" for the workflow.
 
 ### How linking works
 
@@ -83,3 +81,21 @@ All the `→` locations represent symlinks.
 ## The iTerm2 plist situation
 
 Anyhow, the iTerm2 plist deserves a brief aside. It's a binary plist that iTerm2 rewrites constantly with transient state, which makes version control a bit of an adventure. I made a git clean/smudge filter (`iterm-filter.sh`) that strips noise on commit and restores it on checkout. It also swaps `$HOME` with a placeholder so the plist isn't hardcoded to one user's home directory. Did I overengineer it? Maybe. Did the diff noise bother me enough to write a filter? One hundo.
+
+## Why I dropped symlinks for agents/ and claude/
+
+Claude Code's permission allow rules require both the literal requested path and the resolved symlink target to match. With `~/.claude/skills` (or `~/.agents/skills`, etc.) symlinked into this repo, the resolved target became `/Users/anuragdevanapally/code/dotfiles/...` - a per-machine absolute path. So a clean rule like `Read(~/.agents/AGENTS.md)` couldn't fully match unless I also listed my machine path, which is a non-starter for committing to a public repo.
+
+Removing those symlinks lets a single tilde-rooted rule do the work on every machine I bootstrap. The trade-off is that `~/.claude` and `~/.agents` are now real files maintained by `bin/dotfiles`, not free symlinks - but `bin/dotfiles` handles both directions and a pre-commit hook captures any external drift before it can disappear, so the workflow stays close to what it was.
+
+If future-me is reading this and thinking "let me just re-symlink this to be tidier" - please don't. The point is precisely that they aren't symlinks. The pre-commit hook plus `dotfiles push` is doing the job.
+
+## Editing claude / agents files
+
+The dotfiles repo is the source of truth. The flow:
+
+- Edit files under `agents/` or `claude/` in this repo as usual.
+- Run `dotfiles push` to mirror them out to `~/.agents` and `~/.claude`.
+- If an external tool (e.g. a Claude plugin install) changes a live file, you'll see it next time you run `dotfiles status` or commit. The pre-commit hook auto-stages live drift into your commit so the repo can't silently fall behind.
+- `dotfiles freeze` (the existing umbrella) now also captures drift back from `~/.agents` and `~/.claude` if you want to do it explicitly outside of a commit.
+- Conflicts (both sides edited a file in incompatible ways) abort with a clear message; resolve manually then re-run.
