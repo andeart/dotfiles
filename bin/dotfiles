@@ -84,6 +84,8 @@ _classify() {
   [ -n "$live_hash" ] && live_present=1
   [ "$manifest_hash" != "null" ] && manifest_present=1
 
+  # both_removed is unreachable through the public PATH_MAPPING walker but kept
+  # as a defensive fallthrough.
   if [ $repo_present -eq 0 ] && [ $live_present -eq 0 ]; then
     echo "both_removed"
     return
@@ -114,6 +116,10 @@ _classify() {
   else
     # No manifest entry but repo and live differ — treat as both changed
     # (we can't tell which side is canonical without the manifest anchor).
+    # The "stale manifest" variant — repo and live are byte-identical but both
+    # disagree with the manifest hash — also lands in both_changed via the
+    # comparisons above. That's the least-wrong answer until a push or freeze
+    # rewrites the manifest.
     repo_changed=1
     live_changed=1
   fi

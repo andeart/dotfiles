@@ -68,6 +68,7 @@ load helpers/setup
   echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
   run env DOTFILES_STATE_FILE="$TEST_STATE" "$DOTFILES_TEST_BIN" classify \
     "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -eq 0 ]
   [ "$output" = "in_sync" ]
 }
 
@@ -79,6 +80,7 @@ load helpers/setup
   echo "edited in repo" > "$TEST_REPO/agents/AGENTS.md"
   run env DOTFILES_STATE_FILE="$TEST_STATE" "$DOTFILES_TEST_BIN" classify \
     "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -eq 0 ]
   [ "$output" = "repo_changed" ]
 }
 
@@ -90,6 +92,7 @@ load helpers/setup
   echo "edited in live" > "$TEST_LIVE/.agents/AGENTS.md"
   run env DOTFILES_STATE_FILE="$TEST_STATE" "$DOTFILES_TEST_BIN" classify \
     "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -eq 0 ]
   [ "$output" = "live_changed" ]
 }
 
@@ -102,6 +105,7 @@ load helpers/setup
   echo "edited in live differently" > "$TEST_LIVE/.agents/AGENTS.md"
   run env DOTFILES_STATE_FILE="$TEST_STATE" "$DOTFILES_TEST_BIN" classify \
     "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -eq 0 ]
   [ "$output" = "both_changed" ]
 }
 
@@ -110,6 +114,7 @@ load helpers/setup
   echo '{}' > "$TEST_STATE"
   run env DOTFILES_STATE_FILE="$TEST_STATE" "$DOTFILES_TEST_BIN" classify \
     "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -eq 0 ]
   [ "$output" = "repo_added" ]
 }
 
@@ -119,6 +124,7 @@ load helpers/setup
   echo '{}' > "$TEST_STATE"
   run env DOTFILES_STATE_FILE="$TEST_STATE" "$DOTFILES_TEST_BIN" classify \
     "$TEST_REPO/agents/no-such-file.md" "$TEST_LIVE/.agents/orphan.md"
+  [ "$status" -eq 0 ]
   [ "$output" = "live_added" ]
 }
 
@@ -130,6 +136,7 @@ load helpers/setup
   rm "$TEST_REPO/agents/AGENTS.md"
   run env DOTFILES_STATE_FILE="$TEST_STATE" "$DOTFILES_TEST_BIN" classify \
     "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -eq 0 ]
   [ "$output" = "repo_removed" ]
 }
 
@@ -139,5 +146,6 @@ load helpers/setup
   echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
   run env DOTFILES_STATE_FILE="$TEST_STATE" "$DOTFILES_TEST_BIN" classify \
     "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -eq 0 ]
   [ "$output" = "live_removed" ]
 }
