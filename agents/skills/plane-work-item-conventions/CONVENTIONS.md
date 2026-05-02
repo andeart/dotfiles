@@ -70,6 +70,21 @@ This applies to both `create_work_item` and `update_work_item` calls. The `descr
 examples below are intentionally written on a single line - copy that shape, don't
 pretty-print.
 
+## Previewing to the user before sending
+
+Two distinct surfaces:
+
+- **Wire format (what Plane receives):** the single-line, no-whitespace HTML described in the
+  Description format section above. This is what `description_html` carries on
+  `create_work_item` / `update_work_item`.
+- **Chat preview (what the user reviews before approval):** human-readable rendered markdown -
+  the proposed title on its own line, then `### Impact`, `### Notes`, `### Acceptance criteria`
+  headings, plain bullets for Impact/Notes, and `- [ ]` items for acceptance criteria. Do not
+  paste raw HTML into chat in mcp mode; the user is reviewing content, not markup.
+
+Manual mode is the exception: in manual mode the user copy-pastes the body into Plane, so the
+fenced HTML block is the correct preview (see the create skill's "Manual mode output format").
+
 ## Work Item Description Structure
 
 Every work item description uses up to three sections in this fixed order. Sections are separated
