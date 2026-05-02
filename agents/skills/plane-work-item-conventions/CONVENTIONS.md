@@ -55,6 +55,21 @@ When a tool call accepts both `description_html` and `description_stripped`, als
 `description_stripped` with the plain-text version (no tags, single newlines between blocks).
 Plane uses it for search and previews.
 
+### Whitespace between tags
+
+Send `description_html` as one continuous string with **no whitespace between block-level
+tags**. Plane's Tiptap editor turns inter-tag whitespace (newlines, indentation) into empty
+paragraph blocks on save, which render in the web UI as blank bullets and large vertical gaps
+between sections. Specifically:
+
+- No newlines between `</ul>` and the next `<h3>` or `<div data-type="horizontalRule">`.
+- No newlines or indentation between `<ul>` and its first `<li>`, or between sibling `<li>`s.
+- No newlines between sections of any kind.
+
+This applies to both `create_work_item` and `update_work_item` calls. The `description_html`
+examples below are intentionally written on a single line - copy that shape, don't
+pretty-print.
+
 ## Work Item Description Structure
 
 Every work item description uses up to three sections in this fixed order. Sections are separated
@@ -128,37 +143,12 @@ Rules:
 A complete work item with all three sections. If there are no Notes, omit that section and its
 surrounding horizontal-rule dividers entirely.
 
+The HTML below is a single line - it's wrapped here only because of the page width. Send it
+as one continuous string with no newlines or indentation between tags (see the "Whitespace
+between tags" subsection above for why):
+
 ```html
-<h3>Impact</h3>
-<ul>
-  <li>This will automatically secure and conserve the home when nobody is present so we can walk
-      out without thinking about locking doors, turning off lights, or adjusting the thermostat.</li>
-</ul>
-
-<div data-type="horizontalRule"><div></div></div>
-
-<h3>Notes</h3>
-<ul>
-  <li>Presence detection should use Wi-Fi presence as the primary method for the first version.</li>
-  <li>A door-lock failure is a meaningful edge case that should surface as an alert rather than
-      fail silently.</li>
-  <li>Inspired by a friend's setup that locks doors, turns off lights, and turns down heat on
-      departure.</li>
-</ul>
-
-<div data-type="horizontalRule"><div></div></div>
-
-<h3>Acceptance criteria</h3>
-<ul data-type="taskList">
-  <li data-type="taskItem" data-checked="false">Wi-Fi presence detection is set up for all
-      tracked occupants.</li>
-  <li data-type="taskItem" data-checked="false">An automation triggers when all tracked
-      occupants are detected as away.</li>
-  <li data-type="taskItem" data-checked="false">The automation locks all doors.</li>
-  <li data-type="taskItem" data-checked="false">An alert is sent if a door lock fails to lock.</li>
-  <li data-type="taskItem" data-checked="false">The behavior is tested with a simulated all-away
-      state before relying on real presence detection.</li>
-</ul>
+<h3>Impact</h3><ul><li>This will automatically secure and conserve the home when nobody is present so we can walk out without thinking about locking doors, turning off lights, or adjusting the thermostat.</li></ul><div data-type="horizontalRule"><div></div></div><h3>Notes</h3><ul><li>Presence detection should use Wi-Fi presence as the primary method for the first version.</li><li>A door-lock failure is a meaningful edge case that should surface as an alert rather than fail silently.</li><li>Inspired by a friend's setup that locks doors, turns off lights, and turns down heat on departure.</li></ul><div data-type="horizontalRule"><div></div></div><h3>Acceptance criteria</h3><ul data-type="taskList"><li data-type="taskItem" data-checked="false">Wi-Fi presence detection is set up for all tracked occupants.</li><li data-type="taskItem" data-checked="false">An automation triggers when all tracked occupants are detected as away.</li><li data-type="taskItem" data-checked="false">The automation locks all doors.</li><li data-type="taskItem" data-checked="false">An alert is sent if a door lock fails to lock.</li><li data-type="taskItem" data-checked="false">The behavior is tested with a simulated all-away state before relying on real presence detection.</li></ul>
 ```
 
 The matching `description_stripped` for the example above. Section headers appear on their own
