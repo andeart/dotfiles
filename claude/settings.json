@@ -4,7 +4,7 @@
   },
   "permissions": {
     "allow": [
-      "Read(~/.agents/skills/jira-issue-conventions/CONVENTIONS.md)"
+      "Read(~/.agents/skills/plane-work-item-conventions/CONVENTIONS.md)"
     ],
     "defaultMode": "default",
     "additionalDirectories": [
