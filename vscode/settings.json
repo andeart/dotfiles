@@ -60,6 +60,10 @@
     "git.optimisticUpdate": false,
     "git.pullTags": false,
     "github.branchProtection": false,
+    "gitlens.advanced.messages": {
+        "suppressGitDisabledWarning": true,
+        "suppressGitMissingWarning": true
+    },
     "gitlens.ai.model": "vscode",
     "gitlens.ai.vscode.model": "copilot:gpt-4.1",
     "go.toolsManagement.autoUpdate": true,
