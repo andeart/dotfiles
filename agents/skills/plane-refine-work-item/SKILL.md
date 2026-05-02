@@ -52,10 +52,13 @@ handle that as a separate `update_work_item` call after the content rewrite is c
    - Testing step absent or not positioned last.
    - Section headers at the wrong level (e.g. `<h1>` or `<h2>` instead of `<h3>`), or `<hr>`
      separators missing between sections.
-3. **Propose the rewritten version to the user before writing.** Show the proposed new title
-   and the full proposed HTML description in the chat (rendered as a fenced ```html block so the
-   user can read the markup), and wait for explicit confirmation. Refining is destructive to
-   existing prose, so never edit silently. If the user wants tweaks, iterate in chat first.
+3. **Propose the rewritten version to the user before writing.** Render the preview in the
+   human-readable form described in `CONVENTIONS.md` ("Previewing to the user before sending") -
+   proposed title on its own line, then `### Impact` / `### Notes` / `### Acceptance criteria`
+   sections with markdown bullets and `- [ ]` task items. Do not paste the raw HTML into chat;
+   the compact single-line HTML is the wire format, not the preview format. Wait for explicit
+   confirmation. Refining is destructive to existing prose, so never edit silently. If the user
+   wants tweaks, iterate in chat first.
 4. **Apply the edit** via `update_work_item` with the work item's UUID (from the retrieve call's
    `id` field) and its `project_id`. Pass only `name`, `description_html`, and
    `description_stripped` unless the user requested other field changes.
