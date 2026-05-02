@@ -39,6 +39,7 @@
 - Keep technical detail rigorous and well-structured - the tone is friendly, not the standards.
 - Avoid formal/corporate phrasing like "undermines the contract" or "addresses this gracefully" - prefer plain language like "so users end up hunting for files they shouldn't have to know about" or "should be enough to cover that."
 - Nothing overly jovial or silly. The goal is to sound like a thoughtful contributor talking to maintainers, not a spec generator.
+- Match the emotional register to the stakes. Describe the change matter-of-factly - what was happening, what changes now. "The preview was raw HTML; this renders it as markdown" lands better than "the markup drowns out the content."
 
 ## Security
 
