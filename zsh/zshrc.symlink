@@ -14,10 +14,7 @@ ZSH_CUSTOM="$(dirname "$(readlink ~/.zshrc)")/zsh-custom"
 source "$ZSH/oh-my-zsh.sh"
 
 # zshrc.local must be sourced before shell integration so that
-# iterm2_print_user_vars is defined before the integration sets a no-op default.
 [ -f ~/.zshrc.local ] && source ~/.zshrc.local
-
-test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
 
 export NVM_DIR="$HOME/.nvm"
 

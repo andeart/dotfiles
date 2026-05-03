@@ -52,9 +52,6 @@ dotfiles/
 │   ├── gitconfig.local.symlink        → ~/.gitconfig.local (machine-specific)
 │   ├── bin/*                          # git functions
 │   └── hooks/*                        # git hooks
-├── iterm2/
-│   ├── com.googlecode.iterm2.plist    # loaded via iTerm2's custom folder pref
-│   └── iterm-filter.sh                # git clean/smudge filter for the plist
 ├── markdownlint/
 │   └── markdownlint.yml.symlink        → ~/.markdownlint.yml
 ├── vscode/
@@ -75,13 +72,9 @@ The `agents/` and `claude/` subtrees are no longer symlinked - they're materiali
 ### How linking works
 
 - `*.symlink` files get linked to `$HOME` as dotfiles (so `gitconfig.symlink` becomes `~/.gitconfig`, etc). Straightforward.
-- Some configs (VS Code, iTerm2, Claude Code, etc) go to app-specific paths, not `$HOME`. The bootstrap handles these explicitly.
+- Some configs (VS Code, Claude Code, etc) go to app-specific paths, not `$HOME`. The bootstrap handles these explicitly.
 - `*.local.*` files are for per-machine overrides. Each one has a `.example` template.
 - The zsh-custom files are numbered because order matters when ZSH_CUSTOM is loaded by OMZ.
-
-## The iTerm2 plist situation
-
-Anyhow, the iTerm2 plist deserves a brief aside. It's a binary plist that iTerm2 rewrites constantly with transient state, which makes version control a bit of an adventure. I made a git clean/smudge filter (`iterm-filter.sh`) that strips noise on commit and restores it on checkout. It also swaps `$HOME` with a placeholder so the plist isn't hardcoded to one user's home directory. Did I overengineer it? Maybe. Did the diff noise bother me enough to write a filter? One hundo.
 
 ## Why I dropped symlinks for agents/ and claude/
 

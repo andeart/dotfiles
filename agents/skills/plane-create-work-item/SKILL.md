@@ -42,7 +42,8 @@ Supported keys:
 | `project` | Plane project name or identifier (the prefix shown in work-item IDs, e.g. `DX` for `DX-22`). Resolved via `list_projects` to a project UUID. | `DX` |
 | `assignee` | Plane display name or email (resolved via `get_workspace_members` to a user UUID) | `anurag` |
 | `state` | Initial state name from the project's configured states | `Todo` |
-| `estimate` | Story-point label from the project's configured estimate set (numeric labels are common) | `2` |
+| `estimate` | Story-point label from the project's configured estimate set (numeric labels are common). Must have a matching entry in `estimate_points` to be sent to Plane. | `2` |
+| `estimate_points` | Map of estimate label → `estimate_point` UUID for the project's estimate set. Required to send any estimate, since Plane's MCP API expects the UUID, not the integer label. See "Estimate points" below. | `{1: <uuid>, 2: <uuid>, ...}` |
 | `priority` | `urgent`, `high`, `medium`, `low`, `none` | `low` |
 
 State and priority values are accepted case-insensitively but normalized before being sent to the
@@ -101,6 +102,11 @@ file with all supported keys commented out so they can uncomment and set values 
 # state:
 # estimate:
 # priority:
+# estimate_points:
+#   1: <uuid>
+#   2: <uuid>
+#   3: <uuid>
+#   5: <uuid>
 ```
 
 ### Missing keys in existing .plane.yml
@@ -161,9 +167,13 @@ For non-trivial work item creation, the skill composes several Plane MCP calls i
 3. **Resolve the state UUID**, if a non-default `state` is configured. Call `list_states` for the
    project (cache the result per project per session - state IDs are stable within a project) and
    match by name (case-insensitive).
-4. **Resolve the estimate point UUID**, if `estimate` is configured. Estimate points are a
-   project-level configuration; look them up via the project's estimate set. Pass the resolved
-   UUID as `estimate_point`.
+4. **Resolve the estimate point UUID**, if `estimate` is configured. Look up the integer label in
+   the `estimate_points` map from `.plane.yml` and use the matching UUID. Do **not** rely on the
+   `point` integer field on `create_work_item` / `update_work_item` - Plane's web UI reads the
+   estimate from `estimate_point` (UUID) only, and the integer `point` field is silently ignored
+   for display. There is no MCP tool that lists estimate points, so the map in `.plane.yml` is the
+   only reliable source. If `estimate` is set but no matching entry exists in `estimate_points`,
+   ask the user for the UUID rather than guessing or sending the integer.
 5. **Create the work item** via `create_work_item`:
    - `project_id`: the project UUID.
    - `name`: the title.
@@ -175,6 +185,39 @@ For non-trivial work item creation, the skill composes several Plane MCP calls i
    - `estimate_point`: the resolved estimate-point UUID, if specified.
 6. **Add external links and relations**, if the user explicitly asked for them - see
    "Linking and relations" below.
+
+### Estimate points
+
+Plane stores each estimate as a UUID-keyed entry in a project-level "estimate set". The MCP API
+exposes only the UUID (`estimate_point`) - there is no tool to list the set, and the integer
+`point` field on work items is not what the UI displays. To set estimates reliably, record a
+label-to-UUID map in `.plane.yml` under `estimate_points`.
+
+**How to discover the UUIDs for a new project:**
+
+The fastest path is the Plane REST API, which does expose the full estimate set even though the
+MCP tools don't. If `PLANE_API_TOKEN` and `PLANE_WORKSPACE_SLUG` are available in env, the skill
+can fetch the map directly:
+
+```bash
+# 1. Get the project's estimate set ID from list_projects (`estimate` field on the project).
+# 2. Fetch the points:
+curl -s -H "X-API-Key: $PLANE_API_TOKEN" \
+  "https://api.plane.so/api/v1/workspaces/$PLANE_WORKSPACE_SLUG/projects/$PROJECT_ID/estimates/$ESTIMATE_ID/" \
+  | jq '.points[] | {value: .value, id: .id}'
+```
+
+If those env vars are not set, fall back to the manual approach:
+
+1. List existing work items (`list_work_items` with `fields=id,sequence_id,estimate_point`) and
+   note the distinct `estimate_point` UUIDs in use.
+2. For each unknown UUID, ask the user to read the rendered estimate value off any work item that
+   uses it in the web UI.
+3. Write the resulting label → UUID pairs into `.plane.yml` under `estimate_points`.
+
+If the project has multiple historical estimate sets, you may see UUIDs that render the same label
+(e.g. two different UUIDs both showing "2"). Keep only the canonical (current) one in the map and
+note the orphan in a comment so future readers know not to use it.
 
 ## Default Field Values
 
