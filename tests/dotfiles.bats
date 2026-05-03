@@ -610,6 +610,249 @@ EOF
   [[ "$output" == *"+edited in live"* ]]
 }
 
+@test "_pair_is_byte_identical returns 0 when both files match, 1 otherwise" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  run "$DOTFILES_TEST_BIN" pair_is_byte_identical \
+    "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -eq 0 ]
+  echo "different" > "$TEST_LIVE/.agents/AGENTS.md"
+  run "$DOTFILES_TEST_BIN" pair_is_byte_identical \
+    "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -eq 1 ]
+}
+
+@test "_pair_is_byte_identical returns 1 when either file is missing" {
+  make_tmp_world
+  run "$DOTFILES_TEST_BIN" pair_is_byte_identical \
+    "$TEST_REPO/agents/AGENTS.md" "/no/such/path"
+  [ "$status" -eq 1 ]
+  run "$DOTFILES_TEST_BIN" pair_is_byte_identical \
+    "/no/such/path" "/another/missing"
+  [ "$status" -eq 1 ]
+}
+
+@test "status appends (byte-identical) when sides match but manifest is stale" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  # Manifest hash is stale — does not match either side
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"deadbeef\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"both_changed"* ]]
+  [[ "$output" == *"(byte-identical)"* ]]
+  # No diff section, since byte-identical pairs have nothing to diff
+  [[ "$output" != *"conflict diffs:"* ]]
+}
+
+@test "status shows (byte-identical) only on matching pairs in a mixed conflict set" {
+  make_tmp_world
+  # AGENTS.md: byte-identical (sides match, manifest stale)
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  # CLAUDE.md: true conflict (sides differ)
+  cp "$TEST_REPO/claude/CLAUDE.md" "$TEST_LIVE/.claude/CLAUDE.md"
+  hash_c=$(shasum -a 256 "$TEST_REPO/claude/CLAUDE.md" | awk '{print $1}')
+  cat > "$TEST_STATE" <<EOF
+{
+  "$TEST_LIVE/.agents/AGENTS.md": "deadbeef",
+  "$TEST_LIVE/.claude/CLAUDE.md": "$hash_c"
+}
+EOF
+  echo "edited in repo" > "$TEST_REPO/claude/CLAUDE.md"
+  echo "edited in live" > "$TEST_LIVE/.claude/CLAUDE.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md
+claude/CLAUDE.md|~/.claude/CLAUDE.md" \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 2 ]
+  # AGENTS.md line carries the marker; CLAUDE.md line does not
+  [[ "$output" =~ AGENTS\.md.*\(byte-identical\) ]]
+  [[ ! "$output" =~ CLAUDE\.md.*\(byte-identical\) ]]
+  # Only the true conflict shows up in the diff section
+  [[ "$output" == *"conflict diffs:"* ]]
+  [[ "$output" == *"-edited in repo"* ]]
+  [[ "$output" == *"+edited in live"* ]]
+}
+
+@test "push auto-resolves byte-identical conflicts when prompt accepted" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"deadbeef\"}" > "$TEST_STATE"
+  shared_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_BIN" push <<< "y"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"byte-identical conflicts"* ]]
+  [[ "$output" == *"resolved"* ]]
+  # Manifest now matches the shared content hash
+  manifest_hash=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_hash" = "$shared_hash" ]
+}
+
+@test "push aborts when byte-identical prompt is declined" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"deadbeef\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_BIN" push <<< "n"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"byte-identical conflicts"* ]]
+  [[ "$output" == *"resolve conflicts manually"* ]]
+  # Manifest unchanged
+  manifest_hash=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_hash" = "deadbeef" ]
+}
+
+@test "push aborts on byte-identical conflicts in non-interactive shells" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"deadbeef\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" push
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"byte-identical conflicts"* ]]
+  # No prompt was emitted
+  [[ "$output" != *"auto-resolve"* ]]
+  # Manifest unchanged
+  manifest_hash=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_hash" = "deadbeef" ]
+}
+
+@test "push resolves byte-identical and still aborts on a true conflict alongside it" {
+  make_tmp_world
+  # AGENTS.md: byte-identical
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  # CLAUDE.md: true content conflict
+  cp "$TEST_REPO/claude/CLAUDE.md" "$TEST_LIVE/.claude/CLAUDE.md"
+  hash_c=$(shasum -a 256 "$TEST_REPO/claude/CLAUDE.md" | awk '{print $1}')
+  cat > "$TEST_STATE" <<EOF
+{
+  "$TEST_LIVE/.agents/AGENTS.md": "deadbeef",
+  "$TEST_LIVE/.claude/CLAUDE.md": "$hash_c"
+}
+EOF
+  echo "repo edit" > "$TEST_REPO/claude/CLAUDE.md"
+  echo "live edit" > "$TEST_LIVE/.claude/CLAUDE.md"
+  shared_a=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md
+claude/CLAUDE.md|~/.claude/CLAUDE.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_BIN" push <<< "y"
+  [ "$status" -eq 2 ]
+  # AGENTS.md got auto-resolved
+  manifest_a=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_a" = "$shared_a" ]
+  # CLAUDE.md still triggers the true-conflict abort path with diff output
+  [[ "$output" == *"conflicts on the same path"* ]]
+  [[ "$output" == *"-repo edit"* ]]
+  [[ "$output" == *"+live edit"* ]]
+}
+
+@test "freeze_agents auto-resolves byte-identical conflicts when prompt accepted" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"deadbeef\"}" > "$TEST_STATE"
+  shared_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" freeze_agents <<< "y"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"byte-identical conflicts"* ]]
+  manifest_hash=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_hash" = "$shared_hash" ]
+}
+
+@test "freeze --pre-commit auto-resolves byte-identical conflicts when accepted" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"deadbeef\"}" > "$TEST_STATE"
+  shared_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    DOTFILES_PRECOMMIT_DRYRUN_GIT=1 \
+    "$DOTFILES_BIN" freeze --pre-commit <<< "y"
+  [ "$status" -eq 0 ]
+  manifest_hash=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_hash" = "$shared_hash" ]
+}
+
+@test "_offer_resolve_byte_identical writes manifest hashes when accepted" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  echo '{}' > "$TEST_STATE"
+  shared_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  run env \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" offer_resolve_byte_identical \
+      "$TEST_REPO/agents/AGENTS.md|$TEST_LIVE/.agents/AGENTS.md" <<< "y"
+  [ "$status" -eq 0 ]
+  manifest_hash=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_hash" = "$shared_hash" ]
+}
+
+@test "_offer_resolve_byte_identical leaves manifest untouched when declined" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"deadbeef\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" offer_resolve_byte_identical \
+      "$TEST_REPO/agents/AGENTS.md|$TEST_LIVE/.agents/AGENTS.md" <<< "n"
+  [ "$status" -eq 1 ]
+  manifest_hash=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_hash" = "deadbeef" ]
+}
+
+@test "_offer_resolve_byte_identical is silent and declines in non-interactive shells" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"deadbeef\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    "$DOTFILES_TEST_BIN" offer_resolve_byte_identical \
+      "$TEST_REPO/agents/AGENTS.md|$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -eq 1 ]
+  [[ "$output" != *"auto-resolve"* ]]
+  manifest_hash=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest_hash" = "deadbeef" ]
+}
+
 @test "freeze --pre-commit aborts on both_changed without harvesting other live_changed files" {
   make_tmp_world
   cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
