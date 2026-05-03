@@ -21,15 +21,15 @@ test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell
 
 export NVM_DIR="$HOME/.nvm"
 
-# Lazy-load NVM: create stub functions that switch themselves out to the real NVM on first call.
-_nvm_lazy_load() {
-  unfunction nvm node npm npx 2>/dev/null
-  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-}
-for cmd in nvm node npm npx; do
-  eval "${cmd}() { _nvm_lazy_load; ${cmd} \"\$@\" }"
-done
+# Load NVM eagerly. Claude Code captures a snapshot of the shell environment at
+# session start and replays it for every Bash tool call, instead of re-sourcing
+# this file. The lazy-load shim previously here defined stubs (`node`, `npm`,
+# `nvm`, `npx`) that called a `_nvm_lazy_load` helper, but the snapshot captured
+# the stubs without the helper, so any agent `node ...` call infinite-recursed
+# until it hit FUNCNEST. Eager loading puts real `node`/`npm`/`nvm` into the
+# snapshot directly, sidestepping the broken-stub failure mode.
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 
 source "${BREW_PREFIX}/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
 
