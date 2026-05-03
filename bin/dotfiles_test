@@ -18,5 +18,8 @@ case "${1:-}" in
   walk)           _walk_mapping ;;
   freeze_agents)  freeze_agents ;;
   offer_open_conflicts) shift; _offer_open_conflicts "$@" ;;
+  pair_is_byte_identical) _pair_is_byte_identical "${2:?usage: dotfiles_test pair_is_byte_identical <repo> <live>}" "${3:?usage: dotfiles_test pair_is_byte_identical <repo> <live>}" ;;
+  offer_resolve_byte_identical) shift; _offer_resolve_byte_identical "$@" ;;
+  freeze_agents_precommit) freeze_agents_precommit ;;
   *)              echo "Unknown test command: ${1:-<none>}" >&2; exit 1 ;;
 esac
