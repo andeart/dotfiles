@@ -3,7 +3,6 @@ dart-code.dart-code
 dart-code.flutter
 davidanson.vscode-markdownlint
 eamodio.gitlens
-github.copilot-chat
 github.github-vscode-theme
 github.vscode-github-actions
 golang.go
