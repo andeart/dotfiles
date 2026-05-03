@@ -234,6 +234,33 @@ EOF
   [[ "$output" == *"live_changed"* ]]
 }
 
+@test "walk_mapping ignores .DS_Store and Thumbs.db on both sides" {
+  make_tmp_world
+  mkdir -p "$TEST_LIVE/.agents/skills" "$TEST_LIVE/.claude/skills"
+  cp -R "$TEST_REPO/agents/skills/example-skill" "$TEST_LIVE/.agents/skills/example-skill"
+  cp -R "$TEST_REPO/agents/skills/example-skill" "$TEST_LIVE/.claude/skills/example-skill"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/skills/example-skill/SKILL.md" | awk '{print $1}')
+  cat > "$TEST_STATE" <<EOF
+{
+  "$TEST_LIVE/.agents/skills/example-skill/SKILL.md": "$hash",
+  "$TEST_LIVE/.claude/skills/example-skill/SKILL.md": "$hash"
+}
+EOF
+  # Sprinkle OS junk on both sides
+  echo "junk" > "$TEST_REPO/agents/skills/.DS_Store"
+  echo "junk" > "$TEST_LIVE/.agents/skills/.DS_Store"
+  echo "junk" > "$TEST_LIVE/.agents/skills/example-skill/Thumbs.db"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/skills|~/.agents/skills,~/.claude/skills" \
+    "$DOTFILES_TEST_BIN" walk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *".DS_Store"* ]]
+  [[ "$output" != *"Thumbs.db"* ]]
+}
+
 @test "walk_mapping flags live_added when a directory mirror has an extra file" {
   make_tmp_world
   mkdir -p "$TEST_LIVE/.agents/skills" "$TEST_LIVE/.claude/skills"
@@ -312,7 +339,7 @@ EOF
   [ "$manifest_hash" = "$hash" ]
 }
 
-@test "push aborts when live has unharvested changes" {
+@test "push leaves live drift untouched and reports it without aborting" {
   make_tmp_world
   cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
   manifest_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
@@ -324,11 +351,46 @@ EOF
     DOTFILES_STATE_FILE="$TEST_STATE" \
     DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
     "$DOTFILES_BIN" push
-  [ "$status" -eq 2 ]
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"live drift"* ]]
   [[ "$output" == *"live_changed"* ]]
-  [[ "$output" == *"freeze"* ]]
   # Live file untouched
   grep -q "edited externally" "$TEST_LIVE/.agents/AGENTS.md"
+}
+
+@test "push applies repo_changed and leaves live_changed on a different path" {
+  make_tmp_world
+  # AGENTS.md: in_sync at first, then we'll introduce live_changed on it
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash_a=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  # CLAUDE.md: in_sync at first, then we'll introduce repo_changed on it
+  cp "$TEST_REPO/claude/CLAUDE.md" "$TEST_LIVE/.claude/CLAUDE.md"
+  hash_c=$(shasum -a 256 "$TEST_REPO/claude/CLAUDE.md" | awk '{print $1}')
+  cat > "$TEST_STATE" <<EOF
+{
+  "$TEST_LIVE/.agents/AGENTS.md": "$hash_a",
+  "$TEST_LIVE/.claude/CLAUDE.md": "$hash_c"
+}
+EOF
+  # AGENTS.md: live_changed on its own
+  echo "live edit on agents" > "$TEST_LIVE/.agents/AGENTS.md"
+  # CLAUDE.md: repo_changed on its own
+  echo "repo edit on claude" > "$TEST_REPO/claude/CLAUDE.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md
+claude/CLAUDE.md|~/.claude/CLAUDE.md" \
+    "$DOTFILES_BIN" push
+  [ "$status" -eq 0 ]
+  # Repo edit applied to live
+  grep -q "repo edit on claude" "$TEST_LIVE/.claude/CLAUDE.md"
+  # Live edit on the other path was left alone
+  grep -q "live edit on agents" "$TEST_LIVE/.agents/AGENTS.md"
+  # The unharvested live drift was reported
+  [[ "$output" == *"live drift"* ]]
+  [[ "$output" == *"AGENTS.md"* ]]
 }
 
 @test "push refuses to overwrite a symlink at the live destination" {
@@ -364,7 +426,7 @@ EOF
   grep -q "edited in live" "$TEST_REPO/agents/AGENTS.md"
 }
 
-@test "freeze_agents aborts when repo has unpushed changes" {
+@test "freeze_agents leaves repo drift untouched and reports it without aborting" {
   make_tmp_world
   cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
   hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
@@ -376,9 +438,44 @@ EOF
     DOTFILES_STATE_FILE="$TEST_STATE" \
     DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
     "$DOTFILES_TEST_BIN" freeze_agents
-  [ "$status" -eq 2 ]
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"repo drift"* ]]
   [[ "$output" == *"repo_changed"* ]]
-  [[ "$output" == *"push"* ]]
+  # Repo file untouched
+  grep -q "edited in repo" "$TEST_REPO/agents/AGENTS.md"
+}
+
+@test "freeze_agents captures live_changed and leaves repo_changed on a different path" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash_a=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  cp "$TEST_REPO/claude/CLAUDE.md" "$TEST_LIVE/.claude/CLAUDE.md"
+  hash_c=$(shasum -a 256 "$TEST_REPO/claude/CLAUDE.md" | awk '{print $1}')
+  cat > "$TEST_STATE" <<EOF
+{
+  "$TEST_LIVE/.agents/AGENTS.md": "$hash_a",
+  "$TEST_LIVE/.claude/CLAUDE.md": "$hash_c"
+}
+EOF
+  # AGENTS.md: live_changed on its own
+  echo "live edit on agents" > "$TEST_LIVE/.agents/AGENTS.md"
+  # CLAUDE.md: repo_changed on its own
+  echo "repo edit on claude" > "$TEST_REPO/claude/CLAUDE.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md
+claude/CLAUDE.md|~/.claude/CLAUDE.md" \
+    "$DOTFILES_TEST_BIN" freeze_agents
+  [ "$status" -eq 0 ]
+  # Live edit harvested into repo
+  grep -q "live edit on agents" "$TEST_REPO/agents/AGENTS.md"
+  # Repo edit on the other path was left alone
+  grep -q "repo edit on claude" "$TEST_REPO/claude/CLAUDE.md"
+  # The unpushed repo drift was reported
+  [[ "$output" == *"repo drift"* ]]
+  [[ "$output" == *"CLAUDE.md"* ]]
 }
 
 @test "push seeds manifest for in_sync paths on first run" {
@@ -437,6 +534,80 @@ claude/CLAUDE.md|~/.claude/CLAUDE.md" \
   # Manifest for CLAUDE.md unchanged (user edit was preserved, no harvest happened)
   manifest_c=$(jq -r --arg k "$TEST_LIVE/.claude/CLAUDE.md" '.[$k]' "$TEST_STATE")
   [ "$manifest_c" = "$hash_c" ]
+}
+
+@test "_offer_open_conflicts opens each pair via 'code --diff' when accepted" {
+  stub_dir="$(mktemp -d)"
+  CODE_LOG="$stub_dir/calls.log"
+  : > "$CODE_LOG"
+  cat > "$stub_dir/code" <<EOF
+#!/usr/bin/env bash
+echo "\$@" >> "$CODE_LOG"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" offer_open_conflicts "/tmp/r1|/tmp/l1" "/tmp/r2|/tmp/l2" <<< "y"
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$CODE_LOG" | tr -d ' ')" -eq 2 ]
+  grep -qF -- "--diff /tmp/r1 /tmp/l1" "$CODE_LOG"
+  grep -qF -- "--diff /tmp/r2 /tmp/l2" "$CODE_LOG"
+}
+
+@test "_offer_open_conflicts opens nothing when declined" {
+  stub_dir="$(mktemp -d)"
+  CODE_LOG="$stub_dir/calls.log"
+  : > "$CODE_LOG"
+  cat > "$stub_dir/code" <<EOF
+#!/usr/bin/env bash
+echo "\$@" >> "$CODE_LOG"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" offer_open_conflicts "/tmp/r1|/tmp/l1" <<< "n"
+  [ "$status" -eq 0 ]
+  [ ! -s "$CODE_LOG" ]
+}
+
+@test "_offer_open_conflicts is silent and skipped in non-interactive shells" {
+  stub_dir="$(mktemp -d)"
+  CODE_LOG="$stub_dir/calls.log"
+  : > "$CODE_LOG"
+  cat > "$stub_dir/code" <<EOF
+#!/usr/bin/env bash
+echo "\$@" >> "$CODE_LOG"
+EOF
+  chmod +x "$stub_dir/code"
+  # No DOTFILES_ASSUME_INTERACTIVE — bats `run` has no tty on stdin.
+  run env \
+    PATH="$stub_dir:$PATH" \
+    "$DOTFILES_TEST_BIN" offer_open_conflicts "/tmp/r1|/tmp/l1"
+  [ "$status" -eq 0 ]
+  [ ! -s "$CODE_LOG" ]
+  [[ "$output" != *"code --diff"* ]]
+}
+
+@test "push exits non-zero on conflicts without prompting in non-interactive shells" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  manifest_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$manifest_hash\"}" > "$TEST_STATE"
+  echo "edited in repo" > "$TEST_REPO/agents/AGENTS.md"
+  echo "edited in live" > "$TEST_LIVE/.agents/AGENTS.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" push
+  [ "$status" -eq 2 ]
+  [[ "$output" != *"code --diff"* ]]
+  # The inline diff is still printed.
+  [[ "$output" == *"-edited in repo"* ]]
+  [[ "$output" == *"+edited in live"* ]]
 }
 
 @test "freeze --pre-commit aborts on both_changed without harvesting other live_changed files" {

@@ -17,5 +17,6 @@ case "${1:-}" in
   classify)       _classify "${2:?usage: dotfiles_test classify <repo_path> <live_path>}" "${3:?usage: dotfiles_test classify <repo_path> <live_path>}" ;;
   walk)           _walk_mapping ;;
   freeze_agents)  freeze_agents ;;
+  offer_open_conflicts) shift; _offer_open_conflicts "$@" ;;
   *)              echo "Unknown test command: ${1:-<none>}" >&2; exit 1 ;;
 esac

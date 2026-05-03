@@ -175,6 +175,9 @@ _walk_one_pair() {
 
   if [ -d "$repo_path" ] || [ -d "$live_path" ]; then
     # Directory mapping: enumerate the union of files on both sides.
+    # OS metadata files (.DS_Store, Thumbs.db) are filtered out — macOS and
+    # Windows scatter them through every browsed directory and they're not
+    # something either side is ever supposed to mirror.
     # Use a temp file to track relative paths seen on the repo side so we can
     # skip them when enumerating the live side (avoids bash 4+ associative arrays).
     local seen_tmp
@@ -186,7 +189,7 @@ _walk_one_pair() {
         printf '%s\n' "$rel" >> "$seen_tmp"
         local lp="$live_path/$rel"
         printf "%s\t%s\t%s\n" "$(_classify "$f" "$lp")" "$f" "$lp"
-      done < <(find "$repo_path" -type f)
+      done < <(find "$repo_path" -type f ! -name '.DS_Store' ! -name 'Thumbs.db')
     fi
     if [ -d "$live_path" ]; then
       while IFS= read -r f; do
@@ -195,7 +198,7 @@ _walk_one_pair() {
           local rp="$repo_path/$rel"
           printf "%s\t%s\t%s\n" "$(_classify "$rp" "$f")" "$rp" "$f"
         fi
-      done < <(find "$live_path" -type f)
+      done < <(find "$live_path" -type f ! -name '.DS_Store' ! -name 'Thumbs.db')
     fi
     rm -f "$seen_tmp"
     trap - EXIT
@@ -218,6 +221,32 @@ _print_conflict_diff() {
   diff -u "$repo_p" "$live_p" | sed 's/^/      /' || true
 }
 
+# After conflicts have been printed, prompt the user (interactive shells only)
+# to open each repo/live pair side-by-side in `code --diff`. Each positional
+# arg is a "repo_path|live_path" string. In non-interactive shells (no tty on
+# stdin) the helper returns silently — callers still exit non-zero.
+# DOTFILES_ASSUME_INTERACTIVE=1 forces the prompt path so tests can pipe input.
+_offer_open_conflicts() {
+  [ "$#" -eq 0 ] && return 0
+  if [ -z "${DOTFILES_ASSUME_INTERACTIVE:-}" ] && [ ! -t 0 ]; then
+    return 0
+  fi
+  echo ""
+  echo -en "  ${YELLOW}open conflicting pairs in 'code --diff'? [y/N] ${RESET}"
+  local reply=""
+  read -r reply || true
+  case "$reply" in
+    y|Y|yes|Yes|YES) ;;
+    *) return 0 ;;
+  esac
+  local pair r_p l_p
+  for pair in "$@"; do
+    r_p="${pair%%|*}"
+    l_p="${pair#*|}"
+    code --diff "$r_p" "$l_p"
+  done
+}
+
 usage() {
   echo "Usage: dotfiles <command>"
   echo ""
@@ -236,9 +265,11 @@ push() {
   echo -e "${BOLD}push${RESET}  repo -> live"
   echo ""
 
-  # Phase 1: classify everything; collect blockers and writable items.
-  local blockers=()
+  # Phase 1: classify. Only both_changed (true conflicts on the same path) and
+  # symlink targets are fatal; live drift on other paths is informational —
+  # push leaves it alone and tells the user to freeze if they want it captured.
   local conflicts=()
+  local unharvested=()
   local writable=()
   local symlink_blockers=()
 
@@ -250,11 +281,10 @@ push() {
     fi
     case "$state" in
       both_changed)
-        blockers+=("$state\t$live_p")
         conflicts+=("$repo_p|$live_p")
         ;;
       live_changed|live_added|live_removed)
-        blockers+=("$state\t$live_p")
+        unharvested+=("$state\t$live_p")
         ;;
       in_sync)
         # Seed manifest on first-run sync so this path has an anchor for future
@@ -283,25 +313,33 @@ push() {
     return 2
   fi
 
-  if [ ${#blockers[@]} -gt 0 ]; then
-    echo -e "  ${RED}live has changes that haven't been captured:${RESET}"
-    local b
-    for b in "${blockers[@]+"${blockers[@]}"}"; do
-      echo -e "    $b"
+  if [ ${#conflicts[@]} -gt 0 ]; then
+    echo -e "  ${RED}conflicts on the same path (resolve before pushing):${RESET}"
+    local pair r_p l_p
+    for pair in "${conflicts[@]+"${conflicts[@]}"}"; do
+      l_p="${pair#*|}"
+      echo -e "    both_changed\t$l_p"
     done
-    if [ ${#conflicts[@]} -gt 0 ]; then
-      echo ""
-      echo -e "  ${RED}conflict diffs:${RESET}"
-      local pair r_p l_p
-      for pair in "${conflicts[@]+"${conflicts[@]}"}"; do
-        r_p="${pair%%|*}"
-        l_p="${pair#*|}"
-        _print_conflict_diff "$r_p" "$l_p"
-      done
-    fi
     echo ""
-    echo -e "  ${YELLOW}run 'dotfiles freeze' first (or resolve conflicts manually)${RESET}"
+    echo -e "  ${RED}conflict diffs:${RESET}"
+    for pair in "${conflicts[@]+"${conflicts[@]}"}"; do
+      r_p="${pair%%|*}"
+      l_p="${pair#*|}"
+      _print_conflict_diff "$r_p" "$l_p"
+    done
+    _offer_open_conflicts "${conflicts[@]+"${conflicts[@]}"}"
+    echo ""
+    echo -e "  ${YELLOW}resolve conflicts manually, then re-run push${RESET}"
     return 2
+  fi
+
+  if [ ${#unharvested[@]} -gt 0 ]; then
+    echo -e "  ${YELLOW}live drift (untouched - run 'dotfiles freeze' to capture):${RESET}"
+    local u
+    for u in "${unharvested[@]+"${unharvested[@]}"}"; do
+      echo -e "    $u"
+    done
+    echo ""
   fi
 
   # Phase 2: apply.
@@ -328,11 +366,11 @@ push() {
     esac
   done
 
-  echo ""
-  if [ $applied -eq 0 ]; then
-    echo -e "  ${GREEN}nothing to do - already in sync${RESET}"
-  else
+  if [ $applied -gt 0 ]; then
+    echo ""
     echo -e "  ${GREEN}push complete (${applied} change(s))${RESET}"
+  elif [ ${#unharvested[@]} -eq 0 ]; then
+    echo -e "  ${GREEN}nothing to do - already in sync${RESET}"
   fi
 }
 
@@ -370,6 +408,7 @@ status() {
       l_p="${pair#*|}"
       _print_conflict_diff "$r_p" "$l_p"
     done
+    _offer_open_conflicts "${conflicts[@]+"${conflicts[@]}"}"
   fi
 
   echo ""
@@ -388,19 +427,21 @@ status() {
 freeze_agents() {
   echo -e "${BOLD}Agents/Claude file sync${RESET}"
 
-  local blockers=()
+  # Phase 1: classify. Only both_changed is fatal; repo drift on other paths
+  # is informational — freeze leaves it alone and tells the user to push if
+  # they want it applied.
   local conflicts=()
+  local unpushed=()
   local writable=()
 
   local state repo_p live_p
   while IFS=$'\t' read -r state repo_p live_p; do
     case "$state" in
       both_changed)
-        blockers+=("$state\t$repo_p")
         conflicts+=("$repo_p|$live_p")
         ;;
       repo_changed|repo_added|repo_removed)
-        blockers+=("$state\t$repo_p")
+        unpushed+=("$state\t$repo_p")
         ;;
       in_sync)
         # Seed manifest on first-run sync so this path has an anchor for future
@@ -418,25 +459,33 @@ freeze_agents() {
     esac
   done < <(_walk_mapping)
 
-  if [ ${#blockers[@]} -gt 0 ]; then
-    echo -e "  ${RED}repo has changes that haven't been pushed:${RESET}"
-    local b
-    for b in "${blockers[@]+"${blockers[@]}"}"; do
-      echo -e "    $b"
+  if [ ${#conflicts[@]} -gt 0 ]; then
+    echo -e "  ${RED}conflicts on the same path (resolve before freezing):${RESET}"
+    local pair r_p l_p
+    for pair in "${conflicts[@]+"${conflicts[@]}"}"; do
+      r_p="${pair%%|*}"
+      echo -e "    both_changed\t$r_p"
     done
-    if [ ${#conflicts[@]} -gt 0 ]; then
-      echo ""
-      echo -e "  ${RED}conflict diffs:${RESET}"
-      local pair r_p l_p
-      for pair in "${conflicts[@]+"${conflicts[@]}"}"; do
-        r_p="${pair%%|*}"
-        l_p="${pair#*|}"
-        _print_conflict_diff "$r_p" "$l_p"
-      done
-    fi
     echo ""
-    echo -e "  ${YELLOW}run 'dotfiles push' first (or resolve conflicts manually)${RESET}"
+    echo -e "  ${RED}conflict diffs:${RESET}"
+    for pair in "${conflicts[@]+"${conflicts[@]}"}"; do
+      r_p="${pair%%|*}"
+      l_p="${pair#*|}"
+      _print_conflict_diff "$r_p" "$l_p"
+    done
+    _offer_open_conflicts "${conflicts[@]+"${conflicts[@]}"}"
+    echo ""
+    echo -e "  ${YELLOW}resolve conflicts manually, then re-run freeze${RESET}"
     return 2
+  fi
+
+  if [ ${#unpushed[@]} -gt 0 ]; then
+    echo -e "  ${YELLOW}repo drift (untouched - run 'dotfiles push' to apply):${RESET}"
+    local u
+    for u in "${unpushed[@]+"${unpushed[@]}"}"; do
+      echo -e "    $u"
+    done
+    echo ""
   fi
 
   local applied=0
@@ -462,10 +511,10 @@ freeze_agents() {
     esac
   done
 
-  if [ $applied -eq 0 ]; then
-    echo -e "  ${GREEN}up to date${RESET}"
-  else
+  if [ $applied -gt 0 ]; then
     echo -e "  ${GREEN}captured ${applied} change(s) into the repo${RESET}"
+  elif [ ${#unpushed[@]} -eq 0 ]; then
+    echo -e "  ${GREEN}up to date${RESET}"
   fi
 }
 
@@ -500,6 +549,7 @@ freeze_agents_precommit() {
       echo "    $r_p"
       _print_conflict_diff "$r_p" "$l_p"
     done
+    _offer_open_conflicts "${conflicts[@]+"${conflicts[@]}"}"
     echo ""
     echo -e "  ${YELLOW}resolve manually (pick repo or live), then re-commit${RESET}"
     return 2
