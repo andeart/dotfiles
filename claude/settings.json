@@ -4,6 +4,7 @@
   },
   "permissions": {
     "allow": [
+      "Bash(dotfiles*)",
       "Read(~/.agents/skills/plane-work-item-conventions/CONVENTIONS.md)"
     ],
     "defaultMode": "default",
