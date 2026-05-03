@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  echo "Usage: alttab-restart"
+  echo ""
+  echo "Quit and relaunch the AltTab app."
+  exit 0
+fi
+
+if ! [[ -d "/Applications/AltTab.app" ]]; then
+  echo "Error: /Applications/AltTab.app not found." >&2
+  exit 1
+fi
+
+if pgrep -x AltTab >/dev/null; then
+  pkill -x AltTab
+  for _ in $(seq 1 50); do
+    pgrep -x AltTab >/dev/null || break
+    sleep 0.1
+  done
+  if pgrep -x AltTab >/dev/null; then
+    echo "Error: AltTab did not exit within 5s." >&2
+    exit 1
+  fi
+fi
+
+open -a AltTab
