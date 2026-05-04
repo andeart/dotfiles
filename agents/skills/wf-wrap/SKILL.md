@@ -47,3 +47,13 @@ If `state` is anything other than `MERGED`, stop with:
 > PR for `<FEATURE>` is `<state>`, not `MERGED`. Merge it before wrapping.
 
 Save `url` as `<PR_URL>` for the final report.
+
+## Step 3: Resolve the Plane work item identifier
+
+Best-effort, in this order:
+
+1. **Conversation context** - scan the conversation for an explicit Plane identifier matching `\b[A-Z]{2,}-\d+\b`. The lexically most recent match wins.
+2. **Branch name** - match `<FEATURE>` against `^([a-zA-Z]+)-(\d+)`. Uppercase the prefix and join it to the number (e.g. `dx-18-foo-bar` → `DX-18`).
+3. If neither yields a candidate, set `<PLANE_ID>` to `none` and continue.
+
+The candidate is provisional at this point. Validation happens in Step 5.
