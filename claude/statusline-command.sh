@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # Claude Code status line
 
-input=$(cat)
+input=$(</dev/stdin)
 
-IFS=$'\t' read -r cwd model ctx_pct ctx_size ctx_input ctx_cache_create ctx_cache_read \
+IFS=$'\t' read -r model ctx_pct ctx_size ctx_input ctx_cache_create ctx_cache_read \
     five_h_pct seven_d_pct five_h_reset seven_d_reset < <(
-    echo "$input" | jq -r '[
-        (.cwd // ""),
+    jq -r '[
         (.model.display_name // "-"),
         (.context_window.used_percentage // 0 | floor),
         (.context_window.context_window_size // 200000),
@@ -17,95 +16,28 @@ IFS=$'\t' read -r cwd model ctx_pct ctx_size ctx_input ctx_cache_create ctx_cach
         (.rate_limits.seven_day.used_percentage // 0 | floor),
         (.rate_limits.five_hour.resets_at // 0),
         (.rate_limits.seven_day.resets_at // 0)
-    ] | @tsv'
+    ] | @tsv' <<<"$input"
 )
 
+# Defensive defaults so numeric tests don't error if jq ever fails entirely
+: "${ctx_pct:=0}" "${ctx_size:=200000}" "${ctx_input:=0}" "${ctx_cache_create:=0}" "${ctx_cache_read:=0}"
+: "${five_h_pct:=0}" "${seven_d_pct:=0}" "${five_h_reset:=0}" "${seven_d_reset:=0}"
+
 # ANSI color codes
-BOLD=$(printf '\033[1m')
-RESET=$(printf '\033[0m')
-DIM=$(printf '\033[2m')
-COLOR_DIR=$(printf '\033[1;34m')      # bold ANSI blue   (headline PATH)
-COLOR_GIT=$(printf '\033[1;36m')      # bold ANSI cyan   (headline BRANCH)
-COLOR_STATUS=$(printf '\033[1;35m')   # bold magenta     (headline STATUS)
-COLOR_CLAUDE=$(printf '\033[38;5;173m') # terracotta orange (Claude brand)
-COLOR_KEY=$(printf '\033[38;5;174m')   # section keys (close to Claude brand)
-COLOR_LABEL=$(printf '\033[38;5;245m')
+BOLD=$'\033[1m'
+RESET=$'\033[0m'
+DIM=$'\033[2m'
+COLOR_CLAUDE=$'\033[38;5;173m' # terracotta orange (Claude brand)
+COLOR_KEY=$'\033[38;5;174m'    # section keys (close to Claude brand)
+COLOR_LABEL=$'\033[38;5;245m'
 SEP="${COLOR_LABEL}│${RESET}"
 
-# --- Directory + Git ---
-dir_display=$(echo "$cwd" | sed "s|^$HOME|~|")
-
-git_part=""
-if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    # Branch name; detached HEAD gets :hash prefix (matches headline-git-branch)
-    branch=$(git -C "$cwd" symbolic-ref --quiet --short HEAD 2>/dev/null)
-    if [ -z "$branch" ]; then
-        short_hash=$(git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
-        branch=":${short_hash}"
-    fi
-
-    # Single git status call covers tracking line + file status
-    git_status_raw=$(git -C "$cwd" status --porcelain -b 2>/dev/null)
-
-    # Parse tracking line for ahead/behind counts
-    ahead=0; behind=0
-    tracking="${git_status_raw%%$'\n'*}"
-    if [[ "$tracking" =~ ahead\ ([0-9]+) ]]; then
-        ahead="${BASH_REMATCH[1]}"
-    fi
-    if [[ "$tracking" =~ behind\ ([0-9]+) ]]; then
-        behind="${BASH_REMATCH[1]}"
-    fi
-
-    # Parse status lines - priority order matches headline's headline-git-status-counts()
-    staged=0; changed=0; untracked=0; conflicts=0
-    while IFS= read -r line; do
-        xy="${line:0:2}"
-        case "$xy" in
-            '##') continue ;;
-            '??') untracked=$((untracked + 1)) ;;
-            *)
-                if [[ "$xy" =~ ^(U[ADU]|[AD]U|AA|DD) ]]; then
-                    conflicts=$((conflicts + 1))
-                elif [[ "$xy" =~ ^[MTADRC]\  ]]; then
-                    staged=$((staged + 1))
-                elif [[ "$xy" =~ ^[MTARC][MTD] ]]; then
-                    staged=$((staged + 1)); changed=$((changed + 1))
-                elif [[ "$xy" =~ ^\ [MTADRC] ]]; then
-                    changed=$((changed + 1))
-                fi
-                ;;
-        esac
-    done <<< "$git_status_raw"
-
-    # Stash count
-    stashed=0
-    if git -C "$cwd" rev-parse --verify refs/stash >/dev/null 2>&1; then
-        stashed=$(git -C "$cwd" rev-list --walk-reflogs --count refs/stash 2>/dev/null)
-        stashed=${stashed:-0}
-    fi
-
-    # Build status string - HL_GIT_STATUS_ORDER: STAGED CHANGED UNTRACKED BEHIND AHEAD STASHED CONFLICTS
-    # format is count+symbol (e.g. 3!)
-    entries=("${staged}:+" "${changed}:!" "${untracked}:?" "${behind}:↓" "${ahead}:↑" "${stashed}:*" "${conflicts}:✘")
-    git_status_str=""
-    for entry in "${entries[@]}"; do
-        count="${entry%%:*}"
-        symbol="${entry#*:}"
-        if [ "$count" -gt 0 ]; then
-            [ -n "$git_status_str" ] && git_status_str="${git_status_str}${DIM}${COLOR_LABEL}|${RESET}${COLOR_STATUS}"
-            git_status_str="${git_status_str}${count}${symbol}"
-        fi
-    done
-
-    # Assemble branch + optional status brackets
-    if [ -n "$git_status_str" ]; then
-        status_brackets="${DIM}${COLOR_LABEL} [${RESET}${COLOR_STATUS}${git_status_str}${DIM}${COLOR_LABEL}]${RESET}"
-    else
-        status_brackets=""
-    fi
-    git_part="${DIM}${COLOR_LABEL} | ${RESET}${BOLD}${COLOR_GIT}${branch}${RESET}${status_brackets}"
-fi
+# Bar rendering constants
+BAR_FG_FILL=$'\033[1;38;5;236m'  # bold dark charcoal on fill
+BAR_FG_EMPTY=$'\033[1;38;5;245m' # bold medium gray on empty
+BAR_BG_EMPTY=$'\033[48;5;236m'
+BAR_ST=$'\033[9m'
+BAR_NO_ST=$'\033[29m'
 
 # --- Context usage ---
 ctx_used=$((ctx_input + ctx_cache_create + ctx_cache_read))
@@ -153,14 +85,9 @@ make_bar() {
     elif [ "$pct" -ge 70 ]; then FILL_IDX=220
     else                          FILL_IDX=110
     fi
-    local EMPTY_IDX=236
 
-    local BG_FILL=$(printf '\033[48;5;%sm' "$FILL_IDX")
-    local BG_EMPTY=$(printf '\033[48;5;%sm' "$EMPTY_IDX")
-    local FG_FILL=$(printf '\033[1;38;5;236m')  # bold dark charcoal on fill
-    local FG_EMPTY=$(printf '\033[1;38;5;245m') # bold medium gray on empty
-    local ST=$(printf '\033[9m')
-    local NO_ST=$(printf '\033[29m')
+    local BG_FILL
+    printf -v BG_FILL '\033[48;5;%sm' "$FILL_IDX"
 
     local pad_r=$(( WIDTH - label_len ))
     local content
@@ -170,14 +97,14 @@ make_bar() {
     for ((i=0; i<WIDTH; i++)); do
         # Strikethrough all cells after the marker position (remaining time)
         if [ "$marker_pos" -ge 0 ] && [ "$i" -gt "$marker_pos" ]; then
-            st="$ST"
+            st="$BAR_ST"
         else
-            st="$NO_ST"
+            st="$BAR_NO_ST"
         fi
         if [ "$i" -lt "$filled" ]; then
-            bar="${bar}${BG_FILL}${FG_FILL}${st}${content:$i:1}"
+            bar="${bar}${BG_FILL}${BAR_FG_FILL}${st}${content:$i:1}"
         else
-            bar="${bar}${BG_EMPTY}${FG_EMPTY}${st}${content:$i:1}"
+            bar="${bar}${BAR_BG_EMPTY}${BAR_FG_EMPTY}${st}${content:$i:1}"
         fi
     done
     printf '%s%s' "$bar" "$RESET"
@@ -186,11 +113,14 @@ make_bar() {
 ctx_bar=$(make_bar "$ctx_pct")
 
 # --- Claude.ai rate limits ---
-now=$(date +%s)
+now=${EPOCHSECONDS:-$(date +%s)}
 
 # Format seconds remaining as "Xd Yh", "Xh", or "Xm"
 format_remaining() {
-    [ -z "$1" ] || [ "$1" -eq 0 ] 2>/dev/null && echo "-" && return
+    if [ -z "$1" ] || ! [ "$1" -gt 0 ] 2>/dev/null; then
+        echo "-"
+        return
+    fi
     local remaining=$(( $1 - now ))
     [ "$remaining" -le 0 ] && echo "now" && return
     local days=$(( remaining / 86400 ))
@@ -209,7 +139,10 @@ format_remaining() {
 # Returns 0-100 (percent elapsed), or -1 if no reset timestamp available.
 compute_time_pct() {
     local reset_at=$1 window_secs=$2
-    [ -z "$reset_at" ] || [ "$reset_at" -eq 0 ] 2>/dev/null && echo -1 && return
+    if [ -z "$reset_at" ] || ! [ "$reset_at" -gt 0 ] 2>/dev/null; then
+        echo -1
+        return
+    fi
     local elapsed=$(( window_secs - (reset_at - now) ))
     [ "$elapsed" -le 0 ] && echo 0 && return
     [ "$elapsed" -ge "$window_secs" ] && echo 100 && return
@@ -228,9 +161,7 @@ five_h_part=" ${SEP} ${DIM}${COLOR_KEY}5h${RESET} ${five_h_bar} ${DIM}󰔛 ${fiv
 seven_d_part=" ${SEP} ${DIM}${COLOR_KEY}7d${RESET} ${seven_d_bar} ${DIM}󰔛 ${seven_d_remaining}${RESET}"
 
 # --- Output ---
-printf '%s%s%s%s%s\n' \
-    "$BOLD" "$COLOR_DIR" "$dir_display" "$RESET" "$git_part"
-printf '%s%s%s %s %s %s%s%s\n' \
+printf '%s%s%s %s %s %s%s%s' \
     "$BOLD" "$COLOR_CLAUDE" "$model" \
     "$SEP" \
     "${DIM}${COLOR_KEY}${RESET} ${ctx_bar}" \
