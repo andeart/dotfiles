@@ -57,3 +57,24 @@ Best-effort, in this order:
 3. If neither yields a candidate, set `<PLANE_ID>` to `none` and continue.
 
 The candidate is provisional at this point. Validation happens in Step 5.
+
+## Step 4: Switch to default and pull
+
+```bash
+git checkout <DEFAULT>
+git pull --ff-only origin <DEFAULT>
+```
+
+If `git pull --ff-only` fails (diverged history), stop with the git error. Do not force, rebase, or reset.
+
+## Step 5: Update Plane (only if `<PLANE_ID>` was resolved)
+
+Skip this step entirely if `<PLANE_ID>` is `none`. Otherwise:
+
+1. Parse `<PLANE_ID>` into `project_identifier` (the alpha prefix) and `issue_identifier` (the integer suffix).
+2. Call the Plane MCP tool `retrieve_work_item_by_identifier` with `project_identifier` and `issue_identifier`. If it returns 404 (or any not-found error), the inference was wrong - set `<PLANE_ID>` back to `none` and continue. This is not a fatal error.
+3. From the response, save the work item's `id` (UUID) and `project` (UUID).
+4. Call `list_states` for that project. Find the state whose `group` is `"completed"`. If multiple match, prefer the one named `"Done"`. If no `completed` state exists, set `<PLANE_ID>` to `none` and note "project has no completed state" so the report can mention it.
+5. Call `update_work_item` with the work item UUID and project UUID, passing `state` set to the completed state's UUID. Do not pass any other fields.
+
+If any Plane MCP call returns a non-404 error (network, auth, server), stop and report. The local feature branch still exists as a recovery point - fix Plane (e.g., update the work item state via the Plane UI), then manually run `git branch -D <FEATURE>` to finish.
