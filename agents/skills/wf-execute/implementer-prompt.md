@@ -2,7 +2,7 @@
 
 Use this template when dispatching an implementer subagent. Replace bracketed placeholders with actual values.
 
-```
+```text
 Agent tool (general-purpose):
   model: [haiku | sonnet | opus - based on task complexity]
   description: "Implement Task N: [task name]"

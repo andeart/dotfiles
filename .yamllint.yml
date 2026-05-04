@@ -1,0 +1,13 @@
+extends: default
+
+rules:
+  # GitHub Actions uses `on:` as a top-level key, which YAML 1.1 treats as a
+  # truthy value. Disable the key check so that doesn't fire.
+  truthy:
+    check-keys: false
+
+  # I don't prefix YAML files with `---`; the yamllint default warning is noise.
+  document-start: disable
+
+  line-length:
+    max: 100

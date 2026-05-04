@@ -1,0 +1,41 @@
+name: lint & test
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '20'
+
+      - name: Install lint and test tools
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install pre-commit yamllint
+          npm install -g markdownlint-cli2
+          gitleaks_url="https://github.com/gitleaks/gitleaks/releases/download"
+          gitleaks_url="${gitleaks_url}/v${GITLEAKS_VERSION}"
+          gitleaks_url="${gitleaks_url}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL "$gitleaks_url" | sudo tar -xz -C /usr/local/bin gitleaks
+          sudo apt-get update
+          sudo apt-get install -y bats jq
+
+      - name: Run pre-commit (mirrors local hooks)
+        run: pre-commit run --all-files --show-diff-on-failure

@@ -28,10 +28,12 @@ dotfiles/
 ├── dotfiles.yml                       # what bootstrap.sh should set up
 ├── bootstrap.sh                       # the installer
 ├── .markdownlint.yml                  → markdownlint/markdownlint.yml.symlink (in-repo .yml needed by pre-commit)
+├── .yamllint.yml                      # yamllint config, used by pre-commit and CI
 ├── .github/
 │   ├── dependabot.yml                 # weekly bumps for pinned action SHAs
 │   └── workflows/
-│       └── claude.yml                 # dispatches Claude Code on @claude mentions
+│       ├── claude.yml                 # dispatches Claude Code on @claude mentions
+│       └── lint-and-test.yml          # runs pre-commit hooks on push and PRs to main
 ├── bin/*                              # utility scripts
 ├── brew/
 │   └── Brewfile                       # brew bundle

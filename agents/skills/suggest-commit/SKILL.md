@@ -31,12 +31,12 @@ The diff is the primary source of truth for the commit message. The conversation
 **What to focus on:** Describe *what* the change does and *why*, not *how*. The diff already shows the how. For example, "Fix crash when user has no email" is better than "Add null check on line 42 of user.py".
 
 **Single-line example:**
-```
+```text
 Fix null pointer when rendering empty cart
 ```
 
 **Multi-line example:**
-```
+```text
 Refactor authentication flow
 
 - Extract token refresh logic into dedicated module

@@ -161,7 +161,7 @@ Bad: `Added dark mode` (past tense)
 
 **Body:** Use this structure:
 
-```
+```markdown
 ## Summary
 <1-3 bullet points describing what changed and why>
 
