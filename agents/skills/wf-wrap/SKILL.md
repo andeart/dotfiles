@@ -29,3 +29,21 @@ All of these must pass before any destructive action runs:
   > Uncommitted changes on `<FEATURE>` - handle them before wrapping.
 
 Any failure stops the skill immediately with a message naming the specific failure. Do not stash, do not commit-on-behalf, do not auto-recover.
+
+## Step 2: Verify the PR is merged
+
+Look up the PR for `<FEATURE>`:
+
+```bash
+gh pr view --json state,number,url --jq '{state, number, url}'
+```
+
+If `gh` reports no PR for `<FEATURE>`, stop with:
+
+> No PR found for `<FEATURE>`. Did you mean `/wf-ship` first?
+
+If `state` is anything other than `MERGED`, stop with:
+
+> PR for `<FEATURE>` is `<state>`, not `MERGED`. Merge it before wrapping.
+
+Save `url` as `<PR_URL>` for the final report.
