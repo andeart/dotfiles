@@ -184,22 +184,6 @@ if is_enabled '.agents-and-claude.sync'; then
     fi
 fi
 
-# --- iterm2 ---
-if is_enabled '.iterm2.preferences'; then
-    info "Configuring iTerm2 to load preferences from dotfiles"
-
-    # Set up git clean/smudge filter for the iTerm2 plist (repo-local config).
-    # clean: strips transient state and replaces $HOME with __HOME__ on git add/diff.
-    # smudge: resolves __HOME__ back to $HOME and converts to binary on checkout.
-    git -C "$DOTFILES_ROOT" config filter.iterm-plist.clean "$DOTFILES_ROOT/iterm2/iterm-filter.sh clean"
-    git -C "$DOTFILES_ROOT" config filter.iterm-plist.smudge "$DOTFILES_ROOT/iterm2/iterm-filter.sh smudge"
-    success "git iterm-plist filter configured"
-
-    defaults write com.googlecode.iterm2 PrefsCustomFolder -string "$DOTFILES_ROOT/iterm2"
-    defaults write com.googlecode.iterm2 LoadPrefsFromCustomFolder -bool true
-    success "iTerm2 will load preferences from $DOTFILES_ROOT/iterm2"
-fi
-
 # --- pre-commit hook installation ---
 if command -v pre-commit &>/dev/null; then
     info "Installing pre-commit hooks"

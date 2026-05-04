@@ -15,8 +15,5 @@ vscode:
   settings: false
   extensions: false
 
-iterm2:
-  preferences: false
-
 agents-and-claude:
   sync: false
