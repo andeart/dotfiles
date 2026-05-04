@@ -54,9 +54,9 @@ Best-effort, in this order:
 
 1. **Conversation context** - scan the conversation for an explicit Plane identifier matching `\b[A-Z]{2,}-\d+\b`. The lexically most recent match wins.
 2. **Branch name** - match `<FEATURE>` against `^([a-zA-Z]+)-(\d+)`. Uppercase the prefix and join it to the number (e.g. `dx-18-foo-bar` → `DX-18`).
-3. If neither yields a candidate, set `<PLANE_ID>` to `none` and continue.
+3. If neither yields a candidate, set `<PLANE_ID>` to `none` and `<PLANE_OUTCOME>` to `not-inferred`.
 
-The candidate is provisional at this point. Validation happens in Step 5.
+The candidate is provisional at this point. Validation happens in Step 5. Once `<PLANE_ID>` is set, do not mutate it again - track what happened in `<PLANE_OUTCOME>` instead.
 
 ## Step 4: Switch to default and pull
 
@@ -69,13 +69,13 @@ If `git pull --ff-only` fails (diverged history), stop with the git error. Do no
 
 ## Step 5: Update Plane (only if `<PLANE_ID>` was resolved)
 
-Skip this step entirely if `<PLANE_ID>` is `none`. Otherwise:
+Skip this step entirely if `<PLANE_ID>` is `none` (Step 3 already set `<PLANE_OUTCOME>` to `not-inferred`). Otherwise:
 
 1. Parse `<PLANE_ID>` into `project_identifier` (the alpha prefix) and `issue_identifier` (the integer suffix).
-2. Call the Plane MCP tool `retrieve_work_item_by_identifier` with `project_identifier` and `issue_identifier`. If it returns 404 (or any not-found error), the inference was wrong - set `<PLANE_ID>` back to `none` and continue. This is not a fatal error.
-3. From the response, save the work item's `id` (UUID) and `project` (UUID).
-4. Call `list_states` for that project. Find the state whose `group` is `"completed"`. If multiple match, prefer the one named `"Done"`. If no `completed` state exists, set `<PLANE_ID>` to `none` and note "project has no completed state" so the report can mention it.
-5. Call `update_work_item` with the work item UUID and project UUID, passing `state` set to the completed state's UUID. Do not pass any other fields.
+2. Call the Plane MCP tool `retrieve_work_item_by_identifier` with `project_identifier` and `issue_identifier`. If it returns 404 (or any not-found error), set `<PLANE_OUTCOME>` to `not-found` and skip the remaining sub-steps. The inferred `<PLANE_ID>` value is preserved for the report. This is not a fatal error.
+3. From the response, save the work item's `id` field as the work item UUID and the `project` field as the project UUID.
+4. Call `list_states` with `project_id` set to the project UUID. Find the state whose `group` is `"completed"`. If multiple match, prefer the one named `"Done"`. If no `completed` state exists, set `<PLANE_OUTCOME>` to `no-completed-state` and skip the remaining sub-steps.
+5. Call `update_work_item` with `project_id` set to the project UUID, `work_item_id` set to the work item UUID, and `state` set to the completed state's UUID. Do not pass any other fields. On success, set `<PLANE_OUTCOME>` to `updated`.
 
 If any Plane MCP call returns a non-404 error (network, auth, server), stop and report. The local feature branch still exists as a recovery point - fix Plane (e.g., update the work item state via the Plane UI), then manually run `git branch -D <FEATURE>` to finish.
 
@@ -99,10 +99,11 @@ Wrapped up <FEATURE>:
 - Closed PR: <PR_URL>
 ```
 
-Adjust the Plane line based on what actually happened:
+Switch on `<PLANE_OUTCOME>` for the third line of the block:
 
-- If `<PLANE_ID>` was never resolved: `- No Plane work item updated - could not auto-infer one.`
-- If `<PLANE_ID>` 404'd: `- No Plane work item updated - <PLANE_ID> was inferred but not found in Plane.`
-- If the project had no completed state: `- No Plane work item updated - project has no "completed" state.`
+- `updated`: `- Marked <PLANE_ID> as Done.`
+- `not-inferred`: `- No Plane work item updated - could not auto-infer one.`
+- `not-found`: `- No Plane work item updated - <PLANE_ID> was inferred but not found in Plane.`
+- `no-completed-state`: `- No Plane work item updated - project has no "completed" state.`
 
 The user always sees whether Plane was touched and why.
