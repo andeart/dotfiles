@@ -78,3 +78,31 @@ Skip this step entirely if `<PLANE_ID>` is `none`. Otherwise:
 5. Call `update_work_item` with the work item UUID and project UUID, passing `state` set to the completed state's UUID. Do not pass any other fields.
 
 If any Plane MCP call returns a non-404 error (network, auth, server), stop and report. The local feature branch still exists as a recovery point - fix Plane (e.g., update the work item state via the Plane UI), then manually run `git branch -D <FEATURE>` to finish.
+
+## Step 6: Delete the local feature branch
+
+```bash
+git branch -D <FEATURE>
+```
+
+Use `-D` (uppercase) - squash and rebase merges aren't recognized by `git -d` even though `gh` confirmed the PR is merged.
+
+## Step 7: Report
+
+Print a single block:
+
+```text
+Wrapped up <FEATURE>:
+- Switched to <DEFAULT> and pulled.
+- Deleted local branch <FEATURE>.
+- Marked <PLANE_ID> as Done.
+- Closed PR: <PR_URL>
+```
+
+Adjust the Plane line based on what actually happened:
+
+- If `<PLANE_ID>` was never resolved: `- No Plane work item updated - could not auto-infer one.`
+- If `<PLANE_ID>` 404'd: `- No Plane work item updated - <PLANE_ID> was inferred but not found in Plane.`
+- If the project had no completed state: `- No Plane work item updated - project has no "completed" state.`
+
+The user always sees whether Plane was touched and why.
