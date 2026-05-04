@@ -96,7 +96,7 @@ Wrapped up <FEATURE>:
 - Switched to <DEFAULT> and pulled.
 - Deleted local branch <FEATURE>.
 - Marked <PLANE_ID> as Done.
-- Closed PR: <PR_URL>
+- Merged PR: <PR_URL>
 ```
 
 Switch on `<PLANE_OUTCOME>` for the third line of the block:
