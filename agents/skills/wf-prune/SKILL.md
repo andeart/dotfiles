@@ -77,7 +77,7 @@ git log <branch-name>..origin/<branch-name> --oneline 2>/dev/null
 
 Present everything in a single consolidated list. Each line should show the branch name, its PR (if any), and its remote status:
 
-```
+```text
 Merged branches:
 - feature-xyz - [PR #42](https://github.com/...): "Add xyz support" - remote deleted
 - fix-abc - [PR #18](https://github.com/...): "Fix abc bug" - remote exists (in sync)
