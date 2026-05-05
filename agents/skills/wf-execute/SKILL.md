@@ -25,7 +25,7 @@ For each task, run this cycle:
 Pick the least powerful model that can handle the task:
 
 | Signal | Model |
-|--------|-------|
+| ------ | ----- |
 | Touches 1-2 files, clear spec, mechanical work | `haiku` |
 | Touches multiple files, integration concerns | `sonnet` |
 | Architecture decisions, broad codebase understanding, design judgment | `opus` |

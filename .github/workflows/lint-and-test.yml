@@ -1,0 +1,49 @@
+name: lint & test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # Full history so gitleaks attributes findings to their original
+          # commits, which is what the commit-pinned entries in
+          # .gitleaksignore are matched against.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '20'
+
+      - name: Install lint and test tools
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install pre-commit yamllint
+          npm install -g markdownlint-cli2
+          # Built up across lines so the URL stays under yamllint's 100-char
+          # limit; the single-line form trips the line-length rule.
+          gitleaks_url="https://github.com/gitleaks/gitleaks/releases/download"
+          gitleaks_url="${gitleaks_url}/v${GITLEAKS_VERSION}"
+          gitleaks_url="${gitleaks_url}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL "$gitleaks_url" | sudo tar -xz -C /usr/local/bin gitleaks
+          sudo apt-get update
+          sudo apt-get install -y bats jq
+
+      - name: Run pre-commit (mirrors local hooks)
+        run: pre-commit run --all-files --show-diff-on-failure

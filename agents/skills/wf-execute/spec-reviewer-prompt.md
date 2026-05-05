@@ -4,7 +4,7 @@ Use this template when dispatching a spec compliance reviewer subagent. Replace 
 
 **Purpose:** Verify the implementer built what was requested - nothing more, nothing less.
 
-```
+```text
 Agent tool (general-purpose):
   model: sonnet
   description: "Review spec compliance for Task N"

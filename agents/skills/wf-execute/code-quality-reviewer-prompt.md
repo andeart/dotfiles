@@ -6,7 +6,7 @@ Use this template when dispatching a code quality reviewer subagent. Replace bra
 
 **Only dispatch after spec compliance review passes.**
 
-```
+```text
 Agent tool (superpowers:code-reviewer):
   model: [sonnet for most tasks, opus for complex ones]
   description: "Review code quality for Task N"
