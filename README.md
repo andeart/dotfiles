@@ -33,7 +33,7 @@ dotfiles/
 │   ├── dependabot.yml                 # weekly bumps for pinned action SHAs
 │   └── workflows/
 │       ├── claude.yml                 # dispatches Claude Code on @claude mentions
-│       └── lint-and-test.yml          # runs pre-commit hooks on push and PRs to main
+│       └── lint-and-test.yml          # runs pre-commit hooks on PRs to main
 ├── bin/*                              # utility scripts
 ├── brew/
 │   └── Brewfile                       # brew bundle
