@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: claude-format-settings [--check] PATH [PATH ...]
+
+Format Claude Code settings JSON files in place:
+  - permissions.allow, permissions.deny, permissions.ask sorted case-insensitively
+  - enabledPlugins keys sorted case-insensitively
+  - exact duplicate entries removed (reported per file)
+
+Options:
+  --check     Do not modify files. Exit 1 if any file would be reformatted.
+  -h, --help  Show this help.
+
+Paths must be passed explicitly. No globbing.
+EOF
+}
+
+CHECK=0
+PATHS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --check) CHECK=1; shift ;;
+    --) shift; while [[ $# -gt 0 ]]; do PATHS+=("$1"); shift; done ;;
+    -*) printf 'Error: unknown option %q\n' "$1" >&2; usage >&2; exit 2 ;;
+    *) PATHS+=("$1"); shift ;;
+  esac
+done
+
+if [[ ${#PATHS[@]} -eq 0 ]]; then
+  echo "Error: at least one path is required" >&2
+  usage >&2
+  exit 2
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Error: jq is required but not installed" >&2
+  exit 1
+fi
+
+JQ_FORMAT='
+def sort_ci: sort_by(ascii_downcase);
+def fmt_arr: unique | sort_ci;
+def fmt_obj: to_entries | sort_by(.key | ascii_downcase) | from_entries;
+
+(if (.permissions.allow // null) != null then .permissions.allow |= fmt_arr else . end)
+| (if (.permissions.deny  // null) != null then .permissions.deny  |= fmt_arr else . end)
+| (if (.permissions.ask   // null) != null then .permissions.ask   |= fmt_arr else . end)
+| (if (.enabledPlugins    // null) != null then .enabledPlugins    |= fmt_obj else . end)
+'
+
+JQ_DUPES='
+def dupes_in:
+  reduce .[] as $x ({}; .[$x | tojson] = (.[$x | tojson] // 0) + 1)
+  | to_entries | map(select(.value > 1) | .key | fromjson) | sort;
+
+{
+  allow: (.permissions.allow // [] | dupes_in),
+  deny:  (.permissions.deny  // [] | dupes_in),
+  ask:   (.permissions.ask   // [] | dupes_in)
+}
+'
+
+EXIT=0
+for path in "${PATHS[@]}"; do
+  if [[ ! -f "$path" ]]; then
+    echo "Error: '$path' does not exist or is not a regular file" >&2
+    EXIT=1
+    continue
+  fi
+
+  tmp=$(mktemp)
+  err=$(mktemp)
+
+  if ! jq "$JQ_FORMAT" "$path" > "$tmp" 2>"$err"; then
+    echo "Error: failed to parse '$path' as JSON:" >&2
+    cat "$err" >&2
+    rm -f "$tmp" "$err"
+    EXIT=1
+    continue
+  fi
+  rm -f "$err"
+
+  dupes_json=$(jq "$JQ_DUPES" "$path")
+  for kind in allow deny ask; do
+    count=$(jq ".$kind | length" <<<"$dupes_json")
+    if [[ "$count" -gt 0 ]]; then
+      echo "[$path] duplicate permissions.$kind entries:"
+      while IFS= read -r entry; do
+        printf '  %s\n' "$entry"
+      done < <(jq -r ".$kind[]" <<<"$dupes_json")
+    fi
+  done
+
+  if cmp -s "$path" "$tmp"; then
+    [[ $CHECK -eq 0 ]] && echo "[$path] already formatted"
+    rm -f "$tmp"
+    continue
+  fi
+
+  if [[ $CHECK -eq 1 ]]; then
+    echo "[$path] needs formatting" >&2
+    rm -f "$tmp"
+    EXIT=1
+  else
+    cat "$tmp" > "$path"
+    rm -f "$tmp"
+    echo "[$path] formatted"
+  fi
+done
+
+exit $EXIT
