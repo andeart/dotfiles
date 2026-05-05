@@ -35,6 +35,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install pre-commit yamllint
           npm install -g markdownlint-cli2
+          # Built up across lines so the URL stays under yamllint's 100-char
+          # limit; the single-line form trips the line-length rule.
           gitleaks_url="https://github.com/gitleaks/gitleaks/releases/download"
           gitleaks_url="${gitleaks_url}/v${GITLEAKS_VERSION}"
           gitleaks_url="${gitleaks_url}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
