@@ -1,5 +1,7 @@
 # dotfiles
 
+[![lint & test](https://github.com/andeart/dotfiles/actions/workflows/lint-and-test.yml/badge.svg?branch=main)](https://github.com/andeart/dotfiles/actions/workflows/lint-and-test.yml)
+
 My environment, painstakingly curated over years I could have spent learning piano or something. You're welcome to poke around, steal ideas, or judge my aliases (silently).
 
 The setup is macOS-only because I made choices in life and I'm living with them.
@@ -33,7 +35,7 @@ dotfiles/
 │   ├── dependabot.yml                 # weekly bumps for pinned action SHAs
 │   └── workflows/
 │       ├── claude.yml                 # dispatches Claude Code on @claude mentions
-│       └── lint-and-test.yml          # runs pre-commit hooks on PRs to main
+│       └── lint-and-test.yml          # runs pre-commit hooks on PRs to main and on push to main
 ├── bin/*                              # utility scripts
 ├── brew/
 │   └── Brewfile                       # brew bundle
