@@ -18,22 +18,26 @@ if [ ! -f "$DOTFILES_CONFIG" ]; then
     fail "dotfiles.yml not found at $DOTFILES_CONFIG"
 fi
 
-# Pre-parse dotfiles.yml once into an associative array; every is_enabled
-# check then reduces to an O(1) lookup instead of forking a yq subprocess.
-# _dotfiles_flag_order preserves document order for the plan log below.
-declare -A _dotfiles_flags
-_dotfiles_flag_order=()
+# Pre-parse dotfiles.yml once and stash each flag in a dynamic variable
+# (_dotfiles_flag_<sanitized-key>). is_enabled then resolves via bash's
+# indirect expansion (${!var}) for O(1) lookups without forking yq per
+# check. Associative arrays would be cleaner but require bash 4+, and
+# macOS ships with bash 3.2. _dotfiles_flag_keys preserves document order
+# for the plan log below.
+_dotfiles_flag_keys=()
 while IFS=$'\t' read -r section key val; do
     [ -z "$section" ] && continue
     full_key="$section.$key"
-    _dotfiles_flags["$full_key"]="$val"
-    _dotfiles_flag_order+=("$full_key")
+    var_name="_dotfiles_flag_${full_key//[^a-zA-Z0-9]/_}"
+    printf -v "$var_name" '%s' "$val"
+    _dotfiles_flag_keys+=("$full_key")
 done < <(yq -r 'to_entries[] | .key as $section | .value | to_entries[] | [$section, .key, (.value | tostring)] | @tsv' "$DOTFILES_CONFIG" 2>/dev/null)
 
 # Read a boolean value from dotfiles.yml. Returns 0 (true) or 1 (false).
 is_enabled() {
     local key="${1#.}"
-    [ "${_dotfiles_flags[$key]:-}" = "true" ]
+    local var_name="_dotfiles_flag_${key//[^a-zA-Z0-9]/_}"
+    [ "${!var_name:-}" = "true" ]
 }
 
 # Check that all Brewfile dependencies are installed
@@ -64,13 +68,19 @@ fi
 # Log the full bootstrap plan derived from dotfiles.yml
 echo ''
 info "Bootstrap plan (from dotfiles.yml):"
-for flag_key in "${_dotfiles_flag_order[@]}"; do
-    if [ "${_dotfiles_flags[$flag_key]}" = "true" ]; then
-        printf "    [  \033[00;32mON\033[0m ] %s\n" "$flag_key"
-    else
-        printf "    [ \033[00;31mOFF\033[0m ] %s\n" "$flag_key"
-    fi
-done
+# Guarded against an empty array because bash 3.2 treats "${arr[@]}" as
+# unbound under `set -u` when there are zero elements (a config with all
+# flags commented out, for example).
+if [ ${#_dotfiles_flag_keys[@]} -gt 0 ]; then
+    for flag_key in "${_dotfiles_flag_keys[@]}"; do
+        var_name="_dotfiles_flag_${flag_key//[^a-zA-Z0-9]/_}"
+        if [ "${!var_name}" = "true" ]; then
+            printf "    [  \033[00;32mON\033[0m ] %s\n" "$flag_key"
+        else
+            printf "    [ \033[00;31mOFF\033[0m ] %s\n" "$flag_key"
+        fi
+    done
+fi
 echo ''
 
 # Remind user to set up .local files before symlinking begins

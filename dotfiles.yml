@@ -1,19 +1,19 @@
 ---
 # Configuration used by bootstrap.sh
 
-oh-my-zsh:
-  zshrc: false
-  # The zshrc symlink also covers pointing to the zsh-custom directory.
+# The zshrc symlink also covers pointing to the zsh-custom directory.
+# oh-my-zsh:
+#   zshrc: true
 
-git:
-  gitconfig: false
+# git:
+#   gitconfig: true
 
-markdownlint:
-  config: false
+# markdownlint:
+#   config: true
 
-vscode:
-  settings: false
-  extensions: false
+# vscode:
+#   settings: true
+#   extensions: true
 
-agents-and-claude:
-  sync: false
+# agents-and-claude:
+#   sync: true
