@@ -42,6 +42,13 @@
 - Nothing overly jovial or silly. The goal is to sound like a thoughtful contributor talking to maintainers, not a spec generator.
 - Match the emotional register to the stakes. Describe the change matter-of-factly - what was happening, what changes now. "The preview was raw HTML; this renders it as markdown" lands better than "the markup drowns out the content."
 
+## Permissions & capability grants
+
+- When proposing changes to any capability-grant surface (IAM policies, K8s RBAC, GitHub PAT/OAuth scopes, sudoers, file ACLs, firewall rules, MCP tool allowlists, etc.) where the exact required set is uncertain, never include "best-estimate" entries. Every entry should have a demonstrated reason to exist.
+- Start with the minimum already proven in use, run the workload, read the specific denial, and add only the exact action/permission/scope the error names, scoped as tightly as the named resource/target allows. Iterate until the workload passes - then stop. No "while you're at it" additions.
+- If the application error wraps the underlying denial and the entry name isn't visible, surface the exact denied call from the relevant audit log (CloudTrail for AWS, audit log for K8s, GitHub audit log for PATs, etc.) before guessing.
+- If multiple denials surface in one run, batch them into one update - but still one entry per denial, not "and a few related ones."
+
 ## Security
 
 - Never publish details about a repo's security posture in that repo's own public metadata (PR or issue descriptions, commit messages, comments, release notes). The repo where a defense lives is exactly the place an attacker is already reading.
