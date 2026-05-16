@@ -49,7 +49,6 @@
     fa = !git fetch --all --prune && git fetch --tags --force
     po = push origin
     pl = pull
-    st = status -su
     sw = switch
     swc = switch -c
     undo = reset --mixed HEAD~1
