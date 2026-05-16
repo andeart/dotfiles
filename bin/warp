@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Open a directory in a new Warp tab via Warp's warp:// URI scheme.
+# Usage: warp <path>          open <path> in a new Warp tab
+#        warp .               open the current directory
+#        warp --print <path>  print the warp:// URI instead of opening it
+set -euo pipefail
+
+usage() {
+  echo "usage: warp [--print] <path>" >&2
+}
+
+# ─── argument parsing ─────────────────────────────────────────────────────────
+print_only=false
+target=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --print)
+      print_only=true; shift ;;
+    --*)
+      echo "error: unknown option: $1" >&2; usage; exit 1 ;;
+    *)
+      [[ -n "$target" ]] && { echo "error: unexpected argument: $1" >&2; usage; exit 1; }
+      target="$1"; shift ;;
+  esac
+done
+
+if [[ -z "$target" ]]; then
+  usage
+  exit 1
+fi
+
+# ─── resolve to an absolute directory ─────────────────────────────────────────
+if [[ ! -e "$target" ]]; then
+  echo "error: no such file or directory: $target" >&2
+  exit 1
+fi
+if [[ ! -d "$target" ]]; then
+  echo "error: not a directory: $target" >&2
+  exit 1
+fi
+
+abs_path="$(cd "$target" 2>/dev/null && pwd)"
+if [[ -z "$abs_path" ]]; then
+  echo "error: cannot access directory: $target" >&2
+  exit 1
+fi
+
+# ─── percent-encode the path for use as a URI query value ─────────────────────
+# Encodes every byte except the URI unreserved set, so '/' becomes %2F. Runs
+# under LC_ALL=C so multibyte (UTF-8) paths encode byte-correctly.
+url_encode() {
+  local string="$1" out="" i char
+  local LC_ALL=C
+  for (( i = 0; i < ${#string}; i++ )); do
+    char="${string:i:1}"
+    case "$char" in
+      [A-Za-z0-9._~-]) out+="$char" ;;
+      *) printf -v char '%%%02X' "'$char"; out+="$char" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+uri="warp://action/new_tab?path=$(url_encode "$abs_path")"
+
+# ─── open (or print) ──────────────────────────────────────────────────────────
+if [[ "$print_only" == true ]]; then
+  printf '%s\n' "$uri"
+else
+  open "$uri"
+fi
