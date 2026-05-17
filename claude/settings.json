@@ -1,6 +1,6 @@
 {
   "env": {
-    "CLAUDE_CODE_IDLE_NOTIFICATION_THRESHOLD_MS": "10000"
+    "CLAUDE_CODE_IDLE_NOTIFICATION_THRESHOLD_MS": "1000"
   },
   "permissions": {
     "allow": [
@@ -25,7 +25,17 @@
         ]
       }
     ],
-    "PreToolUse": []
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $HOME/.claude/block-file-deletions.sh"
+          }
+        ]
+      }
+    ]
   },
   "statusLine": {
     "type": "command",
@@ -53,6 +63,7 @@
     }
   },
   "effortLevel": "high",
+  "preferredNotifChannel": "auto",
   "remoteControlAtStartup": false,
   "agentPushNotifEnabled": true
 }

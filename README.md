@@ -66,6 +66,7 @@ dotfiles/
 │   ├── AGENTS.md                      # synced to ~/.agents/AGENTS.md
 │   └── skills/*                       # synced to ~/.agents/skills/ and ~/.claude/skills/
 └── claude/
+    ├── block-file-deletions.sh        # synced to ~/.claude/block-file-deletions.sh
     ├── CLAUDE.md                      # synced to ~/.claude/CLAUDE.md
     ├── settings.json                  # synced to ~/.claude/settings.json
     └── statusline-command.sh          # synced to ~/.claude/statusline-command.sh
