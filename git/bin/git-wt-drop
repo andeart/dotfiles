@@ -156,7 +156,7 @@ current_dir="$(pwd -P)"
 resolved_wt="$worktree_path"
 if cd "$worktree_path" 2>/dev/null; then
   resolved_wt="$(pwd -P)"
-  cd "$current_dir"
+  cd "$current_dir" || true
 fi
 if [[ "$current_dir" == "$resolved_wt" || "$current_dir" == "$resolved_wt"/* ]]; then
   echo "error: cannot remove the worktree you are currently inside." >&2
