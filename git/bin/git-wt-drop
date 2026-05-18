@@ -9,6 +9,9 @@ BLUE=$'\033[1;34m'
 RED=$'\033[1;31m'
 DIM=$'\033[2m'
 RESET=$'\033[0m'
+# Selected-row background: a dark muted teal (truecolor). Renders in modern
+# terminals; on one without truecolor support the highlight simply doesn't show.
+BG_SEL=$'\033[48;2;26;58;58m'
 
 # ─── git repo check ────────────────────────────────────────────────────────────
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
@@ -89,8 +92,21 @@ trap on_interrupt INT TERM
 stty -echo -icanon </dev/tty
 printf '\033[?25l' >&2
 
+# Print one picker row. When selected, the row gets a full-width muted
+# background: `\033[2K` fills the line with BG_SEL, then the content prints on
+# top. Internal RESETs in the content are followed by BG_SEL again so the tint
+# does not drop out mid-row.
+emit_row() {
+  local selected_row="$1" content="$2"
+  if [[ "$selected_row" == true ]]; then
+    printf '%s\033[2K%s%s\n' "$BG_SEL" "${content//"$RESET"/$RESET$BG_SEL}" "$RESET" >&2
+  else
+    printf '\033[2K%s\n' "$content" >&2
+  fi
+}
+
 draw() {
-  local i p
+  local i p line1 sel
   [[ "$drawn" == true ]] && printf '\033[%dA' "$picker_lines" >&2
   drawn=true
   for ((i = 0; i < options_count; i++)); do
@@ -101,18 +117,21 @@ draw() {
       p="~${p#"$HOME"}"
     fi
     if [[ $i -eq $selected ]]; then
-      printf '\033[2K%s\n' "${CYAN}❯ ${branches[$i]}${RESET}" >&2
+      sel=true
+      line1="${CYAN}❯ ${branches[$i]}${RESET}"
     else
-      printf '\033[2K%s\n' "  ${CYAN}${branches[$i]}${RESET}" >&2
+      sel=false
+      line1="  ${CYAN}${branches[$i]}${RESET}"
     fi
-    printf '\033[2K%s\n' "  ${DIM}${shas[$i]}${RESET}  ${BLUE}${dates[$i]}${RESET}" >&2
-    printf '\033[2K%s\n' "  ${DIM}${p}${RESET}" >&2
+    emit_row "$sel" "$line1"
+    emit_row "$sel" "  ${DIM}${shas[$i]}${RESET}  ${BLUE}${dates[$i]}${RESET}"
+    emit_row "$sel" "  ${DIM}${p}${RESET}"
     printf '\033[2K\n' >&2
   done
   if [[ $selected -eq $options_count ]]; then
-    printf '\033[2K%s\n' "${CYAN}❯ ${RESET}${BOLD}✕ ${RED}Cancel${RESET}" >&2
+    emit_row true "${CYAN}❯ ${RESET}${BOLD}✕ ${RED}Cancel${RESET}"
   else
-    printf '\033[2K%s\n' "  ${BOLD}✕ ${RED}Cancel${RESET}" >&2
+    emit_row false "  ${BOLD}✕ ${RED}Cancel${RESET}"
   fi
 }
 
