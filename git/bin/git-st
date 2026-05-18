@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Short status with a compact branch header (branch + ahead/behind).
+# Usage: git st [<pathspec>...]
+set -euo pipefail
+
+CYAN=$'\033[1;36m'
+GREEN=$'\033[1;32m'
+RED=$'\033[1;31m'
+RESET=$'\033[0m'
+
+if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+  echo "error: not inside a git repository." >&2
+  exit 1
+fi
+
+# ─── branch name, or short SHA when detached ──────────────────────────────────
+branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+if [[ -n "$branch" ]]; then
+  header="${CYAN}${branch}${RESET}"
+else
+  header="${CYAN}$(git rev-parse --short HEAD 2>/dev/null || echo '?')${RESET}"
+fi
+
+# ─── ahead/behind vs upstream ─────────────────────────────────────────────────
+# `git rev-list --count --left-right @{upstream}...HEAD` prints "<behind>\t<ahead>".
+if [[ -n "$branch" ]] && counts="$(git rev-list --count --left-right '@{upstream}...HEAD' 2>/dev/null)"; then
+  read -r behind ahead <<< "$counts"
+  [[ "${ahead:-0}" -gt 0 ]]  && header+=" ${GREEN}↑${ahead}${RESET}"
+  [[ "${behind:-0}" -gt 0 ]] && header+=" ${RED}↓${behind}${RESET}"
+fi
+
+echo "$header"
+git status -su "$@"
