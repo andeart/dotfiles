@@ -1,6 +1,6 @@
 {
   "env": {
-    "CLAUDE_CODE_IDLE_NOTIFICATION_THRESHOLD_MS": "10000"
+    "CLAUDE_CODE_IDLE_NOTIFICATION_THRESHOLD_MS": "1000"
   },
   "permissions": {
     "allow": [
@@ -53,6 +53,7 @@
     }
   },
   "effortLevel": "high",
+  "preferredNotifChannel": "auto",
   "remoteControlAtStartup": false,
   "agentPushNotifEnabled": true
 }
