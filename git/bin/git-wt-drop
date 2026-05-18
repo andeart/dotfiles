@@ -124,7 +124,11 @@ while true; do
   fi
   case "$key" in
     $'\033')
-      IFS= read -rsn2 -t 0.05 rest </dev/tty 2>/dev/null || rest=""
+      # Read the rest of an escape sequence (arrow keys). The timeout must be
+      # an integer: macOS ships bash 3.2, whose `read` rejects fractional -t
+      # values. -n2 returns the instant both bytes arrive, so arrows stay
+      # snappy; the 1s only elapses on a bare Escape press.
+      IFS= read -rsn2 -t 1 rest </dev/tty 2>/dev/null || rest=""
       case "$rest" in
         '[A') selected=$(((selected - 1 + total_choices) % total_choices)) ;;
         '[B') selected=$(((selected + 1) % total_choices)) ;;
