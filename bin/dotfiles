@@ -17,6 +17,7 @@ RESET='\033[0m'
 PATH_MAPPING=(
   "agents/AGENTS.md|~/.agents/AGENTS.md"
   "agents/skills|~/.agents/skills,~/.claude/skills"
+  "claude/block-file-deletions.sh|~/.claude/block-file-deletions.sh"
   "claude/CLAUDE.md|~/.claude/CLAUDE.md"
   "claude/settings.json|~/.claude/settings.json"
   "claude/statusline-command.sh|~/.claude/statusline-command.sh"
