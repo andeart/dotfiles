@@ -105,12 +105,15 @@ link_file() {
             return
         fi
 
-        read -rp "File exists: $dst (b)ackup, (s)kip, (o)verwrite? " action
-        case "$action" in
-            o) rm -rf "$dst" ;;
-            b) mv "$dst" "${dst}.backup.$(date +%Y%m%d%H%M%S)"; success "backed up $dst" ;;
-            s) success "skipped $dst"; return ;;
-        esac
+        while true; do
+            read -rp "File exists: $dst (b)ackup, (s)kip, (o)verwrite? " action
+            case "$action" in
+                o) rm -rf "$dst"; break ;;
+                b) mv "$dst" "${dst}.backup.$(date +%Y%m%d%H%M%S)"; success "backed up $dst"; break ;;
+                s) success "skipped $dst"; return ;;
+                *) warn "please answer b, s, or o" ;;
+            esac
+        done
     fi
 
     ln -s "$src" "$dst"
