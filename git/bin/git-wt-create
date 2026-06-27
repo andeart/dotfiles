@@ -1,18 +1,114 @@
 #!/usr/bin/env bash
 # Create a git worktree at an explicit path, optionally with a new branch.
 # Usage: git wt-create -p <worktrees-dir> -b <branch> [-c --base <base>]
+#        git wt-create -i        # interactive mode (gum-driven prompts)
+#
+# STDOUT CONTRACT (do not break): stdout MUST contain ONLY the bare worktree
+# path, on a single final line. Callers capture it with wt_path="$(git
+# wt-create ...) " and then 'cd "$wt_path". Every other output - git's own
+# chatter, prompts, the human-facing "Worktree is ready" blurb - MUST go to
+# stderr (>&2). If you add output, send it to stderr unless it IS the path.
+# gum renders its UI on the TTY and every gum selection is captured via $(...),
+# so nothing it does leaks to stdout.
 set -euo pipefail
 
 CYAN=$'\033[1;36m'
 RESET=$'\033[0m'
 
+# Cache of previously-used worktrees directories, offered as a selectable list
+# in interactive mode. One absolute path per line.
+CACHE_FILE="$HOME/.dotfiles/wt-create-dirs.txt"
+
 worktrees_dir=""
 branch_name=""
 base_branch=""
 create_branch=false
+interactive=false
+
+# How the worktree will be created, resolved by either the flag path or the
+# interactive path: new (new branch off base) | local (existing local branch) |
+# remote (new branch tracking origin/<branch>).
+wt_mode=""
 
 usage() {
   echo "usage: git wt-create -p <worktrees-dir> -b <branch> [-c --base <base>]" >&2
+  echo "       git wt-create -i" >&2
+}
+
+# ─── helpers ───────────────────────────────────────────────────────────────────
+# True when origin has a branch by this name.
+remote_branch_exists() {
+  git ls-remote --exit-code --heads origin "$1" &>/dev/null
+}
+
+# Echo the repo's default branch (main/master), or empty if neither exists.
+default_branch() {
+  if git rev-parse --verify main &>/dev/null; then
+    echo "main"
+  elif git rev-parse --verify master &>/dev/null; then
+    echo "master"
+  fi
+}
+
+# Append a directory to the cache if it isn't already there.
+cache_dir() {
+  local dir="$1"
+  mkdir -p "$(dirname "$CACHE_FILE")"
+  touch "$CACHE_FILE"
+  grep -qxF "$dir" "$CACHE_FILE" || printf '%s\n' "$dir" >> "$CACHE_FILE"
+}
+
+# Interactive flow: populates worktrees_dir, branch_name, wt_mode, base_branch.
+run_interactive() {
+  if ! command -v gum &>/dev/null; then
+    echo "error: 'gum' is required for interactive mode (-i)." >&2
+    exit 1
+  fi
+
+  # ── directory: pick a cached one or enter a new path ──
+  local cached=() new_entry="✎ Enter a new directory…" choice
+  if [[ -f "$CACHE_FILE" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && cached+=("$line")
+    done < "$CACHE_FILE"
+  fi
+
+  if [[ ${#cached[@]} -gt 0 ]]; then
+    choice="$(printf '%s\n' "$new_entry" "${cached[@]}" \
+      | gum filter --placeholder "Filter worktrees directories…")" \
+      || { echo "Aborted." >&2; exit 0; }
+  else
+    choice="$new_entry"
+  fi
+
+  if [[ "$choice" == "$new_entry" ]]; then
+    worktrees_dir="$(gum input --placeholder "/path/to/worktrees")" \
+      || { echo "Aborted." >&2; exit 0; }
+    [[ -z "$worktrees_dir" ]] && { echo "error: no directory provided." >&2; exit 1; }
+  else
+    worktrees_dir="$choice"
+  fi
+  worktrees_dir="${worktrees_dir/#\~/$HOME}"
+
+  # ── branch name (free text) ──
+  branch_name="$(gum input --placeholder "branch name")" \
+    || { echo "Aborted." >&2; exit 0; }
+  [[ -z "$branch_name" ]] && { echo "error: no branch name provided." >&2; exit 1; }
+
+  # ── existing (local/remote) vs new branch ──
+  if git show-ref --verify --quiet "refs/heads/$branch_name"; then
+    wt_mode="local"
+  elif remote_branch_exists "$branch_name"; then
+    wt_mode="remote"
+  else
+    wt_mode="new"
+    base_branch="$(gum input --value "$(default_branch)" --placeholder "base branch")" \
+      || { echo "Aborted." >&2; exit 0; }
+    [[ -z "$base_branch" ]] && { echo "error: no base branch provided." >&2; exit 1; }
+    if ! git rev-parse --verify "$base_branch" &>/dev/null; then
+      echo "error: base branch '$base_branch' does not exist." >&2; exit 1
+    fi
+  fi
 }
 
 # ─── argument parsing ──────────────────────────────────────────────────────────
@@ -29,6 +125,8 @@ while [[ $# -gt 0 ]]; do
     --base)
       [[ $# -lt 2 ]] && { echo "error: --base requires a value" >&2; usage; exit 1; }
       base_branch="$2"; shift 2 ;;
+    -i)
+      interactive=true; shift ;;
     *)
       echo "error: unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -40,30 +138,62 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
   exit 1
 fi
 
-# ─── required flags ────────────────────────────────────────────────────────────
-[[ -z "$worktrees_dir" ]] && { echo "error: -p <worktrees-dir> is required." >&2; usage; exit 1; }
-[[ -z "$branch_name" ]]   && { echo "error: -b <branch> is required." >&2; usage; exit 1; }
-
-# ─── validate flag combination ────────────────────────────────────────────────
-if [[ "$create_branch" == true ]]; then
-  [[ -z "$base_branch" ]] && { echo "error: --base <base> is required with -c." >&2; usage; exit 1; }
-  if ! git rev-parse --verify "$base_branch" &>/dev/null; then
-    echo "error: base branch '$base_branch' does not exist." >&2; exit 1
+# ─── resolve inputs: interactive vs flag-driven ────────────────────────────────
+if [[ "$interactive" == true ]]; then
+  if [[ -n "$worktrees_dir" || -n "$branch_name" || -n "$base_branch" || "$create_branch" == true ]]; then
+    echo "error: -i cannot be combined with -p/-b/-c/--base." >&2; usage; exit 1
   fi
-  if git rev-parse --verify "$branch_name" &>/dev/null; then
-    echo "error: '$branch_name' already exists as a branch or tag." >&2; exit 1
-  fi
+  run_interactive
 else
-  [[ -n "$base_branch" ]] && { echo "error: --base is only valid with -c." >&2; usage; exit 1; }
-  if ! git show-ref --verify --quiet "refs/heads/$branch_name"; then
-    echo "error: branch '$branch_name' does not exist. Add -c --base <base> to create it." >&2; exit 1
+  # ── required flags ──
+  [[ -z "$worktrees_dir" ]] && { echo "error: -p <worktrees-dir> is required." >&2; usage; exit 1; }
+  [[ -z "$branch_name" ]]   && { echo "error: -b <branch> is required." >&2; usage; exit 1; }
+
+  # ── validate flag combination ──
+  if [[ "$create_branch" == true ]]; then
+    [[ -z "$base_branch" ]] && { echo "error: --base <base> is required with -c." >&2; usage; exit 1; }
+    if ! git rev-parse --verify "$base_branch" &>/dev/null; then
+      echo "error: base branch '$base_branch' does not exist." >&2; exit 1
+    fi
+    if git rev-parse --verify "$branch_name" &>/dev/null; then
+      echo "error: '$branch_name' already exists as a branch or tag." >&2; exit 1
+    fi
+    if remote_branch_exists "$branch_name"; then
+      echo "error: '$branch_name' already exists on remote 'origin'." >&2; exit 1
+    fi
+    wt_mode="new"
+  else
+    [[ -n "$base_branch" ]] && { echo "error: --base is only valid with -c." >&2; usage; exit 1; }
+    if git show-ref --verify --quiet "refs/heads/$branch_name"; then
+      wt_mode="local"
+    elif remote_branch_exists "$branch_name"; then
+      wt_mode="remote"
+    else
+      echo "error: branch '$branch_name' does not exist locally or on remote 'origin'. Add -c --base <base> to create it." >&2
+      exit 1
+    fi
   fi
 fi
 
 # ─── resolve worktree path ────────────────────────────────────────────────────
-worktree_path="${worktrees_dir%/}/${branch_name}"
+# Prefix the worktree dir with the repo name so worktrees from different clones
+# stay distinguishable even when they share a branch name.
+git_common_dir="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
+repo_name="$(basename "$(dirname "$git_common_dir")")"
+worktree_path="${worktrees_dir%/}/${repo_name}-${branch_name}"
 if [[ -e "$worktree_path" ]]; then
   echo "error: '$worktree_path' already exists." >&2; exit 1
+fi
+
+# ─── confirm before creating (interactive only) ───────────────────────────────
+if [[ "$interactive" == true ]]; then
+  case "$wt_mode" in
+    new)    action="new branch off ${base_branch}" ;;
+    local)  action="existing local branch" ;;
+    remote) action="new branch tracking origin/${branch_name}" ;;
+  esac
+  gum confirm "Create worktree at '${worktree_path}' (${action})?" \
+    || { echo "Aborted." >&2; exit 0; }
 fi
 
 # ─── ensure worktrees dir exists ──────────────────────────────────────────────
@@ -72,22 +202,36 @@ if [[ -e "$worktrees_dir" && ! -d "$worktrees_dir" ]]; then
   exit 1
 fi
 if [[ ! -d "$worktrees_dir" ]]; then
-  printf "Directory '%s' does not exist. Create it? [y/n] " "$worktrees_dir"
-  read -r answer
-  case "$answer" in
-    y|Y) ;;
-    *) echo "Aborted."; exit 0 ;;
-  esac
+  if [[ "$interactive" == true ]]; then
+    gum confirm "Directory '${worktrees_dir}' does not exist. Create it?" \
+      || { echo "Aborted." >&2; exit 0; }
+  else
+    printf "Directory '%s' does not exist. Create it? [y/n] " "$worktrees_dir" >&2
+    read -r answer
+    case "$answer" in
+      y|Y) ;;
+      *) echo "Aborted." >&2; exit 0 ;;
+    esac
+  fi
 fi
 mkdir -p "$worktrees_dir"
 
 # ─── create worktree ──────────────────────────────────────────────────────────
-if [[ "$create_branch" == true ]]; then
-  git worktree add -b "$branch_name" "$worktree_path" "$base_branch"
-else
-  git worktree add "$worktree_path" "$branch_name"
-fi
+case "$wt_mode" in
+  new)
+    git worktree add -b "$branch_name" "$worktree_path" "$base_branch" >&2 ;;
+  local)
+    git worktree add "$worktree_path" "$branch_name" >&2 ;;
+  remote)
+    git worktree add --track -b "$branch_name" "$worktree_path" "origin/$branch_name" >&2 ;;
+esac
+
+# ─── cache the worktrees directory (interactive only) ─────────────────────────
+[[ "$interactive" == true ]] && cache_dir "$worktrees_dir"
 
 # ─── success ──────────────────────────────────────────────────────────────────
 printf "\nWorktree ${CYAN}%s${RESET} is ready. Start working by running:\n\n  cd %s\n\n" \
-  "$branch_name" "$worktree_path"
+  "$branch_name" "$worktree_path" >&2
+
+# ─── emit bare worktree path on stdout (see STDOUT CONTRACT above) ─────────────
+printf '%s\n' "$worktree_path"
