@@ -14,11 +14,6 @@ WT_CREATE_BIN="$DOTFILES_ROOT/git/bin/git-wt-create"
 # Branch fixtures: "main" (default), "local-only" (local, no worktree),
 # "only-remote" (exists on origin but not locally).
 setup() {
-  # Scrub git's repo-local env vars. Under the pre-commit hook, git exports
-  # GIT_INDEX_FILE=.git/index (and friends), which would leak into the temp
-  # repos below and break `git worktree add`. Harmless when run standalone.
-  unset $(git rev-parse --local-env-vars)
-
   REPO_PARENT="$(mktemp -d)"
   REMOTE="$REPO_PARENT/remote.git"
   REPO="$REPO_PARENT/repo-a"

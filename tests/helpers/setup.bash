@@ -5,6 +5,16 @@ DOTFILES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DOTFILES_BIN="$DOTFILES_ROOT/bin/dotfiles"
 DOTFILES_TEST_BIN="$DOTFILES_ROOT/bin/dotfiles_test"
 
+# Clear git's repo-local env vars. Under the pre-commit hook, git exports
+# GIT_INDEX_FILE=.git/index (and friends) pointing at the dotfiles repo. Left
+# in place, they leak into any temp repo a test builds and break git operations
+# like `git worktree add`. Harmless when the suite is run standalone. bats
+# re-sources this file for every test, so the scrub runs before each one.
+scrub_git_env() {
+  unset $(git rev-parse --local-env-vars)
+}
+scrub_git_env
+
 # Make a fresh tmp area for each test. Sets:
 #   $TEST_REPO  — fake repo root with agents/ and claude/ subtrees
 #   $TEST_LIVE  — fake $HOME containing .agents/ and .claude/
