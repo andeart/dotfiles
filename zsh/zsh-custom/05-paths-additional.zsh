@@ -1,9 +1,6 @@
 # Rust
 . "$HOME/.cargo/env"
 
-# Ruby gems (CocoaPods, etc.)
-export GEM_HOME="${HOME}/.gem"
-
 # ---- PATH ----
 export PATH="${DOTFILES_ROOT}/bin:${PATH}"
 export PATH="${DOTFILES_ROOT}/git/bin:${PATH}"
