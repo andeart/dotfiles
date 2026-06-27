@@ -37,6 +37,7 @@ dotfiles/
 │       ├── claude.yml                 # dispatches Claude Code on @claude mentions
 │       └── lint-and-test.yml          # runs pre-commit hooks on PRs to main and on push to main
 ├── bin/*                              # utility scripts
+├── tests/*                            # bats test suites
 ├── brew/
 │   └── Brewfile                       # brew bundle
 ├── zsh/
