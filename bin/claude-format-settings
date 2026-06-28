@@ -10,6 +10,11 @@ Format Claude Code settings JSON files in place:
   - enabledPlugins keys sorted case-insensitively
   - exact duplicate entries removed (reported per file)
 
+Each PATH may be either:
+  - a JSON file, formatted directly; or
+  - a directory, in which case .claude/settings.local.json under it is used
+    (e.g. `claude-format-settings .` formats ./.claude/settings.local.json).
+
 Options:
   --check     Do not modify files. Exit 1 if any file would be reformatted.
   -h, --help  Show this help.
@@ -66,15 +71,51 @@ def dupes_in:
 '
 
 EXIT=0
-for path in "${PATHS[@]}"; do
+for raw in "${PATHS[@]}"; do
+  # A directory argument resolves to .claude/settings.local.json under it.
+  if [[ -d "$raw" ]]; then
+    path="${raw%/}/.claude/settings.local.json"
+    if [[ ! -e "$path" ]]; then
+      echo "Error: no .claude/settings.local.json found under directory '$raw'" >&2
+      EXIT=1
+      continue
+    fi
+  else
+    path="$raw"
+  fi
+
+  if [[ ! -e "$path" ]]; then
+    echo "Error: '$path' does not exist" >&2
+    EXIT=1
+    continue
+  fi
   if [[ ! -f "$path" ]]; then
-    echo "Error: '$path' does not exist or is not a regular file" >&2
+    echo "Error: '$path' is not a regular file" >&2
+    EXIT=1
+    continue
+  fi
+  if [[ ! -r "$path" ]]; then
+    echo "Error: '$path' is not readable" >&2
+    EXIT=1
+    continue
+  fi
+  if [[ ! -s "$path" ]]; then
+    echo "Error: '$path' is empty" >&2
     EXIT=1
     continue
   fi
 
-  tmp=$(mktemp)
-  err=$(mktemp)
+  if ! tmp=$(mktemp); then
+    echo "Error: failed to create temporary file for '$path'" >&2
+    EXIT=1
+    continue
+  fi
+  if ! err=$(mktemp); then
+    echo "Error: failed to create temporary file for '$path'" >&2
+    rm -f "$tmp"
+    EXIT=1
+    continue
+  fi
 
   if ! jq "$JQ_FORMAT" "$path" > "$tmp" 2>"$err"; then
     echo "Error: failed to parse '$path' as JSON:" >&2
@@ -104,6 +145,10 @@ for path in "${PATHS[@]}"; do
 
   if [[ $CHECK -eq 1 ]]; then
     echo "[$path] needs formatting" >&2
+    rm -f "$tmp"
+    EXIT=1
+  elif [[ ! -w "$path" ]]; then
+    echo "[$path] needs formatting but file is not writable" >&2
     rm -f "$tmp"
     EXIT=1
   else
