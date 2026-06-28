@@ -18,15 +18,22 @@ source "$ZSH/oh-my-zsh.sh"
 
 export NVM_DIR="$HOME/.nvm"
 
-# Load NVM eagerly. Claude Code captures a snapshot of the shell environment at
-# session start and replays it for every Bash tool call, instead of re-sourcing
-# this file. The lazy-load shim previously here defined stubs (`node`, `npm`,
-# `nvm`, `npx`) that called a `_nvm_lazy_load` helper, but the snapshot captured
-# the stubs without the helper, so any agent `node ...` call infinite-recursed
-# until it hit FUNCNEST. Eager loading puts real `node`/`npm`/`nvm` into the
-# snapshot directly, sidestepping the broken-stub failure mode.
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+# Put the default Node on PATH directly instead of sourcing the ~4000-line
+# nvm.sh on every shell. That source costs ~0.3s (over half of total startup)
+# just to end up with node/npm on PATH. The glob below picks the highest
+# installed version's bin dir (N=nullglob, n=numeric sort), which is what the
+# `default` -> `node` alias resolves to, and prepends it.
+#
+# This keeps real `node`/`npm`/`npx` binaries (not function shims) on PATH, so
+# Claude Code's env snapshot replays real binaries for agent Bash calls. An
+# earlier lazy-load shim stubbed node/npm/npx/nvm; the snapshot captured those
+# stubs without their helper and any agent `node ...` call infinite-recursed
+# until FUNCNEST. The stub below covers ONLY `nvm`, never node/npm/npx, and
+# unsets itself before re-sourcing, so there is no recursion. Explicit version
+# switching (`nvm use 18`) still works on first call.
+node_bin=("$NVM_DIR"/versions/node/v*/bin(/Nn))
+[ -n "$node_bin" ] && export PATH="${node_bin[-1]}:$PATH"
+nvm() { unset -f nvm; \. "$NVM_DIR/nvm.sh"; nvm "$@"; }
 
 source "${BREW_PREFIX}/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
 
