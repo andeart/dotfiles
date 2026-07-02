@@ -32,6 +32,21 @@ Refining only touches **title** and **description**. It does not change:
 fields. If the user explicitly asks to also adjust a field (e.g. "and bump priority to High"),
 handle that as a separate `update_work_item` call after the content rewrite is confirmed.
 
+### Reference context from `.plane.yml`
+
+`.plane.yml` field *defaults* remain out of scope — refining never changes
+assignee, priority, estimate, state, module, or labels. But two kinds of
+`.plane.yml` content are *reference material for writing*, not defaults, and
+refine should read them for context:
+
+- `guidance` — project-wide constraints and conventions that inform wording
+  (e.g. "never put PHI in descriptions").
+- the `info` annotations on `modules` / `labels` / `states` / `estimate_points` —
+  project terminology and semantics that help write accurate Notes.
+
+Read them before proposing a rewrite. They shape the prose only; refine still
+edits just `name`, `description_html`, and `description_stripped`.
+
 ## MCP call flow
 
 1. **Fetch the current work item** via `retrieve_work_item_by_identifier` using the project
@@ -39,6 +54,9 @@ handle that as a separate `update_work_item` call after the content rewrite is c
    `project_identifier: "DX"`, `issue_identifier: 22`). Pass `expand: "assignees,labels,state"`
    so you can see surrounding context. The response includes `description_html` (the current
    HTML body) and `description_stripped`.
+   Also read `.plane.yml` (repo root, or `tmp/.plane.yml`) if present, and load
+   any `guidance` and entity `info` as context per "Reference context from
+   `.plane.yml`" above before diagnosing or rewriting.
 2. **Diagnose violations.** Compare the existing title and description against
    `CONVENTIONS.md`. Typical issues to look for:
    - Title does not start with "Fix " for a bug, or uses title case instead of sentence case, or
