@@ -21,6 +21,9 @@ refine skill.
 `~/.agents/skills/plane-work-item-conventions/CONVENTIONS.md` and follow its rules for title,
 description format, description structure, and acceptance criteria style.**
 
+**If `.plane.yml` sets `guidance`, read it first as project-wide background — it
+shapes wording and constraints (e.g. compliance rules) but is never itself a field.**
+
 > **Terminology note.** Plane calls a tracked unit a **work item** (not "issue" or "ticket").
 > The Plane MCP tools and this skill use that name everywhere. The user may say "issue" or
 > "ticket" colloquially; treat those as synonyms for work item.
@@ -238,6 +241,26 @@ For non-trivial work item creation, the skill composes several Plane MCP calls i
 6. **Add external links and relations**, if the user explicitly asked for them - see
    "Linking and relations" below.
 
+### Applying modules and labels
+
+Unlike `priority` or `assignee`, a module or label is not a fixed default — the
+right one depends on what the work item is about. When `.plane.yml` defines
+`modules` or `labels`:
+
+1. Infer the best-fit entry by matching the work item's content against each
+   entry's `info`. If nothing clearly fits, pick none rather than forcing one.
+2. Surface the choice in what you propose to the user — never assign a module or
+   label silently. In `manual` mode it appears in the fields block; in `mcp` mode
+   state it before applying.
+3. In `mcp` mode, assign the module after the work item is created, via
+   `manage_module_work_items` using the module's `id`. If the chosen module has no
+   `id` in `.plane.yml`, resolve it via `list_modules` (or ask) before assigning.
+   Set labels via the `create_work_item` `labels` argument or `manage_work_item_label`
+   using the resolved label id.
+
+This does not loosen the guardrail in "Default Field Values": modules and labels
+are still set only when they come from `.plane.yml` or the user, never invented.
+
 ### Estimate points
 
 Plane stores each estimate as a UUID-keyed entry in a project-level "estimate set". The MCP API
@@ -295,7 +318,8 @@ present:
   something in the `backlog` or `unstarted` group).
 
 Do not set labels, modules, cycles, or estimates unless the user explicitly provides them or they
-come from `.plane.yml`.
+come from `.plane.yml`. When `.plane.yml` lists `modules` or `labels`, select and apply them per
+"Applying modules and labels" above (infer the best fit, surface it, never assign silently).
 
 ## Linking and relations
 
