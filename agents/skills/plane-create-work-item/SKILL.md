@@ -44,7 +44,11 @@ Supported keys:
 | `assignee` | Plane display name or email (resolved via `get_workspace_members` to a user UUID) | `anurag` |
 | `state` | Initial state name from the project's configured states | `Todo` |
 | `estimate` | Story-point label from the project's configured estimate set (numeric labels are common). Must have a matching entry in `estimate_points` to be sent to Plane. | `2` |
-| `estimate_points` | Map of estimate label → `estimate_point` UUID for the project's estimate set. Required to send any estimate, since Plane's MCP API expects the UUID, not the integer label. See "Estimate points" below. | `{1: <uuid>, 2: <uuid>, ...}` |
+| `estimate_points` | Map of estimate label → its estimate point. Each value is either a bare `estimate_point` UUID (legacy) or a `{ id, info }` map where `id` is the UUID and `info` documents what the point means. Required to send any estimate, since Plane's MCP API expects the UUID, not the integer label. See "Estimate points" and "Annotated entities" below. | `{1: {id: <uuid>, info: "Trivial"}}` |
+| `modules` | List of the project's Plane modules, each `{ name, id?, info? }`. `info` describes what belongs in the module so the skill can pick the best fit. See "Annotated entities". | see below |
+| `labels` | List of the project's labels, each `{ name, id?, info? }`. `info` describes when the label applies. See "Annotated entities". | see below |
+| `states` | List of the project's states, each `{ name, info? }`, annotating what each state means. Informational only — the `state` key above still sets the default. | see below |
+| `guidance` | Free-form prose (block scalar) with project-wide context not tied to a single entity (compliance rules, how work is split, etc.). Read as background before composing. | see below |
 | `priority` | `urgent`, `high`, `medium`, `low`, `none` | `low` |
 
 State and priority values are accepted case-insensitively but normalized before being sent to the
@@ -54,6 +58,52 @@ When a key is present in `.plane.yml`, apply it automatically without asking. Wh
 absent, ask the user to choose a value before creating the work item (unless the "Default Field
 Values" section below specifies a different fallback). User-provided values always override
 `.plane.yml` defaults.
+
+### Annotated entities
+
+`modules`, `labels`, and `states` share one shape: a list of maps, each with a
+required `name` and optional `id` (the Plane UUID, needed for MCP assignment) and
+`info` (a semantic hint the skill reasons over when deciding whether the entry
+applies). The uniform shape lets new entity kinds be added later without inventing
+a new convention.
+
+```yaml
+modules:
+  - name: Billing
+    id: <uuid>
+    info: "Subscriptions, invoices, Stripe webhooks, dunning. Anything money-in."
+  - name: Onboarding
+    info: "New-user signup and first-run experience."
+
+labels:
+  - name: tech-debt
+    info: "Use when the item's primary value is reducing future friction, not user-facing."
+
+states:
+  - name: Blocked
+    info: "Waiting on an external dependency; note the blocker in the description."
+```
+
+An entry with no `id` is guidance-only: the skill can reason about it but must
+resolve or ask for the UUID before assigning it via MCP.
+
+**Estimate semantics.** `estimate_points` accepts two value forms. The legacy bare
+UUID still works; the annotated form adds an `info` string:
+
+```yaml
+estimate_points:
+  1: { id: <uuid>, info: "Trivial. Under an hour." }
+  2: { id: <uuid>, info: "Half a day. Single well-understood change." }
+  5: <uuid>          # legacy bare-UUID form, still valid
+```
+
+When resolving an estimate: if the value is a map, use its `id`; if it's a bare
+string, the value *is* the UUID.
+
+**`guidance`** is a free-form block scalar for project-wide context that doesn't
+attach to any single entity (compliance rules, how work is split into items, etc.).
+Read it as background before composing the body; it shapes wording and constraints
+but is never itself a field.
 
 ### Migrating from an existing .linear.yml or .jira.yml
 
