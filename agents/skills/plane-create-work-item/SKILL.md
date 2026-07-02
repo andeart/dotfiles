@@ -158,17 +158,31 @@ file with all supported keys commented out so they can uncomment and set values 
 # estimate:
 # priority:
 # estimate_points:
-#   1: <uuid>
-#   2: <uuid>
-#   3: <uuid>
-#   5: <uuid>
+#   1: { id: <uuid>, info: "" }
+#   2: { id: <uuid>, info: "" }
+#   5: { id: <uuid>, info: "" }
+# modules:
+#   - name:
+#     id: <uuid>
+#     info: ""
+# labels:
+#   - name:
+#     info: ""
+# states:
+#   - name:
+#     info: ""
+# guidance: |
+#   Project-wide context that isn't tied to a single module/label/estimate.
 ```
 
 ### Missing keys in existing .plane.yml
 
 After reading an existing `.plane.yml`, if any supported keys are absent, offer to append them in
 commented form. This makes it easy for the user to uncomment and set values later rather than
-looking up property names. Ask for confirmation before modifying the file.
+looking up property names. For the list-valued keys (`modules`, `labels`, `states`) and the
+annotated `estimate_points` form, append a shaped commented example (a `- name:` / `id:` / `info:`
+entry, or a `{ id, info }` value) rather than a bare key, so the structure is discoverable. Ask for
+confirmation before modifying the file.
 
 ## Mode
 
