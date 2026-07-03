@@ -1,4 +1,6 @@
 {
+    "claudeCode.preferredLocation": "panel",
+    "claudeCode.useTerminal": true,
     "cSpell.blockCheckingWhenLineLengthGreaterThan": 20000,
     "cSpell.blockCheckingWhenTextChunkSizeGreaterThan": 1000,
     "cSpell.diagnosticLevel": "Warning",
@@ -16,8 +18,6 @@
         "Superellipse",
         "webbrowser"
     ],
-    "claudeCode.preferredLocation": "panel",
-    "claudeCode.useTerminal": true,
     "[dart]": {
         "editor.defaultFormatter": "Dart-Code.dart-code",
         "editor.formatOnSave": true,

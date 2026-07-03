@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFAULT_PATH="$HOME/Library/Application Support/Code/User/settings.json"
+
+usage() {
+  cat <<EOF
+Usage: vscode-format-user-settings [--check] [PATH]
+
+Sort the top-level keys of a VS Code settings.json (JSONC) alphabetically and
+case-insensitively, in place. Bracketed keys like [dart] sort by their first
+alphabetic character (so [dart] sorts as "dart"). Comments, whitespace, and
+nested content are preserved verbatim; only the order of top-level keys changes.
+
+PATH defaults to the VS Code user settings on this machine:
+  $DEFAULT_PATH
+
+Options:
+  --check     Do not modify the file. Exit 1 if it would be reordered.
+  -h, --help  Show this help.
+EOF
+}
+
+CHECK=0
+TARGET=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --check) CHECK=1; shift ;;
+    --) shift; if [[ $# -gt 0 ]]; then TARGET="$1"; shift; fi; break ;;
+    -*) printf 'Error: unknown option %q\n' "$1" >&2; usage >&2; exit 2 ;;
+    *)
+      if [[ -n "$TARGET" ]]; then
+        echo "Error: only one PATH may be given" >&2
+        usage >&2
+        exit 2
+      fi
+      TARGET="$1"; shift ;;
+  esac
+done
+
+[[ -z "$TARGET" ]] && TARGET="$DEFAULT_PATH"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "Error: node is required but not installed" >&2
+  exit 1
+fi
+
+path="$TARGET"
+if [[ ! -e "$path" ]]; then echo "Error: '$path' does not exist" >&2; exit 1; fi
+if [[ ! -f "$path" ]]; then echo "Error: '$path' is not a regular file" >&2; exit 1; fi
+if [[ ! -r "$path" ]]; then echo "Error: '$path' is not readable" >&2; exit 1; fi
+if [[ ! -s "$path" ]]; then echo "Error: '$path' is empty" >&2; exit 1; fi
+
+# Node sorter: reorders the top-level entries of a JSONC object by moving whole
+# text blocks, so comments and formatting survive untouched. Reads the target
+# path from argv, writes the sorted document to stdout.
+if ! jsfile=$(mktemp); then echo "Error: failed to create temporary file" >&2; exit 1; fi
+cat > "$jsfile" <<'JSEOF'
+'use strict';
+const fs = require('fs');
+
+const target = process.argv[2];
+if (!target) { console.error('no path given to sorter'); process.exit(2); }
+
+let src;
+try { src = fs.readFileSync(target, 'utf8'); }
+catch (e) { console.error('cannot read ' + target + ': ' + e.message); process.exit(1); }
+
+function fail(msg) { console.error(msg); process.exit(1); }
+
+const n = src.length;
+
+// Locate the root object's opening brace, skipping leading whitespace/comments.
+let start = -1;
+for (let j = 0; j < n; ) {
+  const c = src[j];
+  if (c === '/' && src[j + 1] === '/') { j += 2; while (j < n && src[j] !== '\n') j++; }
+  else if (c === '/' && src[j + 1] === '*') { j += 2; while (j < n && !(src[j] === '*' && src[j + 1] === '/')) j++; j += 2; }
+  else if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { j++; }
+  else if (c === '{') { start = j; break; }
+  else { fail('expected a top-level object but found ' + JSON.stringify(c) + ' at offset ' + j); }
+}
+if (start === -1) fail('no top-level object found');
+
+const header = src.slice(0, start + 1); // up to and including '{'
+
+// Walk the object body, recording top-level comma positions and the matching '}'.
+const commas = [];
+let depth = 0, inStr = false, esc = false, close = -1;
+let k = start + 1;
+while (k < n) {
+  const c = src[k];
+  if (inStr) {
+    if (esc) esc = false;
+    else if (c === '\\') esc = true;
+    else if (c === '"') inStr = false;
+    k++; continue;
+  }
+  if (c === '"') { inStr = true; k++; continue; }
+  if (c === '/' && src[k + 1] === '/') { k += 2; while (k < n && src[k] !== '\n') k++; continue; }
+  if (c === '/' && src[k + 1] === '*') { k += 2; while (k < n && !(src[k] === '*' && src[k + 1] === '/')) k++; k += 2; continue; }
+  if (c === '{' || c === '[') { depth++; k++; continue; }
+  if (c === '}' || c === ']') {
+    if (depth === 0) { close = k; break; }
+    depth--; k++; continue;
+  }
+  if (c === ',' && depth === 0) { commas.push(k); k++; continue; }
+  k++;
+}
+if (close === -1) fail('unterminated top-level object');
+
+const footer = src.slice(close); // from '}' to end of file
+
+// Split the body into text segments delimited by top-level commas.
+const bounds = [];
+let s = start + 1;
+for (const cp of commas) { bounds.push([s, cp]); s = cp + 1; }
+bounds.push([s, close]);
+
+// Return the content of the first string in a segment (the key), or null if the
+// segment holds no key (pure trivia, e.g. a trailing comment before '}').
+function readKey(text) {
+  const m = text.length;
+  for (let i = 0; i < m; ) {
+    const c = text[i];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { i++; continue; }
+    if (c === '/' && text[i + 1] === '/') { i += 2; while (i < m && text[i] !== '\n') i++; continue; }
+    if (c === '/' && text[i + 1] === '*') { i += 2; while (i < m && !(text[i] === '*' && text[i + 1] === '/')) i++; i += 2; continue; }
+    if (c === '"') {
+      i++;
+      let buf = '';
+      while (i < m) {
+        const d = text[i];
+        if (d === '\\') { buf += text[i + 1] || ''; i += 2; continue; }
+        if (d === '"') break;
+        buf += d; i++;
+      }
+      return buf;
+    }
+    return null; // non-trivia before any string => not a keyed entry
+  }
+  return null;
+}
+
+// Sort key: drop surrounding non-alphanumerics (so "[dart]" sorts as "dart"),
+// keep internal punctuation, and compare case-insensitively.
+function sortKeyOf(key) {
+  return key.replace(/^[^A-Za-z0-9]+/, '').replace(/[^A-Za-z0-9]+$/, '').toLowerCase();
+}
+
+const entries = [];
+let tail = ''; // trivia-only trailing segment(s), kept just before '}'
+for (let idx = 0; idx < bounds.length; idx++) {
+  const [a, b] = bounds[idx];
+  const text = src.slice(a, b);
+  const key = readKey(text);
+  const isLast = idx === bounds.length - 1;
+  if (key === null) { tail += text + (isLast ? '' : ','); continue; }
+  entries.push({ text, sortKey: sortKeyOf(key), i: idx });
+}
+
+// Stable sort: equal keys keep their original relative order.
+entries.sort((x, y) => (x.sortKey < y.sortKey ? -1 : x.sortKey > y.sortKey ? 1 : x.i - y.i));
+
+// Whitespace run immediately before '}', re-emitted after the new last entry.
+let ws = '';
+for (let p = close - 1; p >= 0 && (src[p] === ' ' || src[p] === '\t' || src[p] === '\n' || src[p] === '\r'); p--) {
+  ws = src[p] + ws;
+}
+
+const rtrim = (t) => t.replace(/\s+$/, '');
+const body = entries.map((e) => rtrim(e.text)).join(',');
+
+let out;
+if (tail.trim() === '') {
+  out = header + body + ws + footer;
+} else {
+  out = header + body + (body ? ',' : '') + rtrim(tail) + ws + footer;
+}
+
+process.stdout.write(out);
+JSEOF
+
+if ! tmp=$(mktemp); then rm -f "$jsfile"; echo "Error: failed to create temporary file" >&2; exit 1; fi
+if ! err=$(mktemp); then rm -f "$jsfile" "$tmp"; echo "Error: failed to create temporary file" >&2; exit 1; fi
+
+if ! node "$jsfile" "$path" > "$tmp" 2>"$err"; then
+  echo "Error: failed to format '$path':" >&2
+  cat "$err" >&2
+  rm -f "$jsfile" "$tmp" "$err"
+  exit 1
+fi
+rm -f "$jsfile" "$err"
+
+if cmp -s "$path" "$tmp"; then
+  [[ $CHECK -eq 0 ]] && echo "[$path] already formatted"
+  rm -f "$tmp"
+  exit 0
+fi
+
+if [[ $CHECK -eq 1 ]]; then
+  echo "[$path] needs formatting" >&2
+  rm -f "$tmp"
+  exit 1
+fi
+if [[ ! -w "$path" ]]; then
+  echo "[$path] needs formatting but file is not writable" >&2
+  rm -f "$tmp"
+  exit 1
+fi
+
+cat "$tmp" > "$path"
+rm -f "$tmp"
+echo "[$path] formatted"
