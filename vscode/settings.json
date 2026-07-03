@@ -19,14 +19,16 @@
     "claudeCode.preferredLocation": "panel",
     "claudeCode.useTerminal": true,
     "[dart]": {
+        "editor.defaultFormatter": "Dart-Code.dart-code",
         "editor.formatOnSave": true,
         "editor.formatOnType": true,
+        "editor.inlayHints.enabled": "offUnlessPressed",
         "editor.rulers": [
             100
         ],
-        "editor.selectionHighlight": false,
+        "editor.suggest.insertMode": "replace",
         "editor.tabCompletion": "onlySnippets",
-        "editor.wordBasedSuggestions": "off"
+        "editor.wordBasedSuggestions": "currentDocument"
     },
     "dart.cliConsole": "terminal",
     "dart.closingLabelsTextStyle": "italic",
@@ -42,12 +44,13 @@
     "debug.internalConsoleOptions": "openOnSessionStart",
     "debug.toolBarLocation": "commandCenter",
     "diffEditor.ignoreTrimWhitespace": false,
-    "editor.guides.bracketPairs": true,
+    "editor.guides.bracketPairs": "active",
     "editor.hover.delay": 1000,
     "editor.minimap.showRegionSectionHeaders": true,
     "editor.minimap.showSlider": "always",
     "editor.renderWhitespace": "all",
     "editor.wordWrap": "on",
+    "explorer.autoReveal": true,
     "explorer.openEditors.sortOrder": "alphabetical",
     "explorer.openEditors.visible": 100,
     "files.exclude": {
@@ -55,6 +58,9 @@
     },
     "git.autorefresh": false,
     "git.autoRepositoryDetection": false,
+    // Setting this to false allows us to use Gitlens blame info instead.
+    "git.blame.editorDecoration.enabled": false,
+    "git.blame.statusBarItem.enabled": false,
     "git.enableStatusBarSync": false,
     "git.openRepositoryInParentFolders": "never",
     "git.optimisticUpdate": false,
@@ -64,9 +70,18 @@
         "suppressGitDisabledWarning": true,
         "suppressGitMissingWarning": true
     },
+    "gitlens.ai.enabled": false,
     "gitlens.ai.model": "vscode",
     "gitlens.ai.vscode.model": "copilot:gpt-4.1",
+    "gitlens.gitkraken.mcp.autoEnabled": false,
     "go.toolsManagement.autoUpdate": true,
+    "[json]": {
+        "editor.defaultFormatter": "vscode.json-language-features",
+        "editor.quickSuggestions": {
+            "strings": true
+        },
+        "editor.suggest.insertMode": "replace"
+    },
     "[markdown]": {
         "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
     },
@@ -74,16 +89,21 @@
     "markdownlint.configFile": "~/.markdownlint.yml",
     "redhat.telemetry.enabled": false,
     "references.preferredLocation": "view",
+    "search.showLineNumbers": true,
+    "security.workspace.trust.untrustedFiles": "newWindow",
     "testing.automaticallyOpenPeekView": "failureAnywhere",
+    "window.autoDetectColorScheme": true,
     "window.commandCenter": true,
     "window.openFoldersInNewWindow": "on",
     "window.title": "${rootName}${separator}${profileName}${separator}${activeEditorShort}",
     "window.zoomLevel": 1.5,
     "workbench.activityBar.compact": true,
-    "workbench.activityBar.location": "top",
+    "workbench.activityBar.location": "default",
     "workbench.colorTheme": "Monokai Pro (Filter Spectrum)",
     "workbench.editor.enablePreview": false,
     "workbench.editor.limit.value": 100,
     "workbench.editor.showTabs": "none",
-    "workbench.iconTheme": "Monokai Pro (Filter Spectrum) Icons"
+    "workbench.editor.titleScrollbarSizing": "large",
+    "workbench.iconTheme": "Monokai Pro (Filter Spectrum) Icons",
+    "workbench.preferredDarkColorTheme": "Monokai Pro (Filter Spectrum)"
 }
