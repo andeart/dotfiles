@@ -50,7 +50,6 @@ Supported keys:
 | `estimate_points` | Map of estimate label → its estimate point. Each value is either a bare `estimate_point` UUID (legacy) or a `{ id, info }` map where `id` is the UUID and `info` documents what the point means. Required to send any estimate, since Plane's MCP API expects the UUID, not the integer label. See "Estimate points" and "Annotated entities" below. | `{1: {id: <uuid>, info: "Trivial"}}` |
 | `modules` | List of the project's Plane modules, each `{ name, id?, info? }`. `info` describes what belongs in the module so the skill can pick the best fit. See "Annotated entities". | see below |
 | `labels` | List of the project's labels, each `{ name, id?, info? }`. `info` describes when the label applies. See "Annotated entities". | see below |
-| `states` | List of the project's states, each `{ name, info? }`, annotating what each state means. Informational only — the `state` key above still sets the default. | see below |
 | `guidance` | Free-form prose (block scalar) with project-wide context not tied to a single entity (compliance rules, how work is split, etc.). Read as background before composing. | see below |
 | `priority` | `urgent`, `high`, `medium`, `low`, `none` | `low` |
 
@@ -64,11 +63,11 @@ Values" section below specifies a different fallback). User-provided values alwa
 
 ### Annotated entities
 
-`modules`, `labels`, and `states` share one shape: a list of maps, each with a
-required `name` and optional `id` (the Plane UUID, needed for MCP assignment) and
-`info` (a semantic hint the skill reasons over when deciding whether the entry
-applies). The uniform shape lets new entity kinds be added later without inventing
-a new convention.
+`modules` and `labels` share one shape: a list of maps, each with a required
+`name` and optional `id` (the Plane UUID, needed for MCP assignment) and `info`
+(a semantic hint the skill reasons over when deciding whether the entry applies).
+The uniform shape lets new entity kinds be added later without inventing a new
+convention.
 
 ```yaml
 modules:
@@ -81,10 +80,6 @@ modules:
 labels:
   - name: tech-debt
     info: "Use when the item's primary value is reducing future friction, not user-facing."
-
-states:
-  - name: Blocked
-    info: "Waiting on an external dependency; note the blocker in the description."
 ```
 
 An entry with no `id` is guidance-only: the skill can reason about it but must
@@ -168,9 +163,6 @@ file with all supported keys commented out so they can uncomment and set values 
 # labels:
 #   - name:
 #     info: ""
-# states:
-#   - name:
-#     info: ""
 # guidance: |
 #   Project-wide context that isn't tied to a single module/label/estimate.
 ```
@@ -237,7 +229,8 @@ For non-trivial work item creation, the skill composes several Plane MCP calls i
    project (cache the result per project per session - state IDs are stable within a project) and
    match by name (case-insensitive).
 4. **Resolve the estimate point UUID**, if `estimate` is configured. Look up the integer label in
-   the `estimate_points` map from `.plane.yml` and use the matching UUID. Do **not** rely on the
+   the `estimate_points` map from `.plane.yml` and use the matching UUID (if the
+   entry is a `{ id, info }` map, use its `id` — see "Annotated entities"). Do **not** rely on the
    `point` integer field on `create_work_item` / `update_work_item` - Plane's web UI reads the
    estimate from `estimate_point` (UUID) only, and the integer `point` field is silently ignored
    for display. There is no MCP tool that lists estimate points, so the map in `.plane.yml` is the

@@ -35,14 +35,14 @@ handle that as a separate `update_work_item` call after the content rewrite is c
 ### Reference context from `.plane.yml`
 
 `.plane.yml` field *defaults* remain out of scope — refining never changes
-assignee, priority, estimate, state, module, or labels. But two kinds of
+assignee, priority, estimate, state, modules, or labels. But two kinds of
 `.plane.yml` content are *reference material for writing*, not defaults, and
 refine should read them for context:
 
 - `guidance` — project-wide constraints and conventions that inform wording
   (e.g. "never put PHI in descriptions").
-- the `info` annotations on `modules` / `labels` / `states` / `estimate_points` —
-  project terminology and semantics that help write accurate Notes.
+- the `info` annotations on `modules` / `labels` / `estimate_points` — project
+  terminology and semantics that help write accurate Notes.
 
 Read them before proposing a rewrite. They shape the prose only; refine still
 edits just `name`, `description_html`, and `description_stripped`.
