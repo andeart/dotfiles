@@ -21,6 +21,9 @@ refine skill.
 `~/.agents/skills/plane-work-item-conventions/CONVENTIONS.md` and follow its rules for title,
 description format, description structure, and acceptance criteria style.**
 
+**If `.plane.yml` sets `guidance`, read it first as project-wide background — it
+shapes wording and constraints (e.g. compliance rules) but is never itself a field.**
+
 > **Terminology note.** Plane calls a tracked unit a **work item** (not "issue" or "ticket").
 > The Plane MCP tools and this skill use that name everywhere. The user may say "issue" or
 > "ticket" colloquially; treat those as synonyms for work item.
@@ -44,7 +47,10 @@ Supported keys:
 | `assignee` | Plane display name or email (resolved via `get_workspace_members` to a user UUID) | `anurag` |
 | `state` | Initial state name from the project's configured states | `Todo` |
 | `estimate` | Story-point label from the project's configured estimate set (numeric labels are common). Must have a matching entry in `estimate_points` to be sent to Plane. | `2` |
-| `estimate_points` | Map of estimate label → `estimate_point` UUID for the project's estimate set. Required to send any estimate, since Plane's MCP API expects the UUID, not the integer label. See "Estimate points" below. | `{1: <uuid>, 2: <uuid>, ...}` |
+| `estimate_points` | Map of estimate label → its estimate point. Each value is either a bare `estimate_point` UUID (legacy) or a `{ id, info }` map where `id` is the UUID and `info` documents what the point means. Required to send any estimate, since Plane's MCP API expects the UUID, not the integer label. See "Estimate points" and "Annotated entities" below. | `{1: {id: <uuid>, info: "Trivial"}}` |
+| `modules` | List of the project's Plane modules, each `{ name, id?, info? }`. `info` describes what belongs in the module so the skill can pick the best fit. See "Annotated entities". | see below |
+| `labels` | List of the project's labels, each `{ name, id?, info? }`. `info` describes when the label applies. See "Annotated entities". | see below |
+| `guidance` | Free-form prose (block scalar) with project-wide context not tied to a single entity (compliance rules, how work is split, etc.). Read as background before composing. | see below |
 | `priority` | `urgent`, `high`, `medium`, `low`, `none` | `low` |
 
 State and priority values are accepted case-insensitively but normalized before being sent to the
@@ -54,6 +60,48 @@ When a key is present in `.plane.yml`, apply it automatically without asking. Wh
 absent, ask the user to choose a value before creating the work item (unless the "Default Field
 Values" section below specifies a different fallback). User-provided values always override
 `.plane.yml` defaults.
+
+### Annotated entities
+
+`modules` and `labels` share one shape: a list of maps, each with a required
+`name` and optional `id` (the Plane UUID, needed for MCP assignment) and `info`
+(a semantic hint the skill reasons over when deciding whether the entry applies).
+The uniform shape lets new entity kinds be added later without inventing a new
+convention.
+
+```yaml
+modules:
+  - name: Billing
+    id: <uuid>
+    info: "Subscriptions, invoices, Stripe webhooks, dunning. Anything money-in."
+  - name: Onboarding
+    info: "New-user signup and first-run experience."
+
+labels:
+  - name: tech-debt
+    info: "Use when the item's primary value is reducing future friction, not user-facing."
+```
+
+An entry with no `id` is guidance-only: the skill can reason about it but must
+resolve or ask for the UUID before assigning it via MCP.
+
+**Estimate semantics.** `estimate_points` accepts two value forms. The legacy bare
+UUID still works; the annotated form adds an `info` string:
+
+```yaml
+estimate_points:
+  1: { id: <uuid>, info: "Trivial. Under an hour." }
+  2: { id: <uuid>, info: "Half a day. Single well-understood change." }
+  5: <uuid>          # legacy bare-UUID form, still valid
+```
+
+When resolving an estimate: if the value is a map, use its `id`; if it's a bare
+string, the value *is* the UUID.
+
+**`guidance`** is a free-form block scalar for project-wide context that doesn't
+attach to any single entity (compliance rules, how work is split into items, etc.).
+Read it as background before composing the body; it shapes wording and constraints
+but is never itself a field.
 
 ### Migrating from an existing .linear.yml or .jira.yml
 
@@ -105,17 +153,28 @@ file with all supported keys commented out so they can uncomment and set values 
 # estimate:
 # priority:
 # estimate_points:
-#   1: <uuid>
-#   2: <uuid>
-#   3: <uuid>
-#   5: <uuid>
+#   1: { id: <uuid>, info: "" }
+#   2: { id: <uuid>, info: "" }
+#   5: { id: <uuid>, info: "" }
+# modules:
+#   - name:
+#     id: <uuid>
+#     info: ""
+# labels:
+#   - name:
+#     info: ""
+# guidance: |
+#   Project-wide context that isn't tied to a single module/label/estimate.
 ```
 
 ### Missing keys in existing .plane.yml
 
 After reading an existing `.plane.yml`, if any supported keys are absent, offer to append them in
 commented form. This makes it easy for the user to uncomment and set values later rather than
-looking up property names. Ask for confirmation before modifying the file.
+looking up property names. For the list-valued keys (`modules`, `labels`, `states`) and the
+annotated `estimate_points` form, append a shaped commented example (a `- name:` / `id:` / `info:`
+entry, or a `{ id, info }` value) rather than a bare key, so the structure is discoverable. Ask for
+confirmation before modifying the file.
 
 ## Mode
 
@@ -170,7 +229,8 @@ For non-trivial work item creation, the skill composes several Plane MCP calls i
    project (cache the result per project per session - state IDs are stable within a project) and
    match by name (case-insensitive).
 4. **Resolve the estimate point UUID**, if `estimate` is configured. Look up the integer label in
-   the `estimate_points` map from `.plane.yml` and use the matching UUID. Do **not** rely on the
+   the `estimate_points` map from `.plane.yml` and use the matching UUID (if the
+   entry is a `{ id, info }` map, use its `id` — see "Annotated entities"). Do **not** rely on the
    `point` integer field on `create_work_item` / `update_work_item` - Plane's web UI reads the
    estimate from `estimate_point` (UUID) only, and the integer `point` field is silently ignored
    for display. There is no MCP tool that lists estimate points, so the map in `.plane.yml` is the
@@ -187,6 +247,26 @@ For non-trivial work item creation, the skill composes several Plane MCP calls i
    - `estimate_point`: the resolved estimate-point UUID, if specified.
 6. **Add external links and relations**, if the user explicitly asked for them - see
    "Linking and relations" below.
+
+### Applying modules and labels
+
+Unlike `priority` or `assignee`, a module or label is not a fixed default — the
+right one depends on what the work item is about. When `.plane.yml` defines
+`modules` or `labels`:
+
+1. Infer the best-fit entry by matching the work item's content against each
+   entry's `info`. If nothing clearly fits, pick none rather than forcing one.
+2. Surface the choice in what you propose to the user — never assign a module or
+   label silently. In `manual` mode it appears in the fields block; in `mcp` mode
+   state it before applying.
+3. In `mcp` mode, assign the module after the work item is created, via
+   `manage_module_work_items` using the module's `id`. If the chosen module has no
+   `id` in `.plane.yml`, resolve it via `list_modules` (or ask) before assigning.
+   Set labels via the `create_work_item` `labels` argument or `manage_work_item_label`
+   using the resolved label id.
+
+This does not loosen the guardrail in "Default Field Values": modules and labels
+are still set only when they come from `.plane.yml` or the user, never invented.
 
 ### Estimate points
 
@@ -245,7 +325,8 @@ present:
   something in the `backlog` or `unstarted` group).
 
 Do not set labels, modules, cycles, or estimates unless the user explicitly provides them or they
-come from `.plane.yml`.
+come from `.plane.yml`. When `.plane.yml` lists `modules` or `labels`, select and apply them per
+"Applying modules and labels" above (infer the best fit, surface it, never assign silently).
 
 ## Linking and relations
 
