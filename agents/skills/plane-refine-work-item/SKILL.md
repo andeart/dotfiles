@@ -19,14 +19,21 @@ created ones.
 
 **Before proposing any rewrite, Read
 `~/.agents/skills/plane-work-item-conventions/CONVENTIONS.md` and follow its rules for title,
-description format, description structure, and acceptance criteria style.**
+description format, description structure, acceptance criteria style, and the Estimate section
+(needed for the estimate-backfill step below).**
 
 ## Scope
 
 Refining only touches **title** and **description**. It does not change:
 
-- Assignee, priority, estimate, state, project, labels, modules, cycles.
+- Assignee, priority, state, project, labels, modules, cycles.
+- An **existing** estimate. A value that's already set is left untouched, exactly like the other
+  fields above.
 - Work item links, comments, work logs, or activity history.
+
+The one exception is a **missing** estimate: if the fetched work item has no estimate assigned,
+offer to backfill one per the "Estimate backfill" step below. This never overwrites an estimate
+that's already present.
 
 `.plane.yml` defaults are a *creation* concept and must not override an existing work item's
 fields. If the user explicitly asks to also adjust a field (e.g. "and bump priority to High"),
@@ -35,9 +42,11 @@ handle that as a separate `update_work_item` call after the content rewrite is c
 ### Reference context from `.plane.yml`
 
 `.plane.yml` field *defaults* remain out of scope — refining never changes
-assignee, priority, estimate, state, modules, or labels. But two kinds of
-`.plane.yml` content are *reference material for writing*, not defaults, and
-refine should read them for context:
+assignee, priority, state, modules, or labels, and never overwrites an estimate
+that's already set (the sole field exception is backfilling a *missing* estimate,
+per the Scope section and step 5 below). But two kinds of `.plane.yml` content are
+*reference material for writing*, not defaults, and refine should read them for
+context:
 
 - `guidance` — project-wide constraints and conventions that inform wording
   (e.g. "never put PHI in descriptions").
@@ -53,7 +62,8 @@ edits just `name`, `description_html`, and `description_stripped`.
    identifier and sequence number from the user-provided reference (e.g. `DX-22` →
    `project_identifier: "DX"`, `issue_identifier: 22`). Pass `expand: "assignees,labels,state"`
    so you can see surrounding context. The response includes `description_html` (the current
-   HTML body) and `description_stripped`.
+   HTML body) and `description_stripped`. Note whether the work item already has an
+   `estimate_point` set - a null/absent value is the trigger for the estimate-backfill step (5).
    Also read `.plane.yml` (repo root, or `tmp/.plane.yml`) if present, and load
    any `guidance` and entity `info` as context per "Reference context from
    `.plane.yml`" above before diagnosing or rewriting.
@@ -79,14 +89,30 @@ edits just `name`, `description_html`, and `description_stripped`.
    wants tweaks, iterate in chat first.
 4. **Apply the edit** via `update_work_item` with the work item's UUID (from the retrieve call's
    `id` field) and its `project_id`. Pass only `name`, `description_html`, and
-   `description_stripped` unless the user requested other field changes.
+   `description_stripped` unless the user requested other field changes (or an estimate is being
+   backfilled per step 5).
+5. **Backfill the estimate if it's missing.** Only when the fetched work item had no
+   `estimate_point` (step 1): derive one using the Fibonacci-from-hours rule in `CONVENTIONS.md`'s
+   "Estimate" section, based on the scope described in the (rewritten) work item. Include the
+   proposed estimate in the chat preview alongside the title/description rewrite (e.g.
+   `Estimate: 5 (≈4h)`) and get confirmation with the rest. Resolve the value to a UUID and handle
+   a missing `estimate_points` map or an out-of-set value exactly as `CONVENTIONS.md` describes
+   (offer to discover and fill the map; on a value absent from the set, re-discover from the live
+   project, and if still absent, stop and alert the user rather than snapping). The estimate-point
+   discovery procedure itself lives in the `plane-create-work-item` skill's "Estimate points"
+   section. Send the resolved `estimate_point` on the same `update_work_item` call as the content
+   edit (step 4), or as a follow-up call if the content edit was already applied. If the work item
+   already had an estimate, skip this step entirely - never overwrite it.
 
 ## Already well-formed
 
-If the existing work item already satisfies the conventions, say so and make no edits. Summarize
-why no rewrite is needed (e.g. "Impact, Notes, and AC are all in the right shape; title is
-sentence case and starts with 'Fix '; nothing to change.") rather than forcing a rewrite just
-because the skill was invoked.
+If the existing work item already satisfies the conventions, say so and make no edits to the
+title or description. Summarize why no rewrite is needed (e.g. "Impact, Notes, and AC are all in
+the right shape; title is sentence case and starts with 'Fix '; nothing to change.") rather than
+forcing a rewrite just because the skill was invoked.
+
+Even when the prose needs no rewrite, still check for a missing estimate and offer the backfill
+(step 5) if one is absent - that's a separate, non-destructive add, not a content edit.
 
 ## Manual mode
 

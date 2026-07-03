@@ -153,6 +153,53 @@ Rules:
   laptop for local AI commands", "Fix away-mode automation not triggering when Wi-Fi presence
   times out".
 
+## Estimate
+
+Every work item gets a story-point estimate, assigned by a single global rule that is identical
+across all Plane projects, regardless of how a given project's estimate set is labelled.
+
+**The scale is Fibonacci:** 1, 2, 3, 5, 8, 13, 21, ...
+
+**The semantic is hours-based:** pick the Fibonacci number equal to, or immediately above, the
+number of hours the task is expected to take. Examples: 1h → 1, 3h → 3, 4h → 5, 6h → 8, 9h → 13.
+The estimate is a rounded-up effort proxy, not a precise time log.
+
+### Choosing the value
+
+Infer the expected hours from the scope of the work being described, then map to the Fibonacci
+point per the rule above. Surface the reasoning in the chat preview so it can be corrected, e.g.:
+
+```text
+Estimate: 5 (≈4h)
+```
+
+Only ask the user for an hours figure when the description genuinely doesn't give enough to gauge
+scope. A user-supplied hours figure or a user-supplied estimate always overrides the inferred one.
+
+### Resolving the value to Plane (mcp mode)
+
+Plane stores each estimate as a project-scoped UUID, not the bare number, so the chosen Fibonacci
+value must be mapped to a `estimate_point` UUID via `.plane.yml`'s `estimate_points` map. The map's
+value forms (a bare UUID, or an annotated `{ id, info }` map) and the discovery procedure that
+populates it live in the `plane-create-work-item` skill's "Annotated entities" and "Estimate
+points" sections.
+
+- Look the chosen Fibonacci value up in `estimate_points` and send the matching `estimate_point`
+  UUID on the MCP call (if the entry is a `{ id, info }` map, use its `id`; if it's a bare string,
+  the value *is* the UUID).
+- **If `estimate_points` is missing or empty**, offer to discover the project's estimate set and
+  write it into `.plane.yml` before assigning, so future assignments can reuse the map. Ask for
+  confirmation before modifying the file.
+- **If the chosen value is not present in the set**, do not snap to a neighbouring point. First
+  re-discover the estimate set from the live project (the `.plane.yml` map may be stale) and update
+  the map. If the value is still absent, stop and alert the user: the global convention is a
+  Fibonacci scale, so a missing Fibonacci point almost always means the project's estimate set in
+  Plane needs correcting, not that the estimate should be rounded to fit. Do not assign an estimate
+  in this case.
+
+In manual mode there is no UUID to resolve; just render the chosen number in the fields block
+(e.g. `Estimate: 5`).
+
 ## Examples
 
 A complete work item with all three sections. If there are no Notes, omit that section and its

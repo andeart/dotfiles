@@ -19,7 +19,8 @@ refine skill.
 
 **Before composing the work item body, Read
 `~/.agents/skills/plane-work-item-conventions/CONVENTIONS.md` and follow its rules for title,
-description format, description structure, and acceptance criteria style.**
+description format, description structure, acceptance criteria style, and the Estimate section
+(the Fibonacci-from-hours rule this skill applies on every create).**
 
 **If `.plane.yml` sets `guidance`, read it first as project-wide background — it
 shapes wording and constraints (e.g. compliance rules) but is never itself a field.**
@@ -42,11 +43,11 @@ Supported keys:
 | Key | Description | Example |
 | --- | ----------- | ------- |
 | `mode` | `mcp` (default) or `manual` | `manual` |
-| `workspace` | Plane workspace slug (the part after `app.plane.so/` in URLs). Required for any REST API fallbacks (e.g. `estimate_points` discovery); the MCP tools infer the workspace from the API token. | `byanu` |
+| `workspace` | Optional. Plane workspace slug (the part after `app.plane.so/` in URLs), handy for constructing work-item links. The MCP tools infer the workspace from the API token, so it isn't required for creation. | `byanu` |
 | `project` | Plane project name or identifier (the prefix shown in work-item IDs, e.g. `DX` for `DX-22`). Resolved via `list_projects` to a project UUID. | `DX` |
 | `assignee` | Plane display name or email (resolved via `get_workspace_members` to a user UUID) | `anurag` |
 | `state` | Initial state name from the project's configured states | `Todo` |
-| `estimate` | Story-point label from the project's configured estimate set (numeric labels are common). Must have a matching entry in `estimate_points` to be sent to Plane. | `2` |
+| `estimate` | Optional fixed override for the story-point estimate, as a label from the project's configured estimate set. Usually left unset - estimates are derived per work item via the Fibonacci-from-hours rule (see `CONVENTIONS.md`). When set, it overrides the derived value for every create. Must have a matching entry in `estimate_points` to be sent to Plane. | `2` |
 | `estimate_points` | Map of estimate label → its estimate point. Each value is either a bare `estimate_point` UUID (legacy) or a `{ id, info }` map where `id` is the UUID and `info` documents what the point means. Required to send any estimate, since Plane's MCP API expects the UUID, not the integer label. See "Estimate points" and "Annotated entities" below. | `{1: {id: <uuid>, info: "Trivial"}}` |
 | `modules` | List of the project's Plane modules, each `{ name, id?, info? }`. `info` describes what belongs in the module so the skill can pick the best fit. See "Annotated entities". | see below |
 | `labels` | List of the project's labels, each `{ name, id?, info? }`. `info` describes when the label applies. See "Annotated entities". | see below |
@@ -228,14 +229,23 @@ For non-trivial work item creation, the skill composes several Plane MCP calls i
 3. **Resolve the state UUID**, if a non-default `state` is configured. Call `list_states` for the
    project (cache the result per project per session - state IDs are stable within a project) and
    match by name (case-insensitive).
-4. **Resolve the estimate point UUID**, if `estimate` is configured. Look up the integer label in
-   the `estimate_points` map from `.plane.yml` and use the matching UUID (if the
-   entry is a `{ id, info }` map, use its `id` — see "Annotated entities"). Do **not** rely on the
-   `point` integer field on `create_work_item` / `update_work_item` - Plane's web UI reads the
-   estimate from `estimate_point` (UUID) only, and the integer `point` field is silently ignored
-   for display. There is no MCP tool that lists estimate points, so the map in `.plane.yml` is the
-   only reliable source. If `estimate` is set but no matching entry exists in `estimate_points`,
-   ask the user for the UUID rather than guessing or sending the integer.
+4. **Derive and resolve the estimate point UUID.** Determine the estimate for this work item using
+   the Fibonacci-from-hours rule in `CONVENTIONS.md`'s "Estimate" section (infer expected hours
+   from the task scope, round up to the Fibonacci point, surface it in the preview; ask for an
+   hours figure only when scope is genuinely unclear). A user-supplied estimate, or an `estimate`
+   value in `.plane.yml`, overrides the inferred one. Then map the chosen value to a UUID via the
+   `estimate_points` map from `.plane.yml` and use the matching UUID (if the entry is a
+   `{ id, info }` map, use its `id` — see "Annotated entities"). Do **not** rely on the `point`
+   integer field on `create_work_item` / `update_work_item` - Plane's web UI reads the estimate
+   from `estimate_point` (UUID) only, and the integer `point` field is silently ignored for
+   display. The `estimate_points` map caches the label-to-UUID pairs; discover or refresh it with
+   the estimate-point MCP tools (see "Estimate points"). Handle the map's absence or a missing value
+   per the resolution rules in `CONVENTIONS.md`: offer to discover and fill `estimate_points` if
+   it's missing or empty; on a
+   value that isn't in the set, re-discover from the live project, and if it's still absent, stop
+   and alert the user rather than snapping to a neighbouring point (a missing Fibonacci point
+   signals the project's estimate set needs correcting). Never guess a UUID or send the bare
+   integer.
 5. **Create the work item** via `create_work_item`:
    - `project_id`: the project UUID.
    - `name`: the title.
@@ -270,45 +280,23 @@ are still set only when they come from `.plane.yml` or the user, never invented.
 
 ### Estimate points
 
-Plane stores each estimate as a UUID-keyed entry in a project-level "estimate set". The MCP API
-exposes only the UUID (`estimate_point`) - there is no tool to list the set, and the integer
-`point` field on work items is not what the UI displays. To set estimates reliably, record a
-label-to-UUID map in `.plane.yml` under `estimate_points`.
+Plane stores each estimate as a UUID-keyed entry in a project-level "estimate set", and
+`create_work_item` / `update_work_item` take that UUID via `estimate_point` (the integer `point`
+field is silently ignored for display, so never rely on it). Cache the label-to-UUID pairs in
+`.plane.yml` under `estimate_points` so assignments don't re-query every time.
 
-**How to discover the UUIDs for a new project:**
+Discover or refresh the set for a project with two MCP calls:
 
-Plane's MCP tools don't expose the estimate set, but the REST API does. If `PLANE_API_TOKEN` is
-set in env and `workspace:` is set in `.plane.yml`, fetch the points directly:
+1. `get_project_estimate(project_id)` — returns the active estimate set; its `id` is the
+   `estimate_id`.
+2. `list_project_estimate_points(project_id, estimate_id)` — returns each point as an object with
+   `value` (the display label, e.g. `"1"`, `"2"`, `"5"`) and `id` (the UUID to send as
+   `estimate_point`).
 
-```bash
-# Resolve these three values first - they are NOT env vars; you must populate them yourself:
-#   WORKSPACE   - the `workspace:` value from .plane.yml
-#   PROJECT_ID  - the project's UUID from list_projects (`id` field)
-#   ESTIMATE_ID - the project's `estimate` field from list_projects (the estimate set UUID)
-# Only $PLANE_API_TOKEN is read from the environment.
-WORKSPACE=...; PROJECT_ID=...; ESTIMATE_ID=...
-
-# Endpoint verified against https://developers.plane.so/api-reference/estimate/list-estimate-points
-curl -sS -H "X-API-Key: $PLANE_API_TOKEN" \
-  "https://api.plane.so/api/v1/workspaces/$WORKSPACE/projects/$PROJECT_ID/estimates/$ESTIMATE_ID/estimate-points/" \
-  | jq 'map({value, id})'
-```
-
-Each returned point has `value` (string label like `"2"`) and `id` (UUID). Translate the result
-into the YAML `estimate_points:` map (YAML keys can be unquoted integers; the values are quoted
-or unquoted UUID strings).
-
-If `PLANE_API_TOKEN` is not set, fall back to the manual approach:
-
-1. List existing work items (`list_work_items` with `fields=id,sequence_id,estimate_point`) and
-   note the distinct `estimate_point` UUIDs in use.
-2. For each unknown UUID, ask the user to read the rendered estimate value off any work item that
-   uses it in the web UI.
-3. Write the resulting label → UUID pairs into `.plane.yml` under `estimate_points`.
-
-If the project has multiple historical estimate sets, you may see UUIDs that render the same label
-(e.g. two different UUIDs both showing "2"). Keep only the canonical (current) one in the map and
-note the orphan in a comment so future readers know not to use it.
+Write the resulting label → UUID pairs into `.plane.yml` under `estimate_points`, preferring the
+annotated `{ id, info }` form (see "Annotated entities"). YAML keys may be unquoted integers.
+`get_project_estimate` returns only the active set, so historical/orphaned points that render the
+same label never enter the map.
 
 ## Default Field Values
 
@@ -323,10 +311,15 @@ present:
   priority-sorted views.
 - **State**: do not pass `state`. Plane will use the project's default first state (typically
   something in the `backlog` or `unstarted` group).
+- **Estimate**: always assign one, derived per work item via the Fibonacci-from-hours rule in
+  `CONVENTIONS.md`'s "Estimate" section. This applies on every create regardless of `.plane.yml`;
+  a user-supplied estimate or a `.plane.yml` `estimate` value overrides the inferred one. The only
+  time no estimate is set is when the resolution rules force a stop (chosen value absent from the
+  project's estimate set even after re-discovery) - see step 4 of the MCP call flow.
 
-Do not set labels, modules, cycles, or estimates unless the user explicitly provides them or they
-come from `.plane.yml`. When `.plane.yml` lists `modules` or `labels`, select and apply them per
-"Applying modules and labels" above (infer the best fit, surface it, never assign silently).
+Do not set labels, modules, or cycles unless the user explicitly provides them or they come from
+`.plane.yml`. When `.plane.yml` lists `modules` or `labels`, select and apply them per "Applying
+modules and labels" above (infer the best fit, surface it, never assign silently).
 
 ## Linking and relations
 
