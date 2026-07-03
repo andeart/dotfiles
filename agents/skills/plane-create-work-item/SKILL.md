@@ -47,7 +47,6 @@ Supported keys:
 | `project` | Plane project name or identifier (the prefix shown in work-item IDs, e.g. `DX` for `DX-22`). Resolved via `list_projects` to a project UUID. | `DX` |
 | `assignee` | Plane display name or email (resolved via `get_workspace_members` to a user UUID) | `anurag` |
 | `state` | Initial state name from the project's configured states | `Todo` |
-| `estimate` | Optional fixed override for the story-point estimate, as a label from the project's configured estimate set. Usually left unset - estimates are derived per work item via the Fibonacci-from-hours rule (see `CONVENTIONS.md`). When set, it overrides the derived value for every create. Must have a matching entry in `estimate_points` to be sent to Plane. | `2` |
 | `estimate_points` | Map of estimate label → its estimate point. Each value is either a bare `estimate_point` UUID (legacy) or a `{ id, info }` map where `id` is the UUID and `info` documents what the point means. Required to send any estimate, since Plane's MCP API expects the UUID, not the integer label. See "Estimate points" and "Annotated entities" below. | `{1: {id: <uuid>, info: "Trivial"}}` |
 | `modules` | List of the project's Plane modules, each `{ name, id?, info? }`. `info` describes what belongs in the module so the skill can pick the best fit. See "Annotated entities". | see below |
 | `labels` | List of the project's labels, each `{ name, id?, info? }`. `info` describes when the label applies. See "Annotated entities". | see below |
@@ -121,7 +120,6 @@ silently ignore it. Offer to migrate its values into a new `.plane.yml` first.
    - `priority`: map `1` (Urgent) → `urgent`, `2` (High) → `high`, `3` (Medium) → `medium`,
      `4` (Low) → `low`. Leave `0` (None) unset so the default (`low`) kicks in.
    - `mode`, `assignee`: copy as-is. Verify the assignee matches a Plane workspace member.
-   - `estimate`: leave unset. Linear story points and Plane estimates often use different scales.
 
 **From `.jira.yml`:**
 
@@ -133,8 +131,6 @@ silently ignore it. Offer to migrate its values into a new `.plane.yml` first.
    - `priority`: map `Highest` → `urgent`, `High` → `high`, `Medium` → `medium`, `Low` → `low`,
      `Lowest` → `low`.
    - `mode`, `assignee`: copy as-is. Verify the assignee matches a Plane workspace member.
-   - `estimate`: leave unset. Jira's time-tracking durations (`3h`, `1d 4h`) don't translate to
-     Plane's story-point estimates.
 
 After writing `.plane.yml`, offer to delete the old `.linear.yml` / `.jira.yml`. Ask for
 confirmation explicitly; never delete without it.
@@ -151,7 +147,6 @@ file with all supported keys commented out so they can uncomment and set values 
 # project:
 # assignee:
 # state:
-# estimate:
 # priority:
 # estimate_points:
 #   1: { id: <uuid>, info: "" }
@@ -232,8 +227,8 @@ For non-trivial work item creation, the skill composes several Plane MCP calls i
 4. **Derive and resolve the estimate point UUID.** Determine the estimate for this work item using
    the Fibonacci-from-hours rule in `CONVENTIONS.md`'s "Estimate" section (infer expected hours
    from the task scope, round up to the Fibonacci point, surface it in the preview; ask for an
-   hours figure only when scope is genuinely unclear). A user-supplied estimate, or an `estimate`
-   value in `.plane.yml`, overrides the inferred one. Then map the chosen value to a UUID via the
+   hours figure only when scope is genuinely unclear). A user-supplied estimate overrides the
+   inferred one. Then map the chosen value to a UUID via the
    `estimate_points` map from `.plane.yml` and use the matching UUID (if the entry is a
    `{ id, info }` map, use its `id` — see "Annotated entities"). Do **not** rely on the `point`
    integer field on `create_work_item` / `update_work_item` - Plane's web UI reads the estimate
@@ -312,10 +307,10 @@ present:
 - **State**: do not pass `state`. Plane will use the project's default first state (typically
   something in the `backlog` or `unstarted` group).
 - **Estimate**: always assign one, derived per work item via the Fibonacci-from-hours rule in
-  `CONVENTIONS.md`'s "Estimate" section. This applies on every create regardless of `.plane.yml`;
-  a user-supplied estimate or a `.plane.yml` `estimate` value overrides the inferred one. The only
-  time no estimate is set is when the resolution rules force a stop (chosen value absent from the
-  project's estimate set even after re-discovery) - see step 4 of the MCP call flow.
+  `CONVENTIONS.md`'s "Estimate" section. This applies on every create; a user-supplied estimate
+  overrides the inferred one. The only time no estimate is set is when the resolution rules force a
+  stop (chosen value absent from the project's estimate set even after re-discovery) - see step 4
+  of the MCP call flow.
 
 Do not set labels, modules, or cycles unless the user explicitly provides them or they come from
 `.plane.yml`. When `.plane.yml` lists `modules` or `labels`, select and apply them per "Applying

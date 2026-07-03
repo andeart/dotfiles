@@ -4,7 +4,6 @@ assignee: anurag
 state: todo
 
 # Optional overrides (uncomment to use):
-# estimate:      # fixed estimate override; normally derived per item (Fibonacci-from-hours)
 # priority:      # urgent | high | medium | low | none
 # workspace:     # slug for building app.plane.so/<slug>/... links; not needed for MCP
 
