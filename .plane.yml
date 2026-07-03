@@ -2,5 +2,31 @@ mode: mcp
 project: DX
 assignee: anurag
 state: todo
-# estimate:
-# priority:
+
+# Optional overrides (uncomment to use):
+# priority:      # urgent | high | medium | low | none
+# workspace:     # slug for building app.plane.so/<slug>/... links; not needed for MCP
+
+# DX estimate set: Fibonacci points -> estimate_point UUIDs.
+# Assignment rule: round expected hours up to the nearest point (see plane-work-item-conventions).
+estimate_points:
+  1: {id: e381a5d0-5889-4bf1-aaf2-bc94afe3c488, info: "up to 1h"}
+  2: {id: ae8b42b5-2bab-4c32-a508-cc8c0e8eadff, info: "up to 2h"}
+  3: {id: 5c655632-fb84-40a7-ae53-2111f9d03aeb, info: "up to 3h"}
+  5: {id: 826c9fee-ae24-490f-9d36-197a4d73e0a8, info: "up to 5h"}
+  8: {id: 1fb826bd-a189-436b-b496-7883c2ea1381, info: "up to 8h"}
+  13: {id: c9995be6-7c36-487a-8b76-7a9ee9d49816, info: "up to 13h"}
+  21: {id: f2913987-4dfd-4f0a-8b06-9caa34da5291, info: "up to 21h"}
+  34: {id: f0d7df4f-dd27-497f-a37e-3d66e41ea9b3, info: "up to 34h"}
+  55: {id: 3ca6b988-2cec-4183-88ba-12c541501a01, info: "up to 55h"}
+
+# DX has no modules or labels yet. Uncomment and fill when it does:
+# modules:
+#   - name:
+#     id: <uuid>
+#     info: ""
+# labels:
+#   - name:
+#     info: ""
+# guidance: |
+#   Project-wide context that isn't tied to a single module/label/estimate.
