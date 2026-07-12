@@ -98,7 +98,6 @@
     "window.title": "${rootName}${separator}${profileName}${separator}${activeEditorShort}",
     "window.zoomLevel": 1.5,
     "workbench.activityBar.compact": true,
-    "workbench.activityBar.location": "default",
     "workbench.colorTheme": "Monokai Pro (Filter Spectrum)",
     "workbench.editor.enablePreview": false,
     "workbench.editor.limit.value": 100,

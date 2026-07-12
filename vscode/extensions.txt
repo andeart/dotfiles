@@ -1,4 +1,5 @@
 anthropic.claude-code
+astro-build.astro-vscode
 dart-code.dart-code
 dart-code.flutter
 davidanson.vscode-markdownlint
