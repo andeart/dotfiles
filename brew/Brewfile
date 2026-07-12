@@ -16,7 +16,6 @@ brew "websocat"
 brew "yamllint"
 brew "yq"
 
-brew "oven-sh/bun/bun"
 brew "ruby"
 
 brew "gum"
