@@ -32,6 +32,10 @@
           {
             "type": "command",
             "command": "bash $HOME/.claude/block-file-deletions.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash $HOME/.claude/block-force-push.sh"
           }
         ]
       }
