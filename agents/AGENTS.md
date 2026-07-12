@@ -6,6 +6,7 @@
 - Never merge a PR without explicitly asking the user for confirmation first.
 - Never pass permission-bypass flags (such as `--dangerously-skip-permissions`) to spawned `claude` or other agent processes. The spawned process inherits the flag and runs without permission checks, so bypassing permissions on it grants a fresh agent unrestricted access without the user's consent. If a programmatic spawn is genuinely necessary, use a narrow `--allowedTools` allowlist and clearly notify the user of every tool being granted before spawning; otherwise, hand the command to the user to run themselves.
 - Never update a .gitignore file without explicitly asking the user for confirmation first.
+- Never install packages (pip, npm, brew, etc.) or pass `--break-system-packages` without asking first, including transient installs for a one-off task. Name the package and why, then ask; prefer an ephemeral runner (`uvx`, `npx`, `pipx run`) if approved.
 
 ## Communication
 
@@ -44,6 +45,12 @@
 - Avoid formal/corporate phrasing like "undermines the contract" or "addresses this gracefully" - prefer plain language like "so users end up hunting for files they shouldn't have to know about" or "should be enough to cover that."
 - Nothing overly jovial or silly. The goal is to sound like a thoughtful contributor talking to maintainers, not a spec generator.
 - Match the emotional register to the stakes. Describe the change matter-of-factly - what was happening, what changes now. "The preview was raw HTML; this renders it as markdown" lands better than "the markup drowns out the content."
+
+## Code comments
+
+- Keep source-file comments concise, technical, and intentional. Assume source ships public (e.g. published to a website), so a reader is looking at them directly.
+- Comments should only be: technical explanations of non-obvious code, occasional judgment/decision notes that direct future design, and critical warnings.
+- Do NOT write natural-language prose explanations, narration, historical records, or change/paper-trail notes. The comment explains the code as it stands now, not how it got here.
 
 ## Permissions & capability grants
 
