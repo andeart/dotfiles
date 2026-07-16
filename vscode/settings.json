@@ -13,10 +13,12 @@
         "frontmatter",
         "mwba",
         "nohup",
+        "platformer",
         "rgba",
         "stddev",
         "Superellipse",
-        "webbrowser"
+        "webbrowser",
+        "webp"
     ],
     "[dart]": {
         "editor.defaultFormatter": "Dart-Code.dart-code",
@@ -49,6 +51,7 @@
     "editor.minimap.showRegionSectionHeaders": true,
     "editor.minimap.showSlider": "always",
     "editor.renderWhitespace": "all",
+    "editor.unusualLineTerminators": "prompt",
     "editor.wordWrap": "on",
     "explorer.autoReveal": true,
     "explorer.openEditors.sortOrder": "alphabetical",
@@ -104,5 +107,13 @@
     "workbench.editor.showTabs": "none",
     "workbench.editor.titleScrollbarSizing": "large",
     "workbench.iconTheme": "Monokai Pro (Filter Spectrum) Icons",
-    "workbench.preferredDarkColorTheme": "Monokai Pro (Filter Spectrum)"
+    "workbench.preferredDarkColorTheme": "Monokai Pro (Filter Spectrum)",
+    "yaml.disableSchemaDetection": [
+        "**/.github/workflows/*.yml",
+        "**/.github/workflows/*.yaml",
+        "**/.gitea/workflows/*.yml",
+        "**/.gitea/workflows/*.yaml",
+        "**/.forgejo/workflows/*.yml",
+        "**/.forgejo/workflows/*.yaml"
+    ]
 }
