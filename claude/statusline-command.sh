@@ -4,7 +4,7 @@
 input=$(</dev/stdin)
 
 IFS=$'\t' read -r model ctx_pct ctx_size ctx_input ctx_cache_create ctx_cache_read \
-    five_h_pct seven_d_pct five_h_reset seven_d_reset < <(
+    five_h_pct seven_d_pct five_h_reset seven_d_reset effort < <(
     jq -r '[
         (.model.display_name // "-"),
         (.context_window.used_percentage // 0 | floor),
@@ -15,13 +15,18 @@ IFS=$'\t' read -r model ctx_pct ctx_size ctx_input ctx_cache_create ctx_cache_re
         (.rate_limits.five_hour.used_percentage // 0 | floor),
         (.rate_limits.seven_day.used_percentage // 0 | floor),
         (.rate_limits.five_hour.resets_at // 0),
-        (.rate_limits.seven_day.resets_at // 0)
+        (.rate_limits.seven_day.resets_at // 0),
+        (.effort.level // "")
     ] | @tsv' <<<"$input"
 )
 
 # Defensive defaults so numeric tests don't error if jq ever fails entirely
 : "${ctx_pct:=0}" "${ctx_size:=200000}" "${ctx_input:=0}" "${ctx_cache_create:=0}" "${ctx_cache_read:=0}"
 : "${five_h_pct:=0}" "${seven_d_pct:=0}" "${five_h_reset:=0}" "${seven_d_reset:=0}"
+
+# Long-context models arrive as e.g. "Opus 4.8 (1M context)". The context bar
+# already says "context", so keep just the size: "Opus 4.8 (1M)".
+model="${model/ context)/)}"
 
 # ANSI color codes
 BOLD=$'\033[1m'
@@ -160,9 +165,20 @@ seven_d_remaining=$(format_remaining "$seven_d_reset")
 five_h_part=" ${SEP} ${DIM}${COLOR_KEY}5h${RESET} ${five_h_bar} ${DIM}󰔛 ${five_h_remaining}${RESET}"
 seven_d_part=" ${SEP} ${DIM}${COLOR_KEY}7d${RESET} ${seven_d_bar} ${DIM}󰔛 ${seven_d_remaining}${RESET}"
 
+# --- Reasoning effort ---
+# Absent from the input when the active model has no effort parameter; omit the
+# segment entirely in that case. Reads as part of the model segment, so it shares
+# the model's colour and carries no leading separator.
+effort_part=""
+if [ -n "$effort" ]; then
+    # Leading RESET clears the model's bold, which is still in effect.
+    effort_part=" ${RESET}${COLOR_CLAUDE}◇ ${effort}${RESET}"
+fi
+
 # --- Output ---
-printf '%s%s%s %s %s %s%s%s' \
+printf '%s%s%s%s %s %s %s%s%s' \
     "$BOLD" "$COLOR_CLAUDE" "$model" \
+    "$effort_part" \
     "$SEP" \
     "${DIM}${COLOR_KEY}${RESET} ${ctx_bar}" \
     "${DIM}${ctx_used_fmt}/${ctx_size_fmt}${RESET}" \
