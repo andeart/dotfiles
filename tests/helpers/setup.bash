@@ -15,6 +15,14 @@ scrub_git_env() {
 }
 scrub_git_env
 
+# Detach stdin from the caller's terminal. bats does not redirect stdin, so a
+# suite run from an interactive shell inherits its tty. Any code under test that
+# gates on `[ -t 0 ]` — `_offer_open_conflicts` does — then takes its interactive
+# branch and blocks forever on `read`, with the prompt hidden inside `run`'s
+# captured output. Tests that drive a prompt feed it explicitly (`<<< "y"`),
+# which overrides this redirect, so they are unaffected.
+exec < /dev/null
+
 # Make a fresh tmp area for each test. Sets:
 #   $TEST_REPO  — fake repo root with agents/ and claude/ subtrees
 #   $TEST_LIVE  — fake $HOME containing .agents/ and .claude/
