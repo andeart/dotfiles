@@ -69,5 +69,6 @@
   "effortLevel": "high",
   "preferredNotifChannel": "auto",
   "remoteControlAtStartup": false,
-  "agentPushNotifEnabled": true
+  "agentPushNotifEnabled": true,
+  "skipWorkflowUsageWarning": true
 }
