@@ -581,7 +581,7 @@ EOF
 echo "\$@" >> "$CODE_LOG"
 EOF
   chmod +x "$stub_dir/code"
-  # No DOTFILES_ASSUME_INTERACTIVE — bats `run` has no tty on stdin.
+  # No DOTFILES_ASSUME_INTERACTIVE — helpers/setup detaches stdin from any tty.
   run env \
     PATH="$stub_dir:$PATH" \
     "$DOTFILES_TEST_BIN" offer_open_conflicts "/tmp/r1|/tmp/l1"
