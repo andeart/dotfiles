@@ -3,9 +3,11 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: gh-set-default-rulesets <repo>
+Usage: gh-set-default-settings [--dry-run] <repo>
 
-Apply a curated set of branch rulesets to a GitHub repository via the gh CLI.
+Apply a curated set of branch rulesets and repo-level settings to a GitHub
+repository via the gh CLI. Each ruleset is confirmed individually and the repo
+settings are confirmed as a group; every prompt defaults to No.
 
 <repo> may be any of:
   git@github.com:owner/repo.git
@@ -13,14 +15,16 @@ Apply a curated set of branch rulesets to a GitHub repository via the gh CLI.
   ssh://git@github.com/owner/repo
   owner/repo
 
-The script is idempotent: a ruleset whose name already exists on the repo is
-updated in place (PUT); otherwise it is created (POST). Re-running will not
-create duplicates.
+Rulesets are idempotent: a ruleset whose name already exists is updated in place
+(PUT); otherwise it is created (POST). Repo settings are set with PATCH and are
+idempotent by nature.
 
 Requires: gh (authenticated), jq.
 
 Options:
-  -h, --help  Show this help.
+  -n, --dry-run  Preview what would change against the repo's current state
+                 without making any changes or prompting.
+  -h, --help     Show this help.
 EOF
 }
 
@@ -165,26 +169,40 @@ apply_ruleset() {
 # Main
 # ---------------------------------------------------------------------------
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
-  exit 0
+main() {
+  DRY_RUN=""
+  local repo=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)    usage; exit 0 ;;
+      -n|--dry-run) DRY_RUN=1; shift ;;
+      -*)           usage >&2; exit 1 ;;
+      *)            [[ -z "$repo" ]] || { usage >&2; exit 1; }; repo="$1"; shift ;;
+    esac
+  done
+
+  [[ -n "$repo" ]] || { usage >&2; exit 1; }
+
+  command -v gh >/dev/null 2>&1 || die "gh CLI not found on PATH."
+  command -v jq >/dev/null 2>&1 || die "jq not found on PATH."
+
+  OWNER_REPO="$(parse_repo "$repo")"
+
+  if [[ -n "$DRY_RUN" ]]; then
+    echo "Dry run for ${OWNER_REPO} (no changes will be made)..."
+  else
+    echo "Configuring ${OWNER_REPO}..."
+  fi
+
+  # Sections are wired in Tasks 4 (rulesets) and 5 (repo settings).
+
+  echo "Done."
+}
+
+# Sourced with _GH_SETTINGS_LIB_ONLY=1 (by tests): define functions and stop
+# before parsing args or touching the network.
+if [[ -n "${_GH_SETTINGS_LIB_ONLY:-}" ]]; then
+  return 0 2>/dev/null || exit 0
 fi
 
-[[ $# -eq 1 ]] || { usage >&2; exit 1; }
-
-command -v gh >/dev/null 2>&1 || die "gh CLI not found on PATH."
-command -v jq >/dev/null 2>&1 || die "jq not found on PATH."
-
-OWNER_REPO="$(parse_repo "$1")"
-
-echo "Applying rulesets to ${OWNER_REPO}..."
-
-# Fetch existing rulesets once for idempotency lookups.
-EXISTING_RULESETS="$(gh api --paginate "/repos/${OWNER_REPO}/rulesets")" \
-  || die "failed to list rulesets for ${OWNER_REPO} (check the repo exists and gh is authenticated with admin access)."
-
-for def in "${RULESETS[@]}"; do
-  apply_ruleset "$def"
-done
-
-echo "Done."
+main "$@"
