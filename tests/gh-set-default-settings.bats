@@ -125,3 +125,22 @@ EXISTING_RULESETS_JSON='[{"id":12345,"name":"default baseline guard"},{"id":99,"
   [ "$status" -eq 0 ]
   [ "$output" = "create" ]
 }
+
+# ─── repo_settings_diff (pure) ─────────────────────────────────────────────
+
+@test "repo_settings_diff flags fields that are currently false" {
+  local cur='{"allow_update_branch":false,"delete_branch_on_merge":false}'
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"allow_update_branch"* ]]
+  [[ "$output" == *"false -> true (would change)"* ]]
+  [[ "$output" == *"delete_branch_on_merge"* ]]
+}
+
+@test "repo_settings_diff reports no change when already true" {
+  local cur='{"allow_update_branch":true,"delete_branch_on_merge":true}'
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"true (no change)"* ]]
+  [[ "$output" != *"would change"* ]]
+}

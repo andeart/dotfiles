@@ -119,6 +119,15 @@ RULESETS=(
   ruleset_default_pr_approval_guard
 )
 
+# Repo-level settings to enable, as "field|human label". All are set to true.
+# "Auto-close issues with merged linked pull requests" is intentionally absent:
+# it has no REST or GraphQL API and is enabled by default (see the note printed
+# by run_repo_settings_section).
+REPO_SETTINGS=(
+  "allow_update_branch|Always suggest updating pull request branches"
+  "delete_branch_on_merge|Automatically delete head branches"
+)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -283,6 +292,59 @@ run_rulesets_section() {
   done
 }
 
+# repo_settings_diff <current_repo_json>: print a change/no-change line per
+# desired setting, comparing the current value to the desired value (true).
+repo_settings_diff() {
+  local current="$1" entry field cur
+  for entry in "${REPO_SETTINGS[@]}"; do
+    field="${entry%%|*}"
+    cur="$(jq -r --arg f "$field" '.[$f]' <<<"$current")"
+    if [[ "$cur" == "true" ]]; then
+      printf '  %-26s true (no change)\n' "${field}:"
+    else
+      printf '  %-26s %s -> true (would change)\n' "${field}:" "$cur"
+    fi
+  done
+}
+
+apply_repo_settings() {
+  local args=() entry field
+  for entry in "${REPO_SETTINGS[@]}"; do
+    field="${entry%%|*}"
+    args+=(-F "${field}=true")
+  done
+  gh api --method PATCH "/repos/${OWNER_REPO}" "${args[@]}" >/dev/null \
+    || die "failed to update repo settings for ${OWNER_REPO} (need admin access)."
+}
+
+run_repo_settings_section() {
+  echo
+  echo "Repo settings:"
+  local current entry field label
+  current="$(gh api "/repos/${OWNER_REPO}")" \
+    || die "failed to read repo settings for ${OWNER_REPO} (check the repo exists and gh is authenticated)."
+
+  if [[ -n "$DRY_RUN" ]]; then
+    repo_settings_diff "$current"
+    echo "  auto-close linked issues: no API, on by default - verify in Settings UI"
+    return 0
+  fi
+
+  for entry in "${REPO_SETTINGS[@]}"; do
+    field="${entry%%|*}"
+    label="${entry#*|}"
+    printf '  %-24s = true   (%s)\n' "$field" "$label"
+  done
+  echo "  auto-close linked issues: no API, on by default - verify in Settings UI"
+
+  if confirm "repo settings"; then
+    apply_repo_settings
+    echo 'Note: "Auto-close issues with merged linked pull requests" has no API. It is enabled by default - verify in Settings > General if needed.'
+  else
+    echo "  skipped."
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -314,7 +376,7 @@ main() {
 
   run_rulesets_section
 
-  # Repo-settings section is wired in Task 5.
+  run_repo_settings_section
 
   echo "Done."
 }
