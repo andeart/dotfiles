@@ -169,7 +169,7 @@ _pr_param_label() {
 
 # render_ruleset <json>: print a human-readable summary of a ruleset body.
 render_ruleset() {
-  local body="$1" name enforcement target n i type key val
+  local body="$1" name enforcement target n i type key val a_type a_id a_mode
 
   name="$(jq -r '.name' <<<"$body")"
   enforcement="$(jq -r '.enforcement' <<<"$body")"
