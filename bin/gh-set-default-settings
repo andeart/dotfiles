@@ -1,0 +1,404 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: gh-set-default-settings [--dry-run] <repo>
+
+Apply a curated set of branch rulesets and repo-level settings to a GitHub
+repository via the gh CLI. Each ruleset is confirmed individually and the repo
+settings are confirmed as a group; every prompt defaults to No.
+
+<repo> may be any of:
+  git@github.com:owner/repo.git
+  https://github.com/owner/repo.git
+  ssh://git@github.com/owner/repo
+  owner/repo
+
+Rulesets are idempotent: a ruleset whose name already exists is updated in place
+(PUT); otherwise it is created (POST). Repo settings are set with PATCH and are
+idempotent by nature.
+
+Requires: gh (authenticated), jq.
+
+Options:
+  -n, --dry-run  Preview what would change against the repo's current state
+                 without making any changes or prompting.
+  -h, --help     Show this help.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Ruleset definitions
+#
+# Each ruleset is a function that prints its JSON body (the request payload for
+# POST/PUT /repos/{owner}/{repo}/rulesets) to stdout. To add another ruleset,
+# define a new ruleset_* function and register its name in the RULESETS array
+# below. The "name" field is the idempotency key.
+#
+# Branch is targeted via the special "~DEFAULT_BRANCH" ref selector so the repo
+# default branch is resolved by GitHub at evaluation time.
+# ---------------------------------------------------------------------------
+
+ruleset_default_baseline_guard() {
+  cat <<'JSON'
+{
+  "name": "default baseline guard",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    { "type": "creation" },
+    { "type": "deletion" },
+    { "type": "required_signatures" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "allowed_merge_methods": ["squash"]
+      }
+    }
+  ]
+}
+JSON
+}
+
+ruleset_default_pr_approval_guard() {
+  # bypass_actors: actor_type "RepositoryRole" with actor_id 5 is the built-in
+  # Repository admin role (built-in repository role IDs: read=1, triage=2,
+  # write=3, maintain=4, admin=5).
+  cat <<'JSON'
+{
+  "name": "default PR approval guard",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "always"
+    }
+  ],
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    { "type": "update" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": false,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "allowed_merge_methods": ["squash"]
+      }
+    }
+  ]
+}
+JSON
+}
+
+# Registry of rulesets to apply, in order.
+RULESETS=(
+  ruleset_default_baseline_guard
+  ruleset_default_pr_approval_guard
+)
+
+# Repo-level settings to enable, as "field|human label". All are set to true.
+# "Auto-close issues with merged linked pull requests" is intentionally absent:
+# it has no REST or GraphQL API and is enabled by default (see the note printed
+# by run_repo_settings_section).
+REPO_SETTINGS=(
+  "allow_update_branch|Always suggest updating pull request branches"
+  "delete_branch_on_merge|Automatically delete head branches"
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+reply_is_yes() {
+  local reply="${1:-}"
+  reply="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+  [[ "$reply" == "y" || "$reply" == "yes" ]]
+}
+
+# Prompt on the tty (so it works even when stdin is otherwise occupied) and
+# return whether the answer is yes. Defaults to No.
+confirm() {
+  local label="$1" reply
+  printf 'Apply %s? [y/N] ' "$label" > /dev/tty
+  read -r reply < /dev/tty || reply=""
+  reply_is_yes "$reply"
+}
+
+_rule_label() {
+  case "$1" in
+    creation)            echo "restrict creations" ;;
+    deletion)            echo "restrict deletions" ;;
+    update)              echo "restrict updates" ;;
+    required_signatures) echo "require signed commits" ;;
+    non_fast_forward)    echo "block force pushes" ;;
+    pull_request)        echo "require pull request before merging" ;;
+    *)                   echo "$1" ;;
+  esac
+}
+
+_pr_param_label() {
+  case "$1" in
+    required_approving_review_count)    echo "required approvals" ;;
+    dismiss_stale_reviews_on_push)      echo "dismiss stale approvals on push" ;;
+    require_code_owner_review)          echo "require code owner review" ;;
+    require_last_push_approval)         echo "require last push approval" ;;
+    required_review_thread_resolution)  echo "require conversation resolution" ;;
+    allowed_merge_methods)              echo "allowed merge methods" ;;
+    *)                                  echo "$1" ;;
+  esac
+}
+
+# render_ruleset <json>: print a human-readable summary of a ruleset body.
+render_ruleset() {
+  local body="$1" name enforcement target n i type key val a_type a_id a_mode
+
+  name="$(jq -r '.name' <<<"$body")"
+  enforcement="$(jq -r '.enforcement' <<<"$body")"
+  if jq -e '(.conditions.ref_name.include // []) | index("~DEFAULT_BRANCH")' <<<"$body" >/dev/null; then
+    target="default branch"
+  else
+    target="$(jq -r '(.conditions.ref_name.include // []) | join(", ")' <<<"$body")"
+  fi
+
+  echo "Ruleset: $name"
+  echo "  target:      $target"
+  echo "  enforcement: $enforcement"
+
+  if jq -e '(.bypass_actors // []) | length > 0' <<<"$body" >/dev/null; then
+    echo "  bypass:"
+    while IFS=$'\t' read -r a_type a_id a_mode; do
+      echo "    - ${a_type} id ${a_id} (${a_mode})"
+    done < <(jq -r '.bypass_actors[] | [.actor_type, (.actor_id|tostring), .bypass_mode] | @tsv' <<<"$body")
+  fi
+
+  echo "  rules:"
+  n="$(jq '.rules | length' <<<"$body")"
+  for ((i = 0; i < n; i++)); do
+    type="$(jq -r ".rules[$i].type" <<<"$body")"
+    echo "    - $(_rule_label "$type")"
+    if [[ "$type" == "pull_request" ]]; then
+      while IFS=$'\t' read -r key val; do
+        echo "        $(_pr_param_label "$key"): $val"
+      done < <(
+        jq -r "(.rules[$i].parameters // {}) | to_entries[]
+               | [.key, (.value | if type==\"array\" then join(\",\") else tostring end)]
+               | @tsv" <<<"$body"
+      )
+    fi
+  done
+}
+
+parse_repo() {
+  # Normalize any supported repo reference to "owner/repo".
+  local slug="$1"
+  slug="${slug%.git}"     # drop trailing .git
+  slug="${slug#*://}"     # drop ssh:// https:// http:// scheme
+  slug="${slug#*@}"       # drop git@host / user@host
+  slug="${slug/://}"      # scp-style host:owner/repo -> host/owner/repo
+
+  local owner repo
+  owner="$(printf '%s\n' "$slug" | awk -F/ '{print $(NF-1)}')"
+  repo="$(printf '%s\n' "$slug" | awk -F/ '{print $NF}')"
+
+  [[ -n "$owner" && -n "$repo" ]] || die "could not parse owner/repo from '$1'"
+  printf '%s/%s\n' "$owner" "$repo"
+}
+
+# ruleset_change_kind <name> <existing_rulesets_json>: "create" or "update <id>".
+ruleset_change_kind() {
+  local name="$1" existing="$2" id
+  id="$(jq -r --arg n "$name" 'map(select(.name == $n)) | first | .id // empty' <<<"$existing")"
+  if [[ -n "$id" ]]; then
+    echo "update $id"
+  else
+    echo "create"
+  fi
+}
+
+# apply_ruleset_body <json> <existing_rulesets_json>: PUT if the name exists,
+# otherwise POST. Idempotent on the ruleset name.
+apply_ruleset_body() {
+  local body="$1" existing="$2" name kind id
+  name="$(jq -r '.name' <<<"$body")"
+  kind="$(ruleset_change_kind "$name" "$existing")"
+  if [[ "$kind" == update\ * ]]; then
+    id="${kind#update }"
+    echo "  Updating ruleset '$name' (id $id)"
+    printf '%s' "$body" \
+      | gh api --method PUT "/repos/${OWNER_REPO}/rulesets/${id}" --input - >/dev/null \
+      || die "failed to apply ruleset '$name' to ${OWNER_REPO} (need admin access)."
+  else
+    echo "  Creating ruleset '$name'"
+    printf '%s' "$body" \
+      | gh api --method POST "/repos/${OWNER_REPO}/rulesets" --input - >/dev/null \
+      || die "failed to apply ruleset '$name' to ${OWNER_REPO} (need admin access)."
+  fi
+}
+
+run_rulesets_section() {
+  echo "Rulesets:"
+  local existing def body name kind id
+  existing="$(gh api --paginate "/repos/${OWNER_REPO}/rulesets")" \
+    || die "failed to list rulesets for ${OWNER_REPO} (check the repo exists and gh is authenticated with admin access)."
+
+  for def in "${RULESETS[@]}"; do
+    body="$("$def")"
+    name="$(jq -r '.name' <<<"$body")"
+
+    if [[ -n "$DRY_RUN" ]]; then
+      kind="$(ruleset_change_kind "$name" "$existing")"
+      if [[ "$kind" == update\ * ]]; then
+        id="${kind#update }"
+        echo "  ${name}: would update (exists, id ${id} - curated definition replaces it)"
+      else
+        echo "  ${name}: would create (not present)"
+      fi
+      continue
+    fi
+
+    echo
+    render_ruleset "$body"
+    if confirm "this ruleset"; then
+      apply_ruleset_body "$body" "$existing"
+    else
+      echo "  skipped."
+    fi
+  done
+
+  # Status-check rules are omitted from the curated rulesets on purpose: the
+  # required checks (the "context" array) name checks specific to each repo,
+  # which a repo-agnostic default cannot know, and the array cannot be empty.
+  echo
+  echo '  Note: "Require status checks to pass" and "Require branches to be up to date'
+  echo '  before merging" are not in the curated rulesets, since the required checks'
+  echo '  name checks specific to each repo. Add them in Settings > Rules if the repo'
+  echo '  runs CI checks.'
+}
+
+# repo_settings_diff <current_repo_json>: print a change/no-change line per
+# desired setting, comparing the current value to the desired value (true).
+repo_settings_diff() {
+  local current="$1" entry field cur
+  for entry in "${REPO_SETTINGS[@]}"; do
+    field="${entry%%|*}"
+    cur="$(jq -r --arg f "$field" '.[$f]' <<<"$current")"
+    if [[ "$cur" == "true" ]]; then
+      printf '  %-26s true (no change)\n' "${field}:"
+    else
+      printf '  %-26s %s -> true (would change)\n' "${field}:" "$cur"
+    fi
+  done
+}
+
+apply_repo_settings() {
+  local args=() entry field
+  for entry in "${REPO_SETTINGS[@]}"; do
+    field="${entry%%|*}"
+    args+=(-F "${field}=true")
+  done
+  gh api --method PATCH "/repos/${OWNER_REPO}" "${args[@]}" >/dev/null \
+    || die "failed to update repo settings for ${OWNER_REPO} (need admin access)."
+}
+
+run_repo_settings_section() {
+  echo
+  echo "Repo settings:"
+  local current entry field label
+  # Fetched to preflight repo access (dies on failure) and to diff current vs
+  # desired in the dry-run branch below; the apply path sets the fields
+  # unconditionally, so it does not read $current.
+  current="$(gh api "/repos/${OWNER_REPO}")" \
+    || die "failed to read repo settings for ${OWNER_REPO} (check the repo exists and gh is authenticated)."
+
+  if [[ -n "$DRY_RUN" ]]; then
+    repo_settings_diff "$current"
+    echo "  auto-close linked issues: no API, on by default - verify in Settings UI"
+    return 0
+  fi
+
+  for entry in "${REPO_SETTINGS[@]}"; do
+    field="${entry%%|*}"
+    label="${entry#*|}"
+    printf '  %-24s = true   (%s)\n' "$field" "$label"
+  done
+  echo "  auto-close linked issues: no API, on by default - verify in Settings UI"
+
+  if confirm "repo settings"; then
+    apply_repo_settings
+    echo 'Note: "Auto-close issues with merged linked pull requests" has no API. It is enabled by default - verify in Settings > General if needed.'
+  else
+    echo "  skipped."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+main() {
+  DRY_RUN=""
+  local repo=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)    usage; exit 0 ;;
+      -n|--dry-run) DRY_RUN=1; shift ;;
+      -*)           usage >&2; exit 1 ;;
+      *)            [[ -z "$repo" ]] || { usage >&2; exit 1; }; repo="$1"; shift ;;
+    esac
+  done
+
+  [[ -n "$repo" ]] || { usage >&2; exit 1; }
+
+  command -v gh >/dev/null 2>&1 || die "gh CLI not found on PATH."
+  command -v jq >/dev/null 2>&1 || die "jq not found on PATH."
+
+  OWNER_REPO="$(parse_repo "$repo")"
+
+  if [[ -n "$DRY_RUN" ]]; then
+    echo "Dry run for ${OWNER_REPO} (no changes will be made)..."
+  else
+    echo "Configuring ${OWNER_REPO}..."
+  fi
+
+  run_rulesets_section
+
+  run_repo_settings_section
+
+  echo "Done."
+}
+
+# Sourced with _GH_SETTINGS_LIB_ONLY=1 (by tests): define functions and stop
+# before parsing args or touching the network.
+if [[ -n "${_GH_SETTINGS_LIB_ONLY:-}" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
+
+main "$@"
