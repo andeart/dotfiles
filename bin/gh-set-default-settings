@@ -223,25 +223,64 @@ parse_repo() {
   printf '%s/%s\n' "$owner" "$repo"
 }
 
-apply_ruleset() {
-  local def="$1" body name existing_id
-  body="$("$def")"
-  name="$(printf '%s' "$body" | jq -r '.name')"
+# ruleset_change_kind <name> <existing_rulesets_json>: "create" or "update <id>".
+ruleset_change_kind() {
+  local name="$1" existing="$2" id
+  id="$(jq -r --arg n "$name" 'map(select(.name == $n)) | first | .id // empty' <<<"$existing")"
+  if [[ -n "$id" ]]; then
+    echo "update $id"
+  else
+    echo "create"
+  fi
+}
 
-  existing_id="$(
-    printf '%s' "$EXISTING_RULESETS" \
-      | jq -r --arg n "$name" 'map(select(.name == $n)) | first | .id // empty'
-  )"
-
-  if [[ -n "$existing_id" ]]; then
-    echo "  Updating ruleset '$name' (id $existing_id)"
+# apply_ruleset_body <json> <existing_rulesets_json>: PUT if the name exists,
+# otherwise POST. Idempotent on the ruleset name.
+apply_ruleset_body() {
+  local body="$1" existing="$2" name kind id
+  name="$(jq -r '.name' <<<"$body")"
+  kind="$(ruleset_change_kind "$name" "$existing")"
+  if [[ "$kind" == update\ * ]]; then
+    id="${kind#update }"
+    echo "  Updating ruleset '$name' (id $id)"
     printf '%s' "$body" \
-      | gh api --method PUT "/repos/${OWNER_REPO}/rulesets/${existing_id}" --input - >/dev/null
+      | gh api --method PUT "/repos/${OWNER_REPO}/rulesets/${id}" --input - >/dev/null
   else
     echo "  Creating ruleset '$name'"
     printf '%s' "$body" \
       | gh api --method POST "/repos/${OWNER_REPO}/rulesets" --input - >/dev/null
   fi
+}
+
+run_rulesets_section() {
+  echo "Rulesets:"
+  local existing def body name kind id
+  existing="$(gh api --paginate "/repos/${OWNER_REPO}/rulesets")" \
+    || die "failed to list rulesets for ${OWNER_REPO} (check the repo exists and gh is authenticated with admin access)."
+
+  for def in "${RULESETS[@]}"; do
+    body="$("$def")"
+    name="$(jq -r '.name' <<<"$body")"
+
+    if [[ -n "$DRY_RUN" ]]; then
+      kind="$(ruleset_change_kind "$name" "$existing")"
+      if [[ "$kind" == update\ * ]]; then
+        id="${kind#update }"
+        echo "  ${name}: would update (exists, id ${id} - curated definition replaces it)"
+      else
+        echo "  ${name}: would create (not present)"
+      fi
+      continue
+    fi
+
+    echo
+    render_ruleset "$body"
+    if confirm "this ruleset"; then
+      apply_ruleset_body "$body" "$existing"
+    else
+      echo "  skipped."
+    fi
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -273,7 +312,9 @@ main() {
     echo "Configuring ${OWNER_REPO}..."
   fi
 
-  # Sections are wired in Tasks 4 (rulesets) and 5 (repo settings).
+  run_rulesets_section
+
+  # Repo-settings section is wired in Task 5.
 
   echo "Done."
 }

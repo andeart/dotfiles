@@ -103,3 +103,25 @@ BASELINE_JSON='{"name":"default baseline guard","target":"branch","enforcement":
   [[ "$output" == *"RepositoryRole id 5 (always)"* ]]
   [[ "$output" == *"restrict updates"* ]]
 }
+
+# ─── ruleset_change_kind (pure) ────────────────────────────────────────────
+
+EXISTING_RULESETS_JSON='[{"id":12345,"name":"default baseline guard"},{"id":99,"name":"other"}]'
+
+@test "ruleset_change_kind returns update with id for an existing name" {
+  call ruleset_change_kind "default baseline guard" "$EXISTING_RULESETS_JSON"
+  [ "$status" -eq 0 ]
+  [ "$output" = "update 12345" ]
+}
+
+@test "ruleset_change_kind returns create for an absent name" {
+  call ruleset_change_kind "default PR approval guard" "$EXISTING_RULESETS_JSON"
+  [ "$status" -eq 0 ]
+  [ "$output" = "create" ]
+}
+
+@test "ruleset_change_kind returns create against an empty list" {
+  call ruleset_change_kind "anything" "[]"
+  [ "$status" -eq 0 ]
+  [ "$output" = "create" ]
+}
