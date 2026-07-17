@@ -128,6 +128,21 @@ die() {
   exit 1
 }
 
+reply_is_yes() {
+  local reply="${1:-}"
+  reply="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+  [[ "$reply" == "y" || "$reply" == "yes" ]]
+}
+
+# Prompt on the tty (so it works even when stdin is otherwise occupied) and
+# return whether the answer is yes. Defaults to No.
+confirm() {
+  local label="$1" reply
+  printf 'Apply %s? [y/N] ' "$label" > /dev/tty
+  read -r reply < /dev/tty || reply=""
+  reply_is_yes "$reply"
+}
+
 parse_repo() {
   # Normalize any supported repo reference to "owner/repo".
   local slug="$1"

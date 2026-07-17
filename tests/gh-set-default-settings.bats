@@ -50,3 +50,19 @@ call() {
   [ "$status" -eq 0 ]
   [ "$output" = "owner/repo" ]
 }
+
+# ─── reply_is_yes (pure) ───────────────────────────────────────────────────
+
+@test "reply_is_yes accepts y, Y, yes, YES, Yes" {
+  for r in y Y yes YES Yes; do
+    call reply_is_yes "$r"
+    [ "$status" -eq 0 ] || { echo "rejected: $r"; return 1; }
+  done
+}
+
+@test "reply_is_yes rejects empty and other input" {
+  for r in "" n no maybe yep yy; do
+    call reply_is_yes "$r"
+    [ "$status" -ne 0 ] || { echo "accepted: $r"; return 1; }
+  done
+}
