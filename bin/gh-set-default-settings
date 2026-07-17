@@ -208,7 +208,7 @@ render_ruleset() {
       while IFS=$'\t' read -r key val; do
         echo "        $(_pr_param_label "$key"): $val"
       done < <(
-        jq -r ".rules[$i].parameters | to_entries[]
+        jq -r "(.rules[$i].parameters // {}) | to_entries[]
                | [.key, (.value | if type==\"array\" then join(\",\") else tostring end)]
                | @tsv" <<<"$body"
       )
@@ -253,11 +253,13 @@ apply_ruleset_body() {
     id="${kind#update }"
     echo "  Updating ruleset '$name' (id $id)"
     printf '%s' "$body" \
-      | gh api --method PUT "/repos/${OWNER_REPO}/rulesets/${id}" --input - >/dev/null
+      | gh api --method PUT "/repos/${OWNER_REPO}/rulesets/${id}" --input - >/dev/null \
+      || die "failed to apply ruleset '$name' to ${OWNER_REPO} (need admin access)."
   else
     echo "  Creating ruleset '$name'"
     printf '%s' "$body" \
-      | gh api --method POST "/repos/${OWNER_REPO}/rulesets" --input - >/dev/null
+      | gh api --method POST "/repos/${OWNER_REPO}/rulesets" --input - >/dev/null \
+      || die "failed to apply ruleset '$name' to ${OWNER_REPO} (need admin access)."
   fi
 }
 
@@ -321,6 +323,9 @@ run_repo_settings_section() {
   echo
   echo "Repo settings:"
   local current entry field label
+  # Fetched to preflight repo access (dies on failure) and to diff current vs
+  # desired in the dry-run branch below; the apply path sets the fields
+  # unconditionally, so it does not read $current.
   current="$(gh api "/repos/${OWNER_REPO}")" \
     || die "failed to read repo settings for ${OWNER_REPO} (check the repo exists and gh is authenticated)."
 

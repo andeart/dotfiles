@@ -31,6 +31,11 @@ call() {
   [ "$status" -ne 0 ]
 }
 
+@test "a second positional repo argument exits non-zero" {
+  run "$BIN" owner/repo other/repo
+  [ "$status" -ne 0 ]
+}
+
 # ─── parse_repo (pure) ─────────────────────────────────────────────────────
 
 @test "parse_repo normalizes the git@ scp form" {
