@@ -66,3 +66,40 @@ call() {
     [ "$status" -ne 0 ] || { echo "accepted: $r"; return 1; }
   done
 }
+
+# ─── render_ruleset (pure) ─────────────────────────────────────────────────
+
+BASELINE_JSON='{"name":"default baseline guard","target":"branch","enforcement":"active","conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"],"exclude":[]}},"rules":[{"type":"creation"},{"type":"deletion"},{"type":"required_signatures"},{"type":"non_fast_forward"},{"type":"pull_request","parameters":{"required_approving_review_count":0,"dismiss_stale_reviews_on_push":true,"require_code_owner_review":false,"require_last_push_approval":false,"required_review_thread_resolution":true,"allowed_merge_methods":["squash"]}}]}'
+
+@test "render_ruleset shows name, target, enforcement" {
+  call render_ruleset "$BASELINE_JSON"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Ruleset: default baseline guard"* ]]
+  [[ "$output" == *"target:      default branch"* ]]
+  [[ "$output" == *"enforcement: active"* ]]
+}
+
+@test "render_ruleset maps rule types to readable labels" {
+  call render_ruleset "$BASELINE_JSON"
+  [[ "$output" == *"restrict creations"* ]]
+  [[ "$output" == *"restrict deletions"* ]]
+  [[ "$output" == *"require signed commits"* ]]
+  [[ "$output" == *"block force pushes"* ]]
+  [[ "$output" == *"require pull request before merging"* ]]
+}
+
+@test "render_ruleset enumerates pull_request parameters" {
+  call render_ruleset "$BASELINE_JSON"
+  [[ "$output" == *"required approvals: 0"* ]]
+  [[ "$output" == *"dismiss stale approvals on push: true"* ]]
+  [[ "$output" == *"require conversation resolution: true"* ]]
+  [[ "$output" == *"allowed merge methods: squash"* ]]
+}
+
+@test "render_ruleset shows bypass actors when present" {
+  local json='{"name":"g","target":"branch","enforcement":"active","bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}],"conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"],"exclude":[]}},"rules":[{"type":"update"}]}'
+  call render_ruleset "$json"
+  [[ "$output" == *"bypass:"* ]]
+  [[ "$output" == *"RepositoryRole id 5 (always)"* ]]
+  [[ "$output" == *"restrict updates"* ]]
+}

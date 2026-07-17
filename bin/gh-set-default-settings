@@ -143,6 +143,70 @@ confirm() {
   reply_is_yes "$reply"
 }
 
+_rule_label() {
+  case "$1" in
+    creation)            echo "restrict creations" ;;
+    deletion)            echo "restrict deletions" ;;
+    update)              echo "restrict updates" ;;
+    required_signatures) echo "require signed commits" ;;
+    non_fast_forward)    echo "block force pushes" ;;
+    pull_request)        echo "require pull request before merging" ;;
+    *)                   echo "$1" ;;
+  esac
+}
+
+_pr_param_label() {
+  case "$1" in
+    required_approving_review_count)    echo "required approvals" ;;
+    dismiss_stale_reviews_on_push)      echo "dismiss stale approvals on push" ;;
+    require_code_owner_review)          echo "require code owner review" ;;
+    require_last_push_approval)         echo "require last push approval" ;;
+    required_review_thread_resolution)  echo "require conversation resolution" ;;
+    allowed_merge_methods)              echo "allowed merge methods" ;;
+    *)                                  echo "$1" ;;
+  esac
+}
+
+# render_ruleset <json>: print a human-readable summary of a ruleset body.
+render_ruleset() {
+  local body="$1" name enforcement target n i type key val
+
+  name="$(jq -r '.name' <<<"$body")"
+  enforcement="$(jq -r '.enforcement' <<<"$body")"
+  if jq -e '(.conditions.ref_name.include // []) | index("~DEFAULT_BRANCH")' <<<"$body" >/dev/null; then
+    target="default branch"
+  else
+    target="$(jq -r '(.conditions.ref_name.include // []) | join(", ")' <<<"$body")"
+  fi
+
+  echo "Ruleset: $name"
+  echo "  target:      $target"
+  echo "  enforcement: $enforcement"
+
+  if jq -e '(.bypass_actors // []) | length > 0' <<<"$body" >/dev/null; then
+    echo "  bypass:"
+    while IFS=$'\t' read -r a_type a_id a_mode; do
+      echo "    - ${a_type} id ${a_id} (${a_mode})"
+    done < <(jq -r '.bypass_actors[] | [.actor_type, (.actor_id|tostring), .bypass_mode] | @tsv' <<<"$body")
+  fi
+
+  echo "  rules:"
+  n="$(jq '.rules | length' <<<"$body")"
+  for ((i = 0; i < n; i++)); do
+    type="$(jq -r ".rules[$i].type" <<<"$body")"
+    echo "    - $(_rule_label "$type")"
+    if [[ "$type" == "pull_request" ]]; then
+      while IFS=$'\t' read -r key val; do
+        echo "        $(_pr_param_label "$key"): $val"
+      done < <(
+        jq -r ".rules[$i].parameters | to_entries[]
+               | [.key, (.value | if type==\"array\" then join(\",\") else tostring end)]
+               | @tsv" <<<"$body"
+      )
+    fi
+  done
+}
+
 parse_repo() {
   # Normalize any supported repo reference to "owner/repo".
   local slug="$1"
