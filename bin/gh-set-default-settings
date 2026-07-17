@@ -292,6 +292,15 @@ run_rulesets_section() {
       echo "  skipped."
     fi
   done
+
+  # Status-check rules are omitted from the curated rulesets on purpose: the
+  # required checks (the "context" array) name checks specific to each repo,
+  # which a repo-agnostic default cannot know, and the array cannot be empty.
+  echo
+  echo '  Note: "Require status checks to pass" and "Require branches to be up to date'
+  echo '  before merging" are not in the curated rulesets, since the required checks'
+  echo '  name checks specific to each repo. Add them in Settings > Rules if the repo'
+  echo '  runs CI checks.'
 }
 
 # repo_settings_diff <current_repo_json>: print a change/no-change line per
