@@ -66,9 +66,9 @@
       }
     }
   },
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
+  "skipWorkflowUsageWarning": true,
   "preferredNotifChannel": "auto",
   "remoteControlAtStartup": false,
-  "agentPushNotifEnabled": true,
-  "skipWorkflowUsageWarning": true
+  "agentPushNotifEnabled": true
 }
