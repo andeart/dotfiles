@@ -22,6 +22,5 @@ brew "gum"
 brew "zsh-autosuggestions"
 brew "zsh-syntax-highlighting"
 
-cask "alt-tab"
 cask "font-jetbrains-mono-nerd-font"
 cask "pika"

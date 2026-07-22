@@ -20,6 +20,7 @@
 ## Git
 
 - Never force push.
+- Always clone over SSH (`git@github.com:owner/repo.git`), never HTTPS. HTTPS clones prompt for credentials that aren't configured and fail with "could not read Username".
 - Run git from the repository's working directory using plain `git` subcommands; don't use `git -C <path>` for a repo you're already inside. Mixing the two forms fragments the permission allowlist and forces redundant grants for the same capability.
 - Never add Co-Authored-By lines or any AI attribution to commit messages.
 - Write commit messages in simple present imperative tense. The subject line should complete the sentence "This commit will…"
