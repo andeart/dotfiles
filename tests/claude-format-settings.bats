@@ -58,14 +58,25 @@ EOF
 
 # ─── directory resolution ──────────────────────────────────────────────────────
 
-@test "a directory argument resolves to .claude/settings.local.json under it" {
+@test "a directory argument resolves to both settings files under .claude" {
+  mkdir -p "$WORK/proj/.claude"
+  cp "$FILE" "$WORK/proj/.claude/settings.json"
+  mv "$FILE" "$WORK/proj/.claude/settings.local.json"
+  run "$FMT_BIN" "$WORK/proj"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$WORK/proj/.claude/settings.json"* ]]
+  [[ "$output" == *"$WORK/proj/.claude/settings.local.json"* ]]
+  [ "$(jq -c '.permissions.allow' "$WORK/proj/.claude/settings.json")" = '["apple","Zebra"]' ]
+  [ "$(jq -c '.permissions.allow' "$WORK/proj/.claude/settings.local.json")" = '["apple","Zebra"]' ]
+}
+
+@test "a directory argument skips a settings file that is absent" {
   mkdir -p "$WORK/proj/.claude"
   mv "$FILE" "$WORK/proj/.claude/settings.local.json"
   run "$FMT_BIN" "$WORK/proj"
   [ "$status" -eq 0 ]
-  target="$WORK/proj/.claude/settings.local.json"
-  [[ "$output" == *"$target"* ]]
-  [ "$(jq -c '.permissions.allow' "$target")" = '["apple","Zebra"]' ]
+  [[ "$output" == *"$WORK/proj/.claude/settings.local.json"* ]]
+  [[ "$output" != *"$WORK/proj/.claude/settings.json"* ]]
 }
 
 @test "a directory argument tolerates a trailing slash" {
@@ -76,11 +87,31 @@ EOF
   [[ "$output" == *"/proj/.claude/settings.local.json"* ]]
 }
 
-@test "a directory with no .claude/settings.local.json is an error" {
+@test "a directory with neither settings file is an error" {
   mkdir -p "$WORK/empty"
   run "$FMT_BIN" "$WORK/empty"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"no .claude/settings.local.json found under directory"* ]]
+  [[ "$output" == *"no .claude/settings.json or .claude/settings.local.json found under directory"* ]]
+}
+
+# ─── default path ──────────────────────────────────────────────────────────────
+
+@test "no paths formats both settings files under the current directory" {
+  mkdir -p "$WORK/proj/.claude"
+  cp "$FILE" "$WORK/proj/.claude/settings.json"
+  mv "$FILE" "$WORK/proj/.claude/settings.local.json"
+  cd "$WORK/proj"
+  run "$FMT_BIN"
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '.permissions.allow' .claude/settings.json)" = '["apple","Zebra"]' ]
+  [ "$(jq -c '.permissions.allow' .claude/settings.local.json)" = '["apple","Zebra"]' ]
+}
+
+@test "no paths with no settings files under the current directory is an error" {
+  cd "$WORK"
+  run "$FMT_BIN"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"found under directory '.'"* ]]
 }
 
 # ─── --check ───────────────────────────────────────────────────────────────────
@@ -149,10 +180,5 @@ EOF
 
 @test "an unknown option exits 2" {
   run "$FMT_BIN" --bogus "$FILE"
-  [ "$status" -eq 2 ]
-}
-
-@test "no paths exits 2" {
-  run "$FMT_BIN"
   [ "$status" -eq 2 ]
 }

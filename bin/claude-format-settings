@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: claude-format-settings [--check] PATH [PATH ...]
+Usage: claude-format-settings [--check] [PATH ...]
 
 Format Claude Code settings JSON files in place:
   - permissions.allow, permissions.deny, permissions.ask sorted case-insensitively
@@ -12,14 +12,17 @@ Format Claude Code settings JSON files in place:
 
 Each PATH may be either:
   - a JSON file, formatted directly; or
-  - a directory, in which case .claude/settings.local.json under it is used
-    (e.g. `claude-format-settings .` formats ./.claude/settings.local.json).
+  - a directory, in which case .claude/settings.json and
+    .claude/settings.local.json under it are used, skipping whichever is absent
+    (e.g. `claude-format-settings .` formats both files under ./.claude).
+
+With no PATH, the current directory is used.
 
 Options:
   --check     Do not modify files. Exit 1 if any file would be reformatted.
   -h, --help  Show this help.
 
-Paths must be passed explicitly. No globbing.
+No globbing. Only the given paths, or the current directory by default, are read.
 EOF
 }
 
@@ -37,9 +40,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#PATHS[@]} -eq 0 ]]; then
-  echo "Error: at least one path is required" >&2
-  usage >&2
-  exit 2
+  PATHS=(".")
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -71,19 +72,36 @@ def dupes_in:
 '
 
 EXIT=0
+
+# A directory argument resolves to the settings files under <dir>/.claude,
+# skipping whichever is absent. Anything else is taken as a file path verbatim.
+TARGETS=()
 for raw in "${PATHS[@]}"; do
-  # A directory argument resolves to .claude/settings.local.json under it.
   if [[ -d "$raw" ]]; then
-    path="${raw%/}/.claude/settings.local.json"
-    if [[ ! -e "$path" ]]; then
-      echo "Error: no .claude/settings.local.json found under directory '$raw'" >&2
+    found=0
+    for name in settings.json settings.local.json; do
+      candidate="${raw%/}/.claude/$name"
+      if [[ -e "$candidate" ]]; then
+        TARGETS+=("$candidate")
+        found=1
+      fi
+    done
+    if [[ $found -eq 0 ]]; then
+      echo "Error: no .claude/settings.json or .claude/settings.local.json found under directory '$raw'" >&2
       EXIT=1
-      continue
     fi
   else
-    path="$raw"
+    TARGETS+=("$raw")
   fi
+done
 
+# Guard the expansion below: under `set -u`, bash 3.2 errors on "${arr[@]}"
+# when arr is empty.
+if [[ ${#TARGETS[@]} -eq 0 ]]; then
+  exit $EXIT
+fi
+
+for path in "${TARGETS[@]}"; do
   if [[ ! -e "$path" ]]; then
     echo "Error: '$path' does not exist" >&2
     EXIT=1
