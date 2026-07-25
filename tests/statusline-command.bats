@@ -7,7 +7,7 @@ bats_require_minimum_version 1.5.0
 SCRIPT="$DOTFILES_ROOT/claude/statusline-command.sh"
 
 # A status line payload with the existing segments populated but no effort field.
-# ctx used = 1000 + 2000 + 3000 = 6000 -> "6k"; size 200000 -> "200k".
+# ctx used = 1000 + 2000 + 3000 = 6000 -> 6 thousand -> "⁶ᴷ" in the bar.
 base_payload() {
   cat <<'JSON'
 {
@@ -49,19 +49,19 @@ strip_ansi() {
   [[ "$plain" == *high* ]]
 }
 
-@test "attaches the effort to the model as a diamond, with no separator before it" {
+@test "attaches the effort directly to the model, with no separator before it" {
   run_statusline "$(base_payload | jq '.effort.level = "high"')"
   [ "$status" -eq 0 ]
   local plain
   plain="$(printf '%s' "$output" | strip_ansi)"
-  [[ "$plain" == "Opus 4.8 ◇ high │"* ]]
+  [[ "$plain" == "Opus 4.8 high │"* ]]
 }
 
 @test "renders the effort in the same orange as the model name, whatever the level" {
   for level in low medium high xhigh max; do
     run_statusline "$(base_payload | jq --arg l "$level" '.effort.level = $l')"
     [ "$status" -eq 0 ]
-    if [[ "$output" != *$'\033[38;5;173m◇ '"$level"* ]]; then
+    if [[ "$output" != *$'\033[38;5;173m'"$level"* ]]; then
       echo "expected effort '$level' in model orange (173): $output"
       return 1
     fi
@@ -111,13 +111,21 @@ strip_ansi() {
 
 # ─── model name ─────────────────────────────────────────────────────────────────
 
-@test "trims the redundant 'context' from a 1M context model name" {
+@test "reduces a 1M context model name to a bare size suffix" {
   run_statusline "$(base_payload | jq '.model.display_name = "Opus 4.8 (1M context)"')"
   [ "$status" -eq 0 ]
   local plain
   plain="$(printf '%s' "$output" | strip_ansi)"
-  [[ "$plain" == "Opus 4.8 (1M) │"* ]]
   [[ "$plain" != *context* ]]
+  [[ "$plain" == "Opus 4.8 1M │"* ]]
+}
+
+@test "leaves a parenthetical that is not a context size intact" {
+  run_statusline "$(base_payload | jq '.model.display_name = "Opus 4.8 (beta)"')"
+  [ "$status" -eq 0 ]
+  local plain
+  plain="$(printf '%s' "$output" | strip_ansi)"
+  [[ "$plain" == "Opus 4.8 (beta) │"* ]]
 }
 
 @test "leaves a model name without a context suffix unchanged" {
@@ -139,6 +147,6 @@ strip_ansi() {
     [[ "$plain" == *"Opus 4.8"* ]]  # model name
     [[ "$plain" == *"5h"* ]]         # five-hour rate-limit key
     [[ "$plain" == *"7d"* ]]         # seven-day rate-limit key
-    [[ "$plain" == *"6k/200k"* ]]    # context used/size
+    [[ "$plain" == *"⁶ᴷ"* ]]         # context usage in thousands
   done
 }
