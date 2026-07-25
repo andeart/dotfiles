@@ -3,12 +3,11 @@
 
 input=$(</dev/stdin)
 
-IFS=$'\t' read -r model ctx_pct ctx_size ctx_input ctx_cache_create ctx_cache_read \
+IFS=$'\t' read -r model ctx_pct ctx_input ctx_cache_create ctx_cache_read \
     five_h_pct seven_d_pct five_h_reset seven_d_reset effort < <(
     jq -r '[
         (.model.display_name // "-"),
         (.context_window.used_percentage // 0 | floor),
-        (.context_window.context_window_size // 200000),
         (.context_window.current_usage.input_tokens // 0),
         (.context_window.current_usage.cache_creation_input_tokens // 0),
         (.context_window.current_usage.cache_read_input_tokens // 0),
@@ -21,12 +20,15 @@ IFS=$'\t' read -r model ctx_pct ctx_size ctx_input ctx_cache_create ctx_cache_re
 )
 
 # Defensive defaults so numeric tests don't error if jq ever fails entirely
-: "${ctx_pct:=0}" "${ctx_size:=200000}" "${ctx_input:=0}" "${ctx_cache_create:=0}" "${ctx_cache_read:=0}"
+: "${ctx_pct:=0}" "${ctx_input:=0}" "${ctx_cache_create:=0}" "${ctx_cache_read:=0}"
 : "${five_h_pct:=0}" "${seven_d_pct:=0}" "${five_h_reset:=0}" "${seven_d_reset:=0}"
 
-# Long-context models arrive as e.g. "Opus 4.8 (1M context)". The context bar
-# already says "context", so keep just the size: "Opus 4.8 (1M)".
-model="${model/ context)/)}"
+# Long-context models arrive as e.g. "Opus 4.8 (1M context)". Reduce the
+# parenthetical to a bare size suffix: "Opus 4.8 1M". Matched as a whole so any
+# other parenthetical is left intact.
+if [[ $model =~ ^(.*)\ \((.*)\ context\)$ ]]; then
+    model="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"
+fi
 
 # ANSI color codes
 BOLD=$'\033[1m'
@@ -47,35 +49,32 @@ BAR_NO_ST=$'\033[29m'
 # --- Context usage ---
 ctx_used=$((ctx_input + ctx_cache_create + ctx_cache_read))
 
-if [ "$ctx_used" -ge 1000 ]; then
-    ctx_used_fmt="$((ctx_used / 1000))k"
-else
-    ctx_used_fmt="$ctx_used"
-fi
-if [ "$ctx_size" -ge 1000 ]; then
-    ctx_size_fmt="$((ctx_size / 1000))k"
-else
-    ctx_size_fmt="$ctx_size"
-fi
-
-# Convert ASCII digits to superscript equivalents
+# Convert ASCII digits to superscript equivalents, plus "k" to U+1D37.
+# JetBrains Mono lacks U+1D37, but many monospace system fonts carry it, so
+# terminal font fallback covers it. Subscript k (U+2096) is not a viable swap:
+# only the proportional system font has it, which the terminal grid won't use.
 to_super() {
     local s="$1"
     s="${s//0/⁰}"; s="${s//1/¹}"; s="${s//2/²}"; s="${s//3/³}"; s="${s//4/⁴}"
     s="${s//5/⁵}"; s="${s//6/⁶}"; s="${s//7/⁷}"; s="${s//8/⁸}"; s="${s//9/⁹}"
+    s="${s//k/ᴷ}"
     printf '%s' "$s"
 }
 
-# Helper: 10-char wide bar.
+# Helper: 10-char wide bar, filled in proportion to pct, with a superscript
+# label riding along the top.
 # Optional second arg: time_pct (0-100) marks current position in the time window;
 # -1 (default) means no marker. Cells after the marker get strikethrough.
+# Optional third arg: ASCII text for the label, overriding the default of pct
+# itself. Lets the fill and the label report different quantities.
 make_bar() {
     local pct=$1
     local time_pct=${2:--1}
     local WIDTH=10
+    local label_raw=${3:-}
+    [ -z "$label_raw" ] && printf -v label_raw '%02d' "$pct"
     local label
-    label="$(to_super "$(printf '%02d' "$pct")")"
-    local label_len=${#label}
+    label="$(to_super "$label_raw")"
     local filled=$(( pct * WIDTH / 100 ))
 
     # Compute marker cell index (-1 = none)
@@ -94,9 +93,12 @@ make_bar() {
     local BG_FILL
     printf -v BG_FILL '\033[48;5;%sm' "$FILL_IDX"
 
-    local pad_r=$(( WIDTH - label_len ))
+    # Clamped at 0 so a label wider than the bar degrades to truncation in the
+    # render loop rather than a printf error here.
+    local pad=$(( WIDTH - ${#label} ))
+    [ "$pad" -lt 0 ] && pad=0
     local content
-    printf -v content "%s%${pad_r}s" "$label" ""
+    printf -v content "%s%${pad}s" "$label" ""
 
     local bar="" i st
     for ((i=0; i<WIDTH; i++)); do
@@ -115,7 +117,9 @@ make_bar() {
     printf '%s%s' "$bar" "$RESET"
 }
 
-ctx_bar=$(make_bar "$ctx_pct")
+# Fill tracks the percentage; the label reports the count in thousands.
+ctx_used_k=$(( ctx_used / 1000 ))
+ctx_bar=$(make_bar "$ctx_pct" -1 "${ctx_used_k}k")
 
 # --- Claude.ai rate limits ---
 now=${EPOCHSECONDS:-$(date +%s)}
@@ -162,8 +166,8 @@ seven_d_bar=$(make_bar "$seven_d_pct" "$seven_d_time_pct")
 five_h_remaining=$(format_remaining "$five_h_reset")
 seven_d_remaining=$(format_remaining "$seven_d_reset")
 
-five_h_part=" ${SEP} ${DIM}${COLOR_KEY}5h${RESET} ${five_h_bar} ${DIM}󰔛 ${five_h_remaining}${RESET}"
-seven_d_part=" ${SEP} ${DIM}${COLOR_KEY}7d${RESET} ${seven_d_bar} ${DIM}󰔛 ${seven_d_remaining}${RESET}"
+five_h_part=" ${SEP} ${DIM}${COLOR_KEY}5h${RESET} ${five_h_bar} ${DIM}${five_h_remaining}${RESET}"
+seven_d_part=" ${SEP} ${DIM}${COLOR_KEY}7d${RESET} ${seven_d_bar} ${DIM}${seven_d_remaining}${RESET}"
 
 # --- Reasoning effort ---
 # Absent from the input when the active model has no effort parameter; omit the
@@ -172,15 +176,14 @@ seven_d_part=" ${SEP} ${DIM}${COLOR_KEY}7d${RESET} ${seven_d_bar} ${DIM}󰔛 ${s
 effort_part=""
 if [ -n "$effort" ]; then
     # Leading RESET clears the model's bold, which is still in effect.
-    effort_part=" ${RESET}${COLOR_CLAUDE}◇ ${effort}${RESET}"
+    effort_part=" ${RESET}${COLOR_CLAUDE}${effort}${RESET}"
 fi
 
 # --- Output ---
-printf '%s%s%s%s %s %s %s%s%s' \
+printf '%s%s%s%s %s %s%s%s' \
     "$BOLD" "$COLOR_CLAUDE" "$model" \
     "$effort_part" \
     "$SEP" \
     "${DIM}${COLOR_KEY}${RESET} ${ctx_bar}" \
-    "${DIM}${ctx_used_fmt}/${ctx_size_fmt}${RESET}" \
     "$five_h_part" \
     "$seven_d_part"
