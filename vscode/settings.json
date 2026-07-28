@@ -93,6 +93,7 @@
     "redhat.telemetry.enabled": false,
     "references.preferredLocation": "view",
     "search.showLineNumbers": true,
+    "security.promptForLocalFileProtocolHandling": false,
     "security.workspace.trust.untrustedFiles": "newWindow",
     "testing.automaticallyOpenPeekView": "failureAnywhere",
     "window.autoDetectColorScheme": true,
