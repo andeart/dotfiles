@@ -6,6 +6,7 @@ brew "tesseract"
 brew "bats-core"
 brew "gh"
 brew "git"
+brew "git-filter-repo"
 brew "git-lfs"
 brew "gitleaks"
 brew "pre-commit"
@@ -16,11 +17,19 @@ brew "websocat"
 brew "yamllint"
 brew "yq"
 
+brew "colima"
+brew "docker"
+brew "docker-compose"
+
+brew "libpq"
+
 brew "ruby"
 
+brew "direnv"
 brew "gum"
 brew "zsh-autosuggestions"
 brew "zsh-syntax-highlighting"
 
+cask "dockdoor"
 cask "font-jetbrains-mono-nerd-font"
 cask "pika"
