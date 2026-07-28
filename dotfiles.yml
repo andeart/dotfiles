@@ -15,5 +15,10 @@
 #   settings: true
 #   extensions: true
 
+# Links the whole ~/.warp directory, not individual files, because Warp writes
+# into it at runtime (settings.toml on every toggle, themes on install).
+# warp:
+#   config: true
+
 # agents-and-claude:
 #   sync: true

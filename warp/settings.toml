@@ -1,0 +1,137 @@
+[agents]
+cloud_conversation_storage_enabled = true
+
+[agents.third_party]
+should_render_cli_agent_toolbar = true
+auto_open_composer_on_cli_agent_start = true
+auto_dismiss_composer_after_submit = true
+
+[agents.third_party.cli_agent_toolbar_chip_selection_setting]
+
+[agents.third_party.cli_agent_toolbar_chip_selection_setting.custom]
+left = [
+  { context_chip = "time_24" },
+  { context_chip = "username" },
+  { context_chip = "working_directory" },
+  { context_chip = "conda_environment" },
+  { context_chip = "virtual_environment" },
+  { context_chip = "kubernetes_context" },
+  { context_chip = "node_version" },
+  { context_chip = "shell_git_branch" },
+  { context_chip = "git_diff_stats" },
+  { context_chip = "github_pull_request" },
+]
+right = ["rich_input", "voice_input", "file_attach", "file_explorer", "settings"]
+
+[agents.warp_agent]
+is_any_ai_enabled = false
+
+[agents.warp_agent.other]
+show_agent_notifications = true
+
+[code]
+
+[code.editor]
+show_global_search = false
+show_project_explorer = true
+open_file_layout = "new_tab"
+show_code_review_button = true
+open_file_editor = "system_default"
+auto_open_code_review_pane_on_first_agent_change = false
+open_code_panels_file_editor = "system_default"
+
+[warp_drive]
+enabled = false
+
+[appearance]
+spacing = "compact"
+
+[appearance.text]
+match_ai_font = true
+notebook_font_size = 14.0
+font_name = "JetBrainsMono Nerd Font Mono"
+font_size = 14.0
+line_height_ratio = 1.2000000476837158
+use_thin_strokes = "on_high_dpi_displays"
+ai_font_name = "JetBrainsMono Nerd Font Mono"
+ligature_rendering_enabled = false
+enforce_minimum_contrast = "only_named_colors"
+
+[appearance.themes]
+system_theme = false
+theme = {
+  custom_base_16 = { name = "Base16 Monokai Pro Spectrum", path = "base16_monokai_pro_spectrum.yaml" },
+}
+
+[appearance.panes]
+should_dim_inactive_panes = true
+focus_pane_on_hover = true
+
+[appearance.window]
+left_panel_visibility_across_tabs = true
+override_opacity = 100
+zoom_level = 90
+open_windows_at_custom_size = false
+override_blur = 1
+
+[appearance.vertical_tabs]
+show_diff_stats = true
+show_pr_link = true
+compact_subtitle = "branch"
+primary_info = "command"
+view_mode = "expanded"
+enabled = true
+display_granularity = "panes"
+
+[appearance.icon]
+app_icon = "glass_sky"
+
+[appearance.blocks]
+show_block_dividers = true
+
+[appearance.input]
+input_mode = "pinned_to_bottom"
+
+[appearance.tabs]
+workspace_decoration_visibility = "always_show"
+directory_tab_colors = { "/Users/anuragdevanapally/code/pillkit/pillkit-backend" = "suppressed" }
+
+[appearance.tabs.header_toolbar_chip_selection]
+
+[appearance.tabs.header_toolbar_chip_selection.custom]
+left = ["tabs_panel", "tools_panel"]
+right = ["code_review", "notifications_mailbox"]
+
+[general]
+default_session_mode = "tab_config"
+login_item = false
+default_tab_config_path = "/Users/anuragdevanapally/.warp/tab_configs/startup_config.toml"
+link_tooltip = false
+
+[terminal]
+use_audible_bell = true
+osc52_clipboard_access = "write_only"
+
+[terminal.input]
+honor_ps1 = false
+input_box_type_setting = "universal"
+
+[terminal.input.extra_meta_keys]
+left_alt = true
+right_alt = false
+
+[notifications]
+toast_duration_secs = 8
+
+[notifications.preferences]
+is_agent_task_completed_enabled = true
+is_long_running_enabled = true
+is_needs_attention_enabled = true
+is_password_prompt_enabled = true
+long_running_threshold = 30
+mode = "enabled"
+play_notification_sound = true
+
+[privacy]
+crash_reporting_enabled = false
+telemetry_enabled = false
