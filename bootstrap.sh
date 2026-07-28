@@ -110,6 +110,10 @@ link_file() {
             o) rm -rf "$dst" ;;
             b) mv "$dst" "${dst}.backup.$(date +%Y%m%d%H%M%S)"; success "backed up $dst" ;;
             s) success "skipped $dst"; return ;;
+            # Without this, an unrecognised answer falls through to `ln -s` with
+            # $dst still in place. For a directory target that silently creates
+            # the link *inside* it rather than failing.
+            *) warn "unrecognised answer - skipping $dst"; return ;;
         esac
     fi
 
@@ -181,6 +185,12 @@ if is_enabled '.vscode.extensions'; then
     else
         info "VS Code CLI not found - skipping extensions install"
     fi
+fi
+
+# --- warp ---
+if is_enabled '.warp.config'; then
+    info "Linking Warp config"
+    link_file "$DOTFILES_ROOT/warp" "$HOME/.warp"
 fi
 
 # --- agents-and-claude (file sync via dotfiles push) ---

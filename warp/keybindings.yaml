@@ -1,0 +1,4 @@
+---
+"workspace:jump_to_latest_toast": shift-cmd-Y
+"workspace:new_terminal_tab": cmd-meta-t
+"find:find_prev_occurrence": none

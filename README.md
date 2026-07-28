@@ -63,6 +63,11 @@ dotfiles/
 │   ├── settings.json                  → ~/Library/Application Support/Code/User/settings.json
 │   ├── keybindings.json               → ~/Library/Application Support/Code/User/keybindings.json
 │   └── extensions.txt                 # installed via `code --install-extension`
+├── warp/                              → ~/.warp (the whole directory, not per-file)
+│   ├── settings.toml                  # Warp rewrites this itself on every settings change
+│   ├── keybindings.yaml               # custom key bindings
+│   ├── tab_configs/*                  # launch configurations
+│   └── themes/*                       # custom colour themes
 ├── agents/
 │   ├── AGENTS.md                      # synced to ~/.agents/AGENTS.md
 │   └── skills/*                       # synced to ~/.agents/skills/ and ~/.claude/skills/
@@ -80,6 +85,7 @@ The `agents/` and `claude/` subtrees are no longer symlinked - they're materiali
 
 - `*.symlink` files get linked to `$HOME` as dotfiles (so `gitconfig.symlink` becomes `~/.gitconfig`, etc). Straightforward.
 - Some configs (VS Code, Claude Code, etc) go to app-specific paths, not `$HOME`. The bootstrap handles these explicitly.
+- `warp/` is linked as a whole directory rather than file by file. Warp writes into `~/.warp` at runtime - it rewrites `settings.toml` whenever you flip a setting in the UI, and drops theme files in when you install one from the picker - so linking the directory means anything it creates is tracked without me having to add a symlink for it first. The trade-off is that toggling a Warp setting shows up as a diff.
 - `*.local.*` files are for per-machine overrides. Each one has a `.example` template.
 - The zsh-custom files are numbered because order matters when ZSH_CUSTOM is loaded by OMZ.
 

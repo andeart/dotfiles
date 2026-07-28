@@ -1,0 +1,35 @@
+# Display name in Warp's theme picker. Without this Warp falls back to the file name.
+name: Base16 Monokai Pro Spectrum
+# Accent color for UI elements
+accent: '#fd9353'
+# Terminal background color
+background: '#222222'
+# Block cursor color. Warp inverts the glyph underneath it.
+cursor: '#fd9353'
+# Whether the theme is lighter or darker.
+details: darker
+# The foreground color.
+foreground: '#f7f1ff'
+# Ansi escape colors.
+terminal_colors:
+  bright:
+    # Mid grey so dimmed output stays legible against the background.
+    black:   '#69676c'
+    red:     '#fc628d'
+    green:   '#7cd88f'
+    yellow:  '#fbe566'
+    # Spectrum ships no blue of its own. Borrowed from the Octagon filter, which sits
+    # in the palette's only real hue gap (cyan 187 to purple 247) at H209.
+    blue:    '#6ab0f3'
+    magenta: '#958ae3'
+    cyan:    '#5ad4e5'
+    white:   '#f7f1ff'
+  normal:
+    black:   '#181818'
+    red:     '#fc628d'
+    green:   '#7cd88f'
+    yellow:  '#fbe566'
+    blue:    '#6ab0f3'
+    magenta: '#958ae3'
+    cyan:    '#5ad4e5'
+    white:   '#bab6c0'

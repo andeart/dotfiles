@@ -23,6 +23,14 @@ IFS=$'\t' read -r model ctx_pct ctx_input ctx_cache_create ctx_cache_read \
 : "${ctx_pct:=0}" "${ctx_input:=0}" "${ctx_cache_create:=0}" "${ctx_cache_read:=0}"
 : "${five_h_pct:=0}" "${seven_d_pct:=0}" "${five_h_reset:=0}" "${seven_d_reset:=0}"
 
+# "-" means the key was absent or null.
+IFS=$'\t' read -r ws_dir ws_git_worktree < <(
+    jq -r '[
+        (.workspace.current_dir // "-"),
+        (.workspace.git_worktree // "-")
+    ] | @tsv' <<<"$input"
+)
+
 # Long-context models arrive as e.g. "Opus 4.8 (1M context)". Reduce the
 # parenthetical to a bare size suffix: "Opus 4.8 1M". Matched as a whole so any
 # other parenthetical is left intact.
@@ -179,11 +187,51 @@ if [ -n "$effort" ]; then
     effort_part=" ${RESET}${COLOR_CLAUDE}${effort}${RESET}"
 fi
 
+# --- Workspace and worktree lines ---
+field() { printf '%s%s%s %s' "${DIM}${COLOR_KEY}" "$1" "${RESET}" "${DIM}${2}${RESET}"; }
+
+# $HOME quoted on both sides of the match so a value containing glob characters
+# is compared literally.
+abbrev_home() {
+    local p="$1"
+    if [ -n "$HOME" ] && [ "$HOME" != "/" ] && [[ $p == "$HOME" || $p == "$HOME"/* ]]; then
+        p="~${p#"$HOME"}"
+    fi
+    printf '%s' "$p"
+}
+
+# A linked worktree has a per-worktree git dir distinct from the shared common
+# dir; a normal clone's main working tree has the two equal. Paths forced
+# absolute so the comparison holds regardless of where git reports from.
+in_linked_worktree() {
+    local dir=$1 git_dir="" common_dir=""
+    [ -d "$dir" ] || return 1
+    { read -r git_dir; read -r common_dir; } < <(
+        cd "$dir" 2>/dev/null &&
+            git rev-parse --path-format=absolute --git-dir --git-common-dir 2>/dev/null
+    )
+    [ -n "$git_dir" ] && [ "$git_dir" != "$common_dir" ]
+}
+
+# Only worth the vertical space where the paths disambiguate which checkout is
+# live. Everywhere else the status stays a single line.
+extra_lines=""
+if in_linked_worktree "$ws_dir"; then
+    ws_dir=$(abbrev_home "$ws_dir")
+    ws_git_worktree=$(abbrev_home "$ws_git_worktree")
+
+    worktree_line="$(field '' "$ws_git_worktree")"
+    workspace_line="$(field '' "$ws_dir")"
+
+    extra_lines=$(printf '\n%s\n%s' "$worktree_line" "$workspace_line")
+fi
+
 # --- Output ---
-printf '%s%s%s%s %s %s%s%s' \
+printf '%s%s%s%s %s %s%s%s%s' \
     "$BOLD" "$COLOR_CLAUDE" "$model" \
     "$effort_part" \
     "$SEP" \
     "${DIM}${COLOR_KEY}${RESET} ${ctx_bar}" \
     "$five_h_part" \
-    "$seven_d_part"
+    "$seven_d_part" \
+    "$extra_lines"

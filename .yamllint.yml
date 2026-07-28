@@ -1,5 +1,12 @@
 extends: default
 
+# Warp themes are data files in an upstream format (colour values are column
+# aligned, which trips `colons`). Warp also drops new ones here itself when a
+# theme is installed from its picker, so linting them would break commits on
+# files I didn't write.
+ignore: |
+  warp/themes/
+
 rules:
   # GitHub Actions uses `on:` as a top-level key, which YAML 1.1 treats as a
   # truthy value. Disable the key check so that doesn't fire.
