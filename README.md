@@ -63,11 +63,7 @@ dotfiles/
 │   ├── settings.json                  → ~/Library/Application Support/Code/User/settings.json
 │   ├── keybindings.json               → ~/Library/Application Support/Code/User/keybindings.json
 │   └── extensions.txt                 # installed via `code --install-extension`
-├── warp/                              → ~/.warp (the whole directory, not per-file)
-│   ├── settings.toml                  # Warp rewrites this itself on every settings change
-│   ├── keybindings.yaml               # custom key bindings
-│   ├── tab_configs/*                  # launch configurations
-│   └── themes/*                       # custom colour themes
+├── warp/*                             → ~/.warp (settings, keybindings, tab configs, themes)
 ├── agents/
 │   ├── AGENTS.md                      # synced to ~/.agents/AGENTS.md
 │   └── skills/*                       # synced to ~/.agents/skills/ and ~/.claude/skills/
