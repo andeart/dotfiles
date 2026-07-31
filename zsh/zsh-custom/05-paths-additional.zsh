@@ -1,5 +1,5 @@
-# Rust
-. "$HOME/.cargo/env"
+# Rust - only source if installed so shells still start cleanly without cargo.
+[ -r "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
 # ---- PATH ----
 export PATH="${DOTFILES_ROOT}/bin:${PATH}"
