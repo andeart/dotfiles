@@ -5,8 +5,26 @@
   "permissions": {
     "allow": [
       "Bash(dotfiles*)",
+      "mcp__claude_ai_Plane_so__create_page",
+      "mcp__claude_ai_Plane_so__create_work_item",
+      "mcp__claude_ai_Plane_so__get_me",
+      "mcp__claude_ai_Plane_so__get_project_estimate",
+      "mcp__claude_ai_Plane_so__get_workspace_members",
+      "mcp__claude_ai_Plane_so__list_cycle_work_items",
+      "mcp__claude_ai_Plane_so__list_labels",
+      "mcp__claude_ai_Plane_so__list_modules",
+      "mcp__claude_ai_Plane_so__list_pages",
+      "mcp__claude_ai_Plane_so__list_projects",
+      "mcp__claude_ai_Plane_so__list_states",
+      "mcp__claude_ai_Plane_so__list_work_item_types",
+      "mcp__claude_ai_Plane_so__list_work_items",
+      "mcp__claude_ai_Plane_so__manage_cycle_work_items",
+      "mcp__claude_ai_Plane_so__retrieve_work_item_by_identifier",
+      "mcp__claude_ai_Plane_so__update_project_features",
+      "mcp__claude_ai_Plane_so__update_work_item",
       "Read(~/.agents/AGENTS.md)",
-      "Read(~/.agents/skills/plane-work-item-conventions/CONVENTIONS.md)"
+      "Read(~/.agents/skills/plane-work-item-conventions/CONVENTIONS.md)",
+      "WebSearch"
     ],
     "defaultMode": "default",
     "additionalDirectories": [
