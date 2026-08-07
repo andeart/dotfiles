@@ -56,6 +56,9 @@
     "explorer.autoReveal": true,
     "explorer.openEditors.sortOrder": "alphabetical",
     "explorer.openEditors.visible": 100,
+    "extensions.supportAgentsWindow": {
+        "monokai.theme-monokai-pro-vscode": true
+    },
     "files.exclude": {
         "**/.git": false
     },
@@ -99,7 +102,7 @@
     "window.autoDetectColorScheme": true,
     "window.commandCenter": true,
     "window.openFoldersInNewWindow": "on",
-    "window.title": "${rootName}${separator}${profileName}${separator}${activeEditorShort}",
+    "window.title": "${rootName} · ${activeEditorShort}",
     "window.zoomLevel": 1.5,
     "workbench.activityBar.compact": true,
     "workbench.colorTheme": "Monokai Pro (Filter Spectrum)",
