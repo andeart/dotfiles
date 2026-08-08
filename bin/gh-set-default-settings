@@ -62,7 +62,7 @@ ruleset_default_baseline_guard() {
       "parameters": {
         "required_approving_review_count": 0,
         "dismiss_stale_reviews_on_push": true,
-        "require_code_owner_review": false,
+        "require_code_owner_review": true,
         "require_last_push_approval": false,
         "required_review_thread_resolution": true,
         "allowed_merge_methods": ["squash"]
@@ -74,6 +74,11 @@ JSON
 }
 
 ruleset_default_pr_approval_guard() {
+  # Enforcement is "disabled": both the update rule and the bypass-gated
+  # approval requirement block GitHub's auto-merge, which never evaluates
+  # bypass_actors on its deferred completion path. Flip to "active" only on
+  # repos that do not rely on auto-merge.
+  #
   # bypass_actors: actor_type "RepositoryRole" with actor_id 5 is the built-in
   # Repository admin role (built-in repository role IDs: read=1, triage=2,
   # write=3, maintain=4, admin=5).
@@ -81,7 +86,7 @@ ruleset_default_pr_approval_guard() {
 {
   "name": "default PR approval guard",
   "target": "branch",
-  "enforcement": "active",
+  "enforcement": "disabled",
   "bypass_actors": [
     {
       "actor_id": 5,
