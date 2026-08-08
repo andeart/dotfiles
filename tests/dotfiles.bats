@@ -536,7 +536,110 @@ claude/CLAUDE.md|~/.claude/CLAUDE.md" \
   [ "$manifest_c" = "$hash_c" ]
 }
 
-@test "_offer_open_conflicts opens each pair via 'code --diff' when accepted" {
+@test "_offer_merge_conflicts stages four distinctly named inputs for the merge editor" {
+  make_tmp_world
+  printf 'repo side\n' > "$TEST_REPO/agents/AGENTS.md"
+  printf 'live side\n' > "$TEST_LIVE/.agents/AGENTS.md"
+  echo '{}' > "$TEST_STATE"
+  stub_dir="$(mktemp -d)"
+  CODE_LOG="$stub_dir/calls.log"
+  : > "$CODE_LOG"
+  cat > "$stub_dir/code" <<EOF
+#!/usr/bin/env bash
+echo "\$@" >> "$CODE_LOG"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" offer_merge_conflicts \
+      "$TEST_REPO/agents/AGENTS.md|$TEST_LIVE/.agents/AGENTS.md" <<< "y
+n"
+  [ "$(wc -l < "$CODE_LOG" | tr -d ' ')" -eq 1 ]
+  grep -qF -- "--wait --merge" "$CODE_LOG"
+  grep -qF -- "REPO.AGENTS.md" "$CODE_LOG"
+  grep -qF -- "LIVE.AGENTS.md" "$CODE_LOG"
+  grep -qF -- "BASE.AGENTS.md" "$CODE_LOG"
+  grep -qF -- "MERGED.AGENTS.md" "$CODE_LOG"
+  # Argument order is left, right, base, result.
+  grep -qE -- "REPO\.AGENTS\.md .*LIVE\.AGENTS\.md .*BASE\.AGENTS\.md .*MERGED\.AGENTS\.md" "$CODE_LOG"
+}
+
+@test "_offer_merge_conflicts writes the merged result to both sides and refreshes the manifest" {
+  make_tmp_world
+  printf 'repo side\n' > "$TEST_REPO/agents/AGENTS.md"
+  printf 'live side\n' > "$TEST_LIVE/.agents/AGENTS.md"
+  echo '{}' > "$TEST_STATE"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+# Simulate a completed merge: last arg is the result file.
+printf 'merged result\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" offer_merge_conflicts \
+      "$TEST_REPO/agents/AGENTS.md|$TEST_LIVE/.agents/AGENTS.md" <<< "y
+y"
+  [ "$status" -eq 0 ]
+  grep -q "merged result" "$TEST_REPO/agents/AGENTS.md"
+  grep -q "merged result" "$TEST_LIVE/.agents/AGENTS.md"
+  merged_hash=$(shasum -a 256 "$TEST_LIVE/.agents/AGENTS.md" | awk '{print $1}')
+  manifest=$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")
+  [ "$manifest" = "$merged_hash" ]
+}
+
+@test "_offer_merge_conflicts leaves both sides alone when the apply prompt is declined" {
+  make_tmp_world
+  printf 'repo side\n' > "$TEST_REPO/agents/AGENTS.md"
+  printf 'live side\n' > "$TEST_LIVE/.agents/AGENTS.md"
+  echo '{}' > "$TEST_STATE"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+printf 'merged result\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" offer_merge_conflicts \
+      "$TEST_REPO/agents/AGENTS.md|$TEST_LIVE/.agents/AGENTS.md" <<< "y
+n"
+  [ "$status" -eq 1 ]
+  grep -q "repo side" "$TEST_REPO/agents/AGENTS.md"
+  grep -q "live side" "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k] // "absent"' "$TEST_STATE")" = "absent" ]
+}
+
+@test "_offer_merge_conflicts warns when the result still has conflict markers" {
+  make_tmp_world
+  printf 'repo side\n' > "$TEST_REPO/agents/AGENTS.md"
+  printf 'live side\n' > "$TEST_LIVE/.agents/AGENTS.md"
+  echo '{}' > "$TEST_STATE"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+printf '<<<<<<< REPO\nrepo side\n=======\nlive side\n>>>>>>> LIVE\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" offer_merge_conflicts \
+      "$TEST_REPO/agents/AGENTS.md|$TEST_LIVE/.agents/AGENTS.md" <<< "y
+n"
+  [[ "$output" == *"conflict markers"* ]]
+  grep -q "repo side" "$TEST_REPO/agents/AGENTS.md"
+}
+
+@test "_offer_merge_conflicts opens nothing when the first prompt is declined" {
   stub_dir="$(mktemp -d)"
   CODE_LOG="$stub_dir/calls.log"
   : > "$CODE_LOG"
@@ -548,14 +651,12 @@ EOF
   run env \
     PATH="$stub_dir:$PATH" \
     DOTFILES_ASSUME_INTERACTIVE=1 \
-    "$DOTFILES_TEST_BIN" offer_open_conflicts "/tmp/r1|/tmp/l1" "/tmp/r2|/tmp/l2" <<< "y"
-  [ "$status" -eq 0 ]
-  [ "$(wc -l < "$CODE_LOG" | tr -d ' ')" -eq 2 ]
-  grep -qF -- "--diff /tmp/r1 /tmp/l1" "$CODE_LOG"
-  grep -qF -- "--diff /tmp/r2 /tmp/l2" "$CODE_LOG"
+    "$DOTFILES_TEST_BIN" offer_merge_conflicts "/tmp/r1|/tmp/l1" <<< "n"
+  [ "$status" -eq 1 ]
+  [ ! -s "$CODE_LOG" ]
 }
 
-@test "_offer_open_conflicts opens nothing when declined" {
+@test "_offer_merge_conflicts is silent and skipped in non-interactive shells" {
   stub_dir="$(mktemp -d)"
   CODE_LOG="$stub_dir/calls.log"
   : > "$CODE_LOG"
@@ -564,30 +665,13 @@ EOF
 echo "\$@" >> "$CODE_LOG"
 EOF
   chmod +x "$stub_dir/code"
+  # No DOTFILES_ASSUME_INTERACTIVE - helpers/setup detaches stdin from any tty.
   run env \
     PATH="$stub_dir:$PATH" \
-    DOTFILES_ASSUME_INTERACTIVE=1 \
-    "$DOTFILES_TEST_BIN" offer_open_conflicts "/tmp/r1|/tmp/l1" <<< "n"
-  [ "$status" -eq 0 ]
+    "$DOTFILES_TEST_BIN" offer_merge_conflicts "/tmp/r1|/tmp/l1"
+  [ "$status" -eq 1 ]
   [ ! -s "$CODE_LOG" ]
-}
-
-@test "_offer_open_conflicts is silent and skipped in non-interactive shells" {
-  stub_dir="$(mktemp -d)"
-  CODE_LOG="$stub_dir/calls.log"
-  : > "$CODE_LOG"
-  cat > "$stub_dir/code" <<EOF
-#!/usr/bin/env bash
-echo "\$@" >> "$CODE_LOG"
-EOF
-  chmod +x "$stub_dir/code"
-  # No DOTFILES_ASSUME_INTERACTIVE — helpers/setup detaches stdin from any tty.
-  run env \
-    PATH="$stub_dir:$PATH" \
-    "$DOTFILES_TEST_BIN" offer_open_conflicts "/tmp/r1|/tmp/l1"
-  [ "$status" -eq 0 ]
-  [ ! -s "$CODE_LOG" ]
-  [[ "$output" != *"code --diff"* ]]
+  [[ "$output" != *"--merge"* ]]
 }
 
 @test "push exits non-zero on conflicts without prompting in non-interactive shells" {

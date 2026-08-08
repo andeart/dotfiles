@@ -9,6 +9,11 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 RESET='\033[0m'
 
+# Split of the pairs handed to _offer_merge_conflicts, so callers can drop the
+# resolved ones and carry on. Both are reset on every call.
+_MERGE_RESOLVED=()
+_MERGE_UNRESOLVED=()
+
 # ---------------------------------------------------------------------------
 # Path mapping (repo source → live destinations)
 # Each entry: "<repo_relpath>|<live_dest_1>[,<live_dest_2>,...]"
@@ -223,30 +228,121 @@ _print_conflict_diff() {
   diff -u "$repo_p" "$live_p" | sed 's/^/      /' || true
 }
 
-# After conflicts have been printed, prompt the user (interactive shells only)
-# to open each repo/live pair side-by-side in `code --diff`. Each positional
-# arg is a "repo_path|live_path" string. In non-interactive shells (no tty on
-# stdin) the helper returns silently — callers still exit non-zero.
+# Remove a staged merge directory. The four filenames are known, so this avoids
+# a recursive delete and cannot take anything unexpected with it.
+_merge_cleanup_stage() {
+  local tmp="$1" base="$2"
+  rm -f "$tmp/REPO.$base" "$tmp/LIVE.$base" "$tmp/BASE.$base" "$tmp/MERGED.$base"
+  rmdir "$tmp" 2>/dev/null || true
+}
+
+# Open each both_changed pair in VS Code's three-way merge editor and, on
+# confirmation, write the result over both sides and refresh the manifest.
+# Each positional arg is a "repo_path|live_path" string.
+#
+# Both sides normally share a basename (claude/settings.json against
+# ~/.claude/settings.json), which would render two identically titled panes, so
+# the copies are staged as REPO./LIVE./BASE./MERGED. with the original extension
+# kept for syntax highlighting. Renaming also stops VS Code applying its own
+# settings.json schema to a file that is Claude's.
+#
+# BASE is a copy of the repo side. The true common ancestor is unrecoverable -
+# the manifest stores only a hash - so the editor reports no conflicts and
+# pre-fills the result with the live content. The repo pane stays available to
+# pull from. Orientation is fixed (repo left, live right) in every caller so the
+# panes read the same way whichever command opened them.
+#
+# `code --wait` returns when the tab closes, which does not mean the merge was
+# completed, and content alone cannot decide it: resolving in favour of live
+# reproduces the pre-fill exactly. An explicit per-pair confirmation is
+# therefore the authority, as in `git mergetool`.
+#
+# Returns 0 only if every pair was resolved. In non-interactive shells (no tty
+# on stdin) it returns 1 without prompting, so callers keep exiting 2.
 # DOTFILES_ASSUME_INTERACTIVE=1 forces the prompt path so tests can pipe input.
-_offer_open_conflicts() {
+_offer_merge_conflicts() {
+  _MERGE_RESOLVED=()
+  # Every early return below leaves the whole input set unresolved.
+  _MERGE_UNRESOLVED=("$@")
   [ "$#" -eq 0 ] && return 0
   if [ -z "${DOTFILES_ASSUME_INTERACTIVE:-}" ] && [ ! -t 0 ]; then
-    return 0
+    return 1
   fi
+  if ! command -v code >/dev/null 2>&1; then
+    echo -e "  ${YELLOW}'code' is not on PATH - resolve these manually${RESET}"
+    return 1
+  fi
+
   echo ""
-  echo -en "  ${YELLOW}open conflicting pairs in 'code --diff'? [y/N] ${RESET}"
+  echo -en "  ${YELLOW}resolve $# conflict(s) in the VS Code merge editor? [y/N] ${RESET}"
   local reply=""
   read -r reply || true
   case "$reply" in
     y|Y|yes|Yes|YES) ;;
-    *) return 0 ;;
+    *) return 1 ;;
   esac
-  local pair r_p l_p
+
+  local pair r_p l_p base tmp rc
+  _MERGE_UNRESOLVED=()
   for pair in "$@"; do
     r_p="${pair%%|*}"
     l_p="${pair#*|}"
-    code --diff "$r_p" "$l_p"
+    base="$(basename "$l_p")"
+
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-merge.XXXXXX")"
+    trap '_merge_cleanup_stage "$tmp" "$base"' EXIT
+    cp "$r_p" "$tmp/REPO.$base"
+    cp "$l_p" "$tmp/LIVE.$base"
+    cp "$r_p" "$tmp/BASE.$base"
+    cp "$l_p" "$tmp/MERGED.$base"
+
+    echo ""
+    echo -e "  ${BOLD}merging${RESET}  $l_p"
+    echo -e "    left    REPO.$base    <- $r_p"
+    echo -e "    right   LIVE.$base    <- $l_p"
+    echo -e "    result  MERGED.$base  -> written to both sides"
+
+    rc=0
+    code --wait --merge \
+      "$tmp/REPO.$base" "$tmp/LIVE.$base" "$tmp/BASE.$base" "$tmp/MERGED.$base" || rc=$?
+
+    if [ "$rc" -ne 0 ]; then
+      echo -e "  ${RED}editor exited $rc - leaving $l_p alone${RESET}"
+      _MERGE_UNRESOLVED+=("$pair")
+      _merge_cleanup_stage "$tmp" "$base"
+      trap - EXIT
+      continue
+    fi
+
+    if grep -qE '^(<<<<<<<|=======|>>>>>>>)' "$tmp/MERGED.$base"; then
+      echo -e "  ${RED}result still contains conflict markers${RESET}"
+    fi
+
+    echo -en "  ${YELLOW}apply merged result to both sides? [y/N] ${RESET}"
+    reply=""
+    read -r reply || true
+    case "$reply" in
+      y|Y|yes|Yes|YES)
+        cp "$tmp/MERGED.$base" "$r_p"
+        cp "$tmp/MERGED.$base" "$l_p"
+        _manifest_write "$l_p" "$(_sha256_file "$l_p")"
+        if [ -n "${_MERGE_GIT_ADD:-}" ] && [ -z "${DOTFILES_PRECOMMIT_DRYRUN_GIT:-}" ]; then
+          git -C "$DOTFILES_ROOT" add "$r_p"
+        fi
+        _MERGE_RESOLVED+=("$pair")
+        echo -e "  ${GREEN}resolved${RESET}  $l_p"
+        ;;
+      *)
+        _MERGE_UNRESOLVED+=("$pair")
+        echo -e "  ${YELLOW}skipped${RESET}  $l_p"
+        ;;
+    esac
+
+    _merge_cleanup_stage "$tmp" "$base"
+    trap - EXIT
   done
+
+  [ ${#_MERGE_UNRESOLVED[@]} -eq 0 ]
 }
 
 # True when both sides exist and have identical content. Used by status/push/
@@ -395,7 +491,7 @@ push() {
           l_p="${pair#*|}"
           _print_conflict_diff "$r_p" "$l_p"
         done
-        _offer_open_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}"
+        _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
       fi
       echo ""
       echo -e "  ${YELLOW}resolve conflicts manually, then re-run push${RESET}"
@@ -482,7 +578,7 @@ status() {
       l_p="${pair#*|}"
       _print_conflict_diff "$r_p" "$l_p"
     done
-    _offer_open_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}"
+    _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
   fi
 
   echo ""
@@ -571,7 +667,7 @@ freeze_agents() {
           l_p="${pair#*|}"
           _print_conflict_diff "$r_p" "$l_p"
         done
-        _offer_open_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}"
+        _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
       fi
       echo ""
       echo -e "  ${YELLOW}resolve conflicts manually, then re-run freeze${RESET}"
@@ -676,7 +772,7 @@ freeze_agents_precommit() {
           echo "    $r_p"
           _print_conflict_diff "$r_p" "$l_p"
         done
-        _offer_open_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}"
+        _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
       fi
       echo ""
       echo -e "  ${YELLOW}resolve manually (pick repo or live), then re-commit${RESET}"
