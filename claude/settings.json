@@ -21,6 +21,7 @@
       "Bash(git fetch:*)",
       "Bash(git log:*)",
       "Bash(git ls-tree:*)",
+      "Bash(git pull:*)",
       "Bash(git remote get-url:*)",
       "Bash(git rev-list:*)",
       "Bash(git symbolic-ref --short HEAD)",
