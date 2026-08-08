@@ -550,7 +550,7 @@ status() {
   echo -e "${BOLD}agents/claude sync status${RESET}"
   echo ""
 
-  local found_conflict=0 has_drift=0
+  local found_conflict=0 has_drift=0 bi_count=0
   local true_conflicts=()
   local state repo_p live_p
   while IFS=$'\t' read -r state repo_p live_p; do
@@ -561,11 +561,11 @@ status() {
       both_changed)
         if _pair_is_byte_identical "$repo_p" "$live_p"; then
           echo -e "  ${RED}${state}${RESET}  $live_p ${YELLOW}(byte-identical)${RESET}"
+          bi_count=$((bi_count + 1))
         else
           echo -e "  ${RED}${state}${RESET}  $live_p"
           true_conflicts+=("$repo_p|$live_p")
         fi
-        found_conflict=1
         has_drift=1
         ;;
       *)
@@ -584,7 +584,25 @@ status() {
       l_p="${pair#*|}"
       _print_conflict_diff "$r_p" "$l_p"
     done
+
     _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
+
+    if [ ${#_MERGE_UNRESOLVED[@]} -lt ${#true_conflicts[@]} ]; then
+      # A resolution rewrote both sides, so the drift recorded during the first
+      # walk is stale. Re-walk rather than clearing the flag outright: other
+      # paths may still be drifting for unrelated reasons.
+      has_drift=0
+      while IFS=$'\t' read -r state repo_p live_p; do
+        if [ "$state" != "in_sync" ]; then
+          has_drift=1
+        fi
+      done < <(_walk_mapping)
+    fi
+    true_conflicts=("${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}")
+  fi
+
+  if [ ${#true_conflicts[@]} -gt 0 ] || [ "$bi_count" -gt 0 ]; then
+    found_conflict=1
   fi
 
   echo ""
