@@ -63,7 +63,13 @@ _manifest_write() {
   local tmp
   tmp="$(mktemp)"
   trap 'rm -f "$tmp"' EXIT
-  jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$DOTFILES_STATE_FILE" > "$tmp"
+  # jq's status is checked before the mv: the redirect truncates $tmp up front,
+  # so an unchecked move would install an empty file as the whole sync state.
+  if ! jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$DOTFILES_STATE_FILE" > "$tmp"; then
+    rm -f "$tmp"
+    trap - EXIT
+    return 1
+  fi
   mv "$tmp" "$DOTFILES_STATE_FILE"
   trap - EXIT
 }
@@ -228,6 +234,44 @@ _print_conflict_diff() {
   diff -u "$repo_p" "$live_p" | sed 's/^/      /' || true
 }
 
+# Write a merged result over both sides and record it in the manifest.
+#
+# Every caller invokes _offer_merge_conflicts with `|| true`, which suppresses
+# set -e for the helper's entire dynamic extent, so each write is checked here
+# explicitly. Any failure returns 1 with the manifest untouched, leaving the
+# path classified as a conflict - the safe state. Recording live as the anchor
+# while the repo copy failed would instead make the next push overwrite the
+# merged live file with stale repo content.
+#
+# `git add` runs before the manifest write so that every failure path leaves the
+# pair still classified both_changed, which is what lets callers rebuild their
+# conflict list from a fresh walk.
+_merge_apply_result() {
+  local merged="$1" r_p="$2" l_p="$3"
+
+  if ! cp "$merged" "$r_p"; then
+    echo -e "  ${RED}failed to write $r_p - leaving this conflict unresolved${RESET}"
+    return 1
+  fi
+  if ! cp "$merged" "$l_p"; then
+    echo -e "  ${RED}failed to write $l_p - leaving this conflict unresolved${RESET}"
+    return 1
+  fi
+  if [ -n "${_MERGE_GIT_ADD:-}" ] && [ -z "${DOTFILES_PRECOMMIT_DRYRUN_GIT:-}" ]; then
+    if ! git -C "${DOTFILES_ROOT_OVERRIDE:-$DOTFILES_ROOT}" add "$r_p"; then
+      echo -e "  ${RED}failed to stage $r_p - leaving this conflict unresolved${RESET}"
+      return 1
+    fi
+  fi
+  local h
+  h="$(_sha256_file "$l_p")"
+  if ! _manifest_write "$l_p" "$h"; then
+    echo -e "  ${RED}failed to record $l_p in the sync manifest${RESET}"
+    return 1
+  fi
+  return 0
+}
+
 # Remove a staged merge directory. The four filenames are known, so this avoids
 # a recursive delete and cannot take anything unexpected with it.
 _merge_cleanup_stage() {
@@ -289,12 +333,30 @@ _offer_merge_conflicts() {
     l_p="${pair#*|}"
     base="$(basename "$l_p")"
 
+    # A symlink on either side would send the merged result outside the mapping
+    # entirely. push blocks symlinked live paths before it classifies, but
+    # status, freeze and the pre-commit hook do not, so the refusal lives here
+    # where it covers every caller.
+    if [ -L "$r_p" ] || [ -L "$l_p" ]; then
+      echo -e "  ${RED}refusing to merge through a symlink:${RESET}"
+      echo "    repo: $r_p"
+      echo "    live: $l_p"
+      _MERGE_UNRESOLVED+=("$pair")
+      continue
+    fi
+
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-merge.XXXXXX")"
     trap '_merge_cleanup_stage "$tmp" "$base"' EXIT
-    cp "$r_p" "$tmp/REPO.$base"
-    cp "$l_p" "$tmp/LIVE.$base"
-    cp "$r_p" "$tmp/BASE.$base"
-    cp "$l_p" "$tmp/MERGED.$base"
+    if ! cp "$r_p" "$tmp/REPO.$base" \
+      || ! cp "$l_p" "$tmp/LIVE.$base" \
+      || ! cp "$l_p" "$tmp/MERGED.$base" \
+      || ! cp "$r_p" "$tmp/BASE.$base"; then
+      echo -e "  ${RED}could not stage $l_p for merging${RESET}"
+      _MERGE_UNRESOLVED+=("$pair")
+      _merge_cleanup_stage "$tmp" "$base"
+      trap - EXIT
+      continue
+    fi
 
     echo ""
     echo -e "  ${BOLD}merging${RESET}  $l_p"
@@ -323,14 +385,12 @@ _offer_merge_conflicts() {
     read -r reply || true
     case "$reply" in
       y|Y|yes|Yes|YES)
-        cp "$tmp/MERGED.$base" "$r_p"
-        cp "$tmp/MERGED.$base" "$l_p"
-        _manifest_write "$l_p" "$(_sha256_file "$l_p")"
-        if [ -n "${_MERGE_GIT_ADD:-}" ] && [ -z "${DOTFILES_PRECOMMIT_DRYRUN_GIT:-}" ]; then
-          git -C "$DOTFILES_ROOT" add "$r_p"
+        if _merge_apply_result "$tmp/MERGED.$base" "$r_p" "$l_p"; then
+          _MERGE_RESOLVED+=("$pair")
+          echo -e "  ${GREEN}resolved${RESET}  $l_p"
+        else
+          _MERGE_UNRESOLVED+=("$pair")
         fi
-        _MERGE_RESOLVED+=("$pair")
-        echo -e "  ${GREEN}resolved${RESET}  $l_p"
         ;;
       *)
         _MERGE_UNRESOLVED+=("$pair")
@@ -495,6 +555,30 @@ push() {
       _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
       resolved=$(( ${#true_conflicts[@]} - ${#_MERGE_UNRESOLVED[@]} ))
       true_conflicts=("${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}")
+
+      if [ ${#_MERGE_RESOLVED[@]} -gt 0 ]; then
+        # A resolution rewrites both sides, and one repo file can back several
+        # live destinations, so every phase-1 list may now describe state that
+        # no longer exists. Every way a resolution can fail leaves its pair
+        # classified both_changed, so the fresh walk also fully replaces the
+        # unresolved list.
+        writable=()
+        unharvested=()
+        true_conflicts=()
+        while IFS=$'\t' read -r state repo_p live_p; do
+          case "$state" in
+            both_changed)
+              true_conflicts+=("$repo_p|$live_p")
+              ;;
+            live_changed|live_added|live_removed)
+              unharvested+=("$state\t$live_p")
+              ;;
+            repo_changed|repo_added|repo_removed)
+              writable+=("$state\t$repo_p\t$live_p")
+              ;;
+          esac
+        done < <(_walk_mapping)
+      fi
     fi
 
     if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
@@ -695,6 +779,28 @@ freeze_agents() {
       _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
       resolved=$(( ${#true_conflicts[@]} - ${#_MERGE_UNRESOLVED[@]} ))
       true_conflicts=("${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}")
+
+      if [ ${#_MERGE_RESOLVED[@]} -gt 0 ]; then
+        # See push: the phase-1 lists are stale the moment a resolution writes
+        # both sides, and harvesting from them would copy a stale live file over
+        # the merged repo side.
+        writable=()
+        unpushed=()
+        true_conflicts=()
+        while IFS=$'\t' read -r state repo_p live_p; do
+          case "$state" in
+            both_changed)
+              true_conflicts+=("$repo_p|$live_p")
+              ;;
+            repo_changed|repo_added|repo_removed)
+              unpushed+=("$state\t$repo_p")
+              ;;
+            live_changed|live_added|live_removed)
+              writable+=("$state\t$repo_p\t$live_p")
+              ;;
+          esac
+        done < <(_walk_mapping)
+      fi
     fi
 
     if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
@@ -804,6 +910,23 @@ freeze_agents_precommit() {
       # Resolutions here become part of the commit, so stage the repo side.
       _MERGE_GIT_ADD=1 _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
       true_conflicts=("${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}")
+
+      if [ ${#_MERGE_RESOLVED[@]} -gt 0 ]; then
+        # See push: the phase-1 harvest list is stale the moment a resolution
+        # writes both sides.
+        writable=()
+        true_conflicts=()
+        while IFS=$'\t' read -r state repo_p live_p; do
+          case "$state" in
+            both_changed)
+              true_conflicts+=("$repo_p|$live_p")
+              ;;
+            live_changed|live_added)
+              writable+=("$state\t$repo_p\t$live_p")
+              ;;
+          esac
+        done < <(_walk_mapping)
+      fi
     fi
 
     if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
