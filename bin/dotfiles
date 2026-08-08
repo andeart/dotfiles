@@ -234,6 +234,30 @@ _print_conflict_diff() {
   diff -u "$repo_p" "$live_p" | sed 's/^/      /' || true
 }
 
+# Write the lines both sides have in common to $3, for use as the merge base.
+# Repo-only lines then read as additions on the left, live-only lines as
+# additions on the right, and colliding regions become real conflicts the editor
+# can highlight.
+#
+# GNU diff's --old-line-format / --unchanged-line-format would say this directly
+# but macOS ships the FreeBSD diff, which has neither. A context window larger
+# than any real file collapses the diff into one hunk, so its context lines are
+# exactly the common subsequence. The second awk arm keeps blank common lines,
+# which some diffs emit as a bare empty line rather than a lone space.
+#
+# Two sides sharing no lines legitimately produce an empty base. diff exits 1
+# whenever the files differ, which is the normal case here, so only a status
+# above 1 is a real failure.
+_write_merge_base() {
+  local repo_file="$1" live_file="$2" out="$3"
+  local rc=0
+  diff -U 1000000 "$repo_file" "$live_file" \
+    | tail -n +4 \
+    | awk '{ if (substr($0,1,1)==" ") print substr($0,2); else if ($0=="") print "" }' \
+    > "$out" || rc=$?
+  [ "$rc" -le 1 ]
+}
+
 # Write a merged result over both sides and record it in the manifest.
 #
 # Every caller invokes _offer_merge_conflicts with `|| true`, which suppresses
@@ -290,11 +314,11 @@ _merge_cleanup_stage() {
 # kept for syntax highlighting. Renaming also stops VS Code applying its own
 # settings.json schema to a file that is Claude's.
 #
-# BASE is a copy of the repo side. The true common ancestor is unrecoverable -
-# the manifest stores only a hash - so the editor reports no conflicts and
-# pre-fills the result with the live content. The repo pane stays available to
-# pull from. Orientation is fixed (repo left, live right) in every caller so the
-# panes read the same way whichever command opened them.
+# The true common ancestor is unrecoverable - the manifest stores only a hash -
+# so BASE is synthesized from the lines the two sides share (_write_merge_base),
+# which is what gives the editor real additions and conflicts to highlight.
+# Orientation is fixed (repo left, live right) in every caller so the panes read
+# the same way whichever command opened them.
 #
 # `code --wait` returns when the tab closes, which does not mean the merge was
 # completed, and content alone cannot decide it: resolving in favour of live
@@ -350,7 +374,7 @@ _offer_merge_conflicts() {
     if ! cp "$r_p" "$tmp/REPO.$base" \
       || ! cp "$l_p" "$tmp/LIVE.$base" \
       || ! cp "$l_p" "$tmp/MERGED.$base" \
-      || ! cp "$r_p" "$tmp/BASE.$base"; then
+      || ! _write_merge_base "$r_p" "$l_p" "$tmp/BASE.$base"; then
       echo -e "  ${RED}could not stage $l_p for merging${RESET}"
       _MERGE_UNRESOLVED+=("$pair")
       _merge_cleanup_stage "$tmp" "$base"

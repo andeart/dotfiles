@@ -1260,6 +1260,31 @@ y"
   [[ "$output" == *"agents/AGENTS.md"* ]]
 }
 
+@test "_offer_merge_conflicts hands the editor a base of the shared lines only" {
+  make_tmp_world
+  printf 'line one\nrepo only\nline three\n\nshared tail\n' > "$TEST_REPO/agents/AGENTS.md"
+  printf 'line one\nlive only\nline three\n\nshared tail\n' > "$TEST_LIVE/.agents/AGENTS.md"
+  echo '{}' > "$TEST_STATE"
+  stub_dir="$(mktemp -d)"
+  BASE_COPY="$stub_dir/base-seen"
+  cat > "$stub_dir/code" <<EOF
+#!/usr/bin/env bash
+# args: --wait --merge <left> <right> <base> <result>
+cp "\$5" "$BASE_COPY"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" offer_merge_conflicts \
+      "$TEST_REPO/agents/AGENTS.md|$TEST_LIVE/.agents/AGENTS.md" <<< "y
+n"
+  # Common lines only: each side's unique line is absent, so the editor sees it
+  # as an addition instead of unchanged context. The shared blank line survives.
+  [ "$(cat "$BASE_COPY")" = "$(printf 'line one\nline three\n\nshared tail')" ]
+}
+
 @test "_offer_merge_conflicts leaves a pair alone when the editor exits non-zero" {
   make_tmp_world
   printf 'repo side\n' > "$TEST_REPO/agents/AGENTS.md"
