@@ -1494,3 +1494,100 @@ y"
   run git -C "$TEST_REPO" diff --cached --name-only
   [[ "$output" != *"claude/CLAUDE.md"* ]]
 }
+
+@test "push keeps a pair whose manifest write failed after both sides were written" {
+  make_tmp_world
+  # Two conflicting pairs and an empty manifest: with no anchor, a pair whose
+  # sides were both rewritten by a failed resolution classifies as in_sync.
+  printf 'edited in repo\n' > "$TEST_REPO/agents/AGENTS.md"
+  printf 'edited in live\n' > "$TEST_LIVE/.agents/AGENTS.md"
+  printf 'claude edited in repo\n' > "$TEST_REPO/claude/CLAUDE.md"
+  printf 'claude edited in live\n' > "$TEST_LIVE/.claude/CLAUDE.md"
+  echo '{}' > "$TEST_STATE"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+printf 'merged by hand\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  real_jq="$(command -v jq)"
+  # _MERGE_GIT_ADD is unset outside the pre-commit path, so _manifest_write is
+  # the only step left that can fail once both copies have landed. It passes
+  # `--arg v` and _manifest_read does not, so failing on that flag alone breaks
+  # the second pair's write while every read still reaches the real jq.
+  cat > "$stub_dir/jq" <<EOF
+#!/usr/bin/env bash
+if [[ " \$* " == *" --arg v "* && " \$* " == *" $TEST_LIVE/.claude/CLAUDE.md "* ]]; then
+  echo "stub jq: refusing to write the manifest entry" >&2
+  exit 1
+fi
+exec "$real_jq" "\$@"
+EOF
+  chmod +x "$stub_dir/jq"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md
+claude/CLAUDE.md|~/.claude/CLAUDE.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_BIN" push <<< "y
+y
+y"
+  [[ "$output" == *"failed to record $TEST_LIVE/.claude/CLAUDE.md"* ]]
+  # Both copies landed before the manifest write failed, so a fresh walk reads
+  # the pair as in_sync. Only carrying _MERGE_UNRESOLVED over keeps it reported.
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"re-run push"* ]]
+  [[ "$output" != *"push complete"* ]]
+  grep -q "merged by hand" "$TEST_REPO/claude/CLAUDE.md"
+  grep -q "merged by hand" "$TEST_LIVE/.claude/CLAUDE.md"
+  [ "$(jq -r --arg k "$TEST_LIVE/.claude/CLAUDE.md" '.[$k] // "null"' "$TEST_STATE")" = "null" ]
+}
+
+@test "freeze keeps a pair whose manifest write failed after both sides were written" {
+  make_tmp_world
+  printf 'edited in repo\n' > "$TEST_REPO/agents/AGENTS.md"
+  printf 'edited in live\n' > "$TEST_LIVE/.agents/AGENTS.md"
+  printf 'claude edited in repo\n' > "$TEST_REPO/claude/CLAUDE.md"
+  printf 'claude edited in live\n' > "$TEST_LIVE/.claude/CLAUDE.md"
+  echo '{}' > "$TEST_STATE"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+printf 'merged by hand\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  real_jq="$(command -v jq)"
+  cat > "$stub_dir/jq" <<EOF
+#!/usr/bin/env bash
+if [[ " \$* " == *" --arg v "* && " \$* " == *" $TEST_LIVE/.claude/CLAUDE.md "* ]]; then
+  echo "stub jq: refusing to write the manifest entry" >&2
+  exit 1
+fi
+exec "$real_jq" "\$@"
+EOF
+  chmod +x "$stub_dir/jq"
+  # freeze_agents, not the public `freeze`: the latter also runs freeze_vscode,
+  # which reads the real repo root and would answer `code --list-extensions`
+  # from the stub, overwriting the developer's vscode/extensions.txt.
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md
+claude/CLAUDE.md|~/.claude/CLAUDE.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" freeze_agents <<< "y
+y
+y"
+  [[ "$output" == *"failed to record $TEST_LIVE/.claude/CLAUDE.md"* ]]
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"re-run freeze"* ]]
+  [[ "$output" != *"captured"* ]]
+  grep -q "merged by hand" "$TEST_REPO/claude/CLAUDE.md"
+  grep -q "merged by hand" "$TEST_LIVE/.claude/CLAUDE.md"
+  [ "$(jq -r --arg k "$TEST_LIVE/.claude/CLAUDE.md" '.[$k] // "null"' "$TEST_STATE")" = "null" ]
+}
