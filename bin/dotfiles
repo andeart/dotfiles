@@ -267,9 +267,10 @@ _write_merge_base() {
 # while the repo copy failed would instead make the next push overwrite the
 # merged live file with stale repo content.
 #
-# `git add` runs before the manifest write so that every failure path leaves the
-# pair still classified both_changed, which is what lets callers rebuild their
-# conflict list from a fresh walk.
+# `git add` runs before the manifest write so a staging failure leaves the
+# manifest untouched. Callers cannot lean on that alone: with no prior anchor,
+# two sides the copies just made identical read as in_sync to a fresh walk, so
+# callers carry _MERGE_UNRESOLVED over instead of rebuilding it from a walk.
 _merge_apply_result() {
   local merged="$1" r_p="$2" l_p="$3"
 
@@ -583,9 +584,11 @@ push() {
       if [ ${#_MERGE_RESOLVED[@]} -gt 0 ]; then
         # A resolution rewrites both sides, and one repo file can back several
         # live destinations, so every phase-1 list may now describe state that
-        # no longer exists. Every way a resolution can fail leaves its pair
-        # classified both_changed, so the fresh walk also fully replaces the
-        # unresolved list.
+        # no longer exists. The fresh walk replaces the harvest lists outright.
+        # It cannot define the unresolved list, though: a resolution that failed
+        # after both copies landed leaves the sides identical, which a walk reads
+        # as in_sync when the path has no manifest anchor. _MERGE_UNRESOLVED is
+        # therefore carried over on top of what the walk found.
         writable=()
         unharvested=()
         true_conflicts=()
@@ -602,6 +605,20 @@ push() {
               ;;
           esac
         done < <(_walk_mapping)
+
+        local unres dup
+        for unres in "${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}"; do
+          dup=0
+          for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+            if [ "$pair" = "$unres" ]; then
+              dup=1
+              break
+            fi
+          done
+          if [ $dup -eq 0 ]; then
+            true_conflicts+=("$unres")
+          fi
+        done
       fi
     fi
 
@@ -807,7 +824,9 @@ freeze_agents() {
       if [ ${#_MERGE_RESOLVED[@]} -gt 0 ]; then
         # See push: the phase-1 lists are stale the moment a resolution writes
         # both sides, and harvesting from them would copy a stale live file over
-        # the merged repo side.
+        # the merged repo side. The walk replaces those lists but cannot define
+        # the unresolved one - a failed resolution can leave a pair looking
+        # in_sync to a walk - so _MERGE_UNRESOLVED is carried over on top.
         writable=()
         unpushed=()
         true_conflicts=()
@@ -824,6 +843,20 @@ freeze_agents() {
               ;;
           esac
         done < <(_walk_mapping)
+
+        local unres dup
+        for unres in "${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}"; do
+          dup=0
+          for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+            if [ "$pair" = "$unres" ]; then
+              dup=1
+              break
+            fi
+          done
+          if [ $dup -eq 0 ]; then
+            true_conflicts+=("$unres")
+          fi
+        done
       fi
     fi
 
@@ -937,7 +970,11 @@ freeze_agents_precommit() {
 
       if [ ${#_MERGE_RESOLVED[@]} -gt 0 ]; then
         # See push: the phase-1 harvest list is stale the moment a resolution
-        # writes both sides.
+        # writes both sides. The walk replaces it but cannot define the
+        # unresolved list - a resolution that failed after both copies landed
+        # leaves a pair looking in_sync to a walk - so _MERGE_UNRESOLVED is
+        # carried over on top. A pair whose `git add` failed would otherwise
+        # vanish and the commit would proceed with the repo side unstaged.
         writable=()
         true_conflicts=()
         while IFS=$'\t' read -r state repo_p live_p; do
@@ -950,6 +987,20 @@ freeze_agents_precommit() {
               ;;
           esac
         done < <(_walk_mapping)
+
+        local unres dup
+        for unres in "${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}"; do
+          dup=0
+          for c in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+            if [ "$c" = "$unres" ]; then
+              dup=1
+              break
+            fi
+          done
+          if [ $dup -eq 0 ]; then
+            true_conflicts+=("$unres")
+          fi
+        done
       fi
     fi
 

@@ -1329,3 +1329,168 @@ y"
   grep -q "repo side" "$TEST_REPO/agents/AGENTS.md"
   grep -q "live side" "$TEST_LIVE/.agents/AGENTS.md"
 }
+
+@test "push rebuilds its lists after a resolution and reports the new conflict" {
+  make_tmp_world
+  # agents/AGENTS.md maps to two live destinations. Pair 1 is a conflict; pair 2
+  # is anchored to the current repo content with only its live side drifted, so
+  # phase 1 files it as informational drift rather than a conflict.
+  printf 'edited in repo\n' > "$TEST_REPO/agents/AGENTS.md"
+  printf 'edited in live one\n' > "$TEST_LIVE/.agents/AGENTS.md"
+  printf 'edited in live two\n' > "$TEST_LIVE/.claude/AGENTS.md"
+  repo_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  jq -n --arg k1 "$TEST_LIVE/.agents/AGENTS.md" \
+        --arg k2 "$TEST_LIVE/.claude/AGENTS.md" \
+        --arg anchor1 "0000000000000000000000000000000000000000000000000000000000000000" \
+        --arg anchor2 "$repo_hash" \
+        '{($k1): $anchor1, ($k2): $anchor2}' > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md,~/.claude/AGENTS.md" \
+    "$DOTFILES_TEST_BIN" walk
+  [[ "$output" == *"both_changed	$TEST_REPO/agents/AGENTS.md	$TEST_LIVE/.agents/AGENTS.md"* ]]
+  [[ "$output" == *"live_changed	$TEST_REPO/agents/AGENTS.md	$TEST_LIVE/.claude/AGENTS.md"* ]]
+
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+printf 'merged by hand\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md,~/.claude/AGENTS.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_BIN" push <<< "y
+y"
+  grep -q "merged by hand" "$TEST_REPO/agents/AGENTS.md"
+  grep -q "merged by hand" "$TEST_LIVE/.agents/AGENTS.md"
+  # The merge made destination 2 a real conflict, so push must re-walk and
+  # report it instead of finishing on the pre-merge classification.
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"re-run push"* ]]
+  grep -q "edited in live two" "$TEST_LIVE/.claude/AGENTS.md"
+}
+
+@test "freeze --pre-commit rebuilds its harvest list after a resolution" {
+  make_tmp_world
+  printf 'edited in repo\n' > "$TEST_REPO/agents/AGENTS.md"
+  printf 'edited in live one\n' > "$TEST_LIVE/.agents/AGENTS.md"
+  printf 'edited in live two\n' > "$TEST_LIVE/.claude/AGENTS.md"
+  repo_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  jq -n --arg k1 "$TEST_LIVE/.agents/AGENTS.md" \
+        --arg k2 "$TEST_LIVE/.claude/AGENTS.md" \
+        --arg anchor1 "0000000000000000000000000000000000000000000000000000000000000000" \
+        --arg anchor2 "$repo_hash" \
+        '{($k1): $anchor1, ($k2): $anchor2}' > "$TEST_STATE"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+printf 'merged by hand\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md,~/.claude/AGENTS.md" \
+    DOTFILES_PRECOMMIT_DRYRUN_GIT=1 \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" freeze_agents_precommit <<< "y
+y"
+  # Harvesting destination 2 from the pre-merge list would copy it over the
+  # merged repo file. The re-walk sees the new conflict and aborts instead.
+  [ "$status" -eq 2 ]
+  grep -q "merged by hand" "$TEST_REPO/agents/AGENTS.md"
+  grep -q "edited in live two" "$TEST_LIVE/.claude/AGENTS.md"
+}
+
+@test "_manifest_write refuses to blank the manifest when jq fails" {
+  make_tmp_world
+  printf 'repo side\n' > "$TEST_REPO/agents/AGENTS.md"
+  printf 'live side\n' > "$TEST_LIVE/.agents/AGENTS.md"
+  printf '{"seeded":"anchor"}\n' > "$TEST_STATE"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+printf 'merged result\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  # jq fails for every invocation, so the manifest write cannot produce content.
+  cat > "$stub_dir/jq" <<'EOF'
+#!/usr/bin/env bash
+echo "stub jq failure" >&2
+exit 1
+EOF
+  chmod +x "$stub_dir/jq"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" offer_merge_conflicts \
+      "$TEST_REPO/agents/AGENTS.md|$TEST_LIVE/.agents/AGENTS.md" <<< "y
+y"
+  # The truncated temp file must never be moved over the state file, and the
+  # failure has to surface as an unresolved pair rather than a resolution.
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"failed to record"* ]]
+  [[ "$output" != *"resolved"* ]]
+  [ "$(cat "$TEST_STATE")" = '{"seeded":"anchor"}' ]
+}
+
+@test "freeze --pre-commit keeps a pair whose staging failed after both sides were written" {
+  make_tmp_world
+  git -c init.defaultBranch=main init -q "$TEST_REPO"
+  git -C "$TEST_REPO" config user.email "test@example.com"
+  git -C "$TEST_REPO" config user.name "Test"
+  # Two conflicting pairs and an empty manifest: with no anchor, a pair whose
+  # sides were both rewritten by a failed resolution classifies as in_sync.
+  printf 'edited in repo\n' > "$TEST_REPO/agents/AGENTS.md"
+  printf 'edited in live\n' > "$TEST_LIVE/.agents/AGENTS.md"
+  printf 'claude edited in repo\n' > "$TEST_REPO/claude/CLAUDE.md"
+  printf 'claude edited in live\n' > "$TEST_LIVE/.claude/CLAUDE.md"
+  echo '{}' > "$TEST_STATE"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+printf 'merged by hand\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  real_git="$(command -v git)"
+  cat > "$stub_dir/git" <<EOF
+#!/usr/bin/env bash
+# Fail staging for the second pair only; everything else is real git.
+if [ "\$1" = "-C" ] && [ "\$3" = "add" ] && [ "\${!#}" = "$TEST_REPO/claude/CLAUDE.md" ]; then
+  echo "stub: refusing to stage \${!#}" >&2
+  exit 1
+fi
+exec "$real_git" "\$@"
+EOF
+  chmod +x "$stub_dir/git"
+  # No DOTFILES_PRECOMMIT_DRYRUN_GIT, so the helper's real `git add` runs.
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md
+claude/CLAUDE.md|~/.claude/CLAUDE.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" freeze_agents_precommit <<< "y
+y
+y
+y"
+  [[ "$output" == *"failed to stage"* ]]
+  # The unresolved pair now looks in_sync to a fresh walk, so only carrying
+  # _MERGE_UNRESOLVED over keeps it reported and the commit blocked.
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"resolve manually"* ]]
+  run git -C "$TEST_REPO" diff --cached --name-only
+  [[ "$output" != *"claude/CLAUDE.md"* ]]
+}
