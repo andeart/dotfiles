@@ -412,6 +412,7 @@ push() {
   local unharvested=()
   local writable=()
   local symlink_blockers=()
+  local resolved=0
 
   local state repo_p live_p
   while IFS=$'\t' read -r state repo_p live_p; do
@@ -477,22 +478,26 @@ push() {
       fi
     fi
 
+    if [ ${#true_conflicts[@]} -gt 0 ]; then
+      echo -e "  ${RED}conflicts on the same path (resolve before pushing):${RESET}"
+      for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+        l_p="${pair#*|}"
+        echo -e "    both_changed\t$l_p"
+      done
+      echo ""
+      echo -e "  ${RED}conflict diffs:${RESET}"
+      for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+        r_p="${pair%%|*}"
+        l_p="${pair#*|}"
+        _print_conflict_diff "$r_p" "$l_p"
+      done
+
+      _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
+      resolved=$(( ${#true_conflicts[@]} - ${#_MERGE_UNRESOLVED[@]} ))
+      true_conflicts=("${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}")
+    fi
+
     if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
-      if [ ${#true_conflicts[@]} -gt 0 ]; then
-        echo -e "  ${RED}conflicts on the same path (resolve before pushing):${RESET}"
-        for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
-          l_p="${pair#*|}"
-          echo -e "    both_changed\t$l_p"
-        done
-        echo ""
-        echo -e "  ${RED}conflict diffs:${RESET}"
-        for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
-          r_p="${pair%%|*}"
-          l_p="${pair#*|}"
-          _print_conflict_diff "$r_p" "$l_p"
-        done
-        _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
-      fi
       echo ""
       echo -e "  ${YELLOW}resolve conflicts manually, then re-run push${RESET}"
       return 2
@@ -509,7 +514,8 @@ push() {
   fi
 
   # Phase 2: apply.
-  local applied=0
+  # Resolutions already wrote both sides, so they count as applied work.
+  local applied=$resolved
   local w
   for w in "${writable[@]+"${writable[@]}"}"; do
     state="$(echo -e "$w" | awk -F'\t' '{print $1}')"
@@ -603,6 +609,7 @@ freeze_agents() {
   local conflicts=()
   local unpushed=()
   local writable=()
+  local resolved=0
 
   local state repo_p live_p
   while IFS=$'\t' read -r state repo_p live_p; do
@@ -653,22 +660,26 @@ freeze_agents() {
       fi
     fi
 
+    if [ ${#true_conflicts[@]} -gt 0 ]; then
+      echo -e "  ${RED}conflicts on the same path (resolve before freezing):${RESET}"
+      for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+        r_p="${pair%%|*}"
+        echo -e "    both_changed\t$r_p"
+      done
+      echo ""
+      echo -e "  ${RED}conflict diffs:${RESET}"
+      for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+        r_p="${pair%%|*}"
+        l_p="${pair#*|}"
+        _print_conflict_diff "$r_p" "$l_p"
+      done
+
+      _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
+      resolved=$(( ${#true_conflicts[@]} - ${#_MERGE_UNRESOLVED[@]} ))
+      true_conflicts=("${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}")
+    fi
+
     if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
-      if [ ${#true_conflicts[@]} -gt 0 ]; then
-        echo -e "  ${RED}conflicts on the same path (resolve before freezing):${RESET}"
-        for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
-          r_p="${pair%%|*}"
-          echo -e "    both_changed\t$r_p"
-        done
-        echo ""
-        echo -e "  ${RED}conflict diffs:${RESET}"
-        for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
-          r_p="${pair%%|*}"
-          l_p="${pair#*|}"
-          _print_conflict_diff "$r_p" "$l_p"
-        done
-        _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
-      fi
       echo ""
       echo -e "  ${YELLOW}resolve conflicts manually, then re-run freeze${RESET}"
       return 2
@@ -684,7 +695,7 @@ freeze_agents() {
     echo ""
   fi
 
-  local applied=0
+  local applied=$resolved
   local w
   for w in "${writable[@]+"${writable[@]}"}"; do
     state="$(echo -e "$w" | awk -F'\t' '{print $1}')"

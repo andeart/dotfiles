@@ -688,7 +688,7 @@ EOF
     DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
     "$DOTFILES_BIN" push
   [ "$status" -eq 2 ]
-  [[ "$output" != *"code --diff"* ]]
+  [[ "$output" != *"--merge"* ]]
   # The inline diff is still printed.
   [[ "$output" == *"-edited in repo"* ]]
   [[ "$output" == *"+edited in live"* ]]
@@ -971,4 +971,86 @@ claude/CLAUDE.md|~/.claude/CLAUDE.md" \
   # AGENTS.md repo file was NOT mutated despite being live_changed (proves abort happened before harvest)
   agents_after=$(cat "$TEST_REPO/agents/AGENTS.md")
   [ "$agents_before" = "$agents_after" ]
+}
+
+@test "push resolves its only conflict and completes" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  manifest_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$manifest_hash\"}" > "$TEST_STATE"
+  echo "edited in repo" > "$TEST_REPO/agents/AGENTS.md"
+  echo "edited in live" > "$TEST_LIVE/.agents/AGENTS.md"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+printf 'merged by hand\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_BIN" push <<< "y
+y"
+  [ "$status" -eq 0 ]
+  grep -q "merged by hand" "$TEST_REPO/agents/AGENTS.md"
+  grep -q "merged by hand" "$TEST_LIVE/.agents/AGENTS.md"
+  [[ "$output" == *"resolved"* ]]
+}
+
+@test "push still exits 2 when a conflict is left unresolved" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  manifest_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$manifest_hash\"}" > "$TEST_STATE"
+  echo "edited in repo" > "$TEST_REPO/agents/AGENTS.md"
+  echo "edited in live" > "$TEST_LIVE/.agents/AGENTS.md"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+printf 'merged by hand\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_BIN" push <<< "y
+n"
+  [ "$status" -eq 2 ]
+  grep -q "edited in repo" "$TEST_REPO/agents/AGENTS.md"
+  grep -q "edited in live" "$TEST_LIVE/.agents/AGENTS.md"
+}
+
+@test "freeze resolves its only conflict and completes" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  manifest_hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$manifest_hash\"}" > "$TEST_STATE"
+  echo "edited in repo" > "$TEST_REPO/agents/AGENTS.md"
+  echo "edited in live" > "$TEST_LIVE/.agents/AGENTS.md"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+printf 'merged by hand\n' > "${!#}"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    DOTFILES_ASSUME_INTERACTIVE=1 \
+    "$DOTFILES_TEST_BIN" freeze_agents <<< "y
+y"
+  [ "$status" -eq 0 ]
+  grep -q "merged by hand" "$TEST_REPO/agents/AGENTS.md"
+  grep -q "merged by hand" "$TEST_LIVE/.agents/AGENTS.md"
 }
