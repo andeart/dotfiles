@@ -774,17 +774,21 @@ freeze_agents_precommit() {
       fi
     fi
 
+    if [ ${#true_conflicts[@]} -gt 0 ]; then
+      echo -e "  ${RED}both_changed paths block this commit:${RESET}"
+      for c in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+        r_p="${c%%|*}"
+        l_p="${c#*|}"
+        echo "    $r_p"
+        _print_conflict_diff "$r_p" "$l_p"
+      done
+
+      # Resolutions here become part of the commit, so stage the repo side.
+      _MERGE_GIT_ADD=1 _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
+      true_conflicts=("${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}")
+    fi
+
     if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
-      if [ ${#true_conflicts[@]} -gt 0 ]; then
-        echo -e "  ${RED}both_changed paths block this commit:${RESET}"
-        for c in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
-          r_p="${c%%|*}"
-          l_p="${c#*|}"
-          echo "    $r_p"
-          _print_conflict_diff "$r_p" "$l_p"
-        done
-        _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
-      fi
       echo ""
       echo -e "  ${YELLOW}resolve manually (pick repo or live), then re-commit${RESET}"
       return 2
