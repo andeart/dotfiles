@@ -99,8 +99,10 @@ The probe commit is dangling and gets garbage-collected; no ref moves. Do not su
 Best-effort, in this order:
 
 1. **Conversation context** - scan the conversation for an explicit Plane identifier matching `\b[A-Z]{2,}-\d+\b`. The lexically most recent match wins.
-2. **Branch name** - strip a leading `worktree-` if present, then match the remainder against `^([a-zA-Z]+)-(\d+)`. Uppercase the prefix and join it to the number (e.g. `worktree-pf-52-echo-slice` → strip → `pf-52-echo-slice` → `PF-52`; `dx-18-foo-bar` → `DX-18`). `EnterWorktree` prefixes the branches it creates, and without the strip those branches match nothing at all.
+2. **Branch name** - strip a leading `worktree-` if present, then match the remainder against `^([a-zA-Z]+)-(\d+)`. Uppercase the prefix and join it to the number (e.g. `worktree-zzz-0-echo-slice` → strip → `zzz-0-echo-slice` → `ZZZ-0`; `zzz-1-foo-bar` → `ZZZ-1`). `EnterWorktree` prefixes the branches it creates, and without the strip those branches match nothing at all.
 3. If neither yields a candidate, set `<PLANE_ID>` to `none` and `<PLANE_OUTCOME>` to `not-inferred`.
+
+Keep the examples above unresolvable. `ZZZ` is not a real project identifier and Plane numbers work items from 1, so neither can name a live item. Rule 1 scans the whole conversation, which includes this file once the skill loads, so a realistic-looking example here becomes a candidate for Step 4 to mark Done.
 
 The candidate is provisional at this point. Validation happens in Step 4. Once `<PLANE_ID>` is set, do not mutate it again - track what happened in `<PLANE_OUTCOME>` instead.
 
