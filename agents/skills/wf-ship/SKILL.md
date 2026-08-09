@@ -56,7 +56,9 @@ git rev-parse @{upstream}
 
 ### 3. Create a new branch
 
-Generate a branch name. If a Linear ticket or issue number is known from conversation context, use it (e.g., `ENG-123-add-auth-flow`). Otherwise, generate a short descriptive name from the commit subjects - lowercase, hyphenated, under 50 chars (e.g., `add-dark-mode-toggle`).
+Generate a branch name. If a Linear ticket or issue number is known from conversation context, use it (e.g., `ZZZ-0-add-auth-flow`). Otherwise, generate a short descriptive name from the commit subjects - lowercase, hyphenated, under 50 chars (e.g., `add-dark-mode-toggle`).
+
+Keep that identifier unresolvable. `ZZZ` is not a real project and Plane numbers work items from 1. `/wf-wrap` scans the whole conversation for a work item identifier to mark Done, and this file is in that conversation whenever both skills load, so a realistic-looking example here becomes one of its candidates.
 
 Create the branch at the upstream point (not at HEAD):
 
