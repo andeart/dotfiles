@@ -56,9 +56,9 @@ git rev-parse @{upstream}
 
 ### 3. Create a new branch
 
-Generate a branch name. If a Linear ticket or issue number is known from conversation context, use it (e.g., `ZZZ-0-add-auth-flow`). Otherwise, generate a short descriptive name from the commit subjects - lowercase, hyphenated, under 50 chars (e.g., `add-dark-mode-toggle`).
+Generate a branch name. If a work item is known for this change (see "Recording the work item" below), lead with its identifier (e.g., `ZZZ-0-add-auth-flow`). Otherwise, generate a short descriptive name from the commit subjects - lowercase, hyphenated, under 50 chars (e.g., `add-dark-mode-toggle`).
 
-Keep that identifier unresolvable. `ZZZ` is not a real project and Plane numbers work items from 1. `/wf-wrap` scans the whole conversation for a work item identifier to mark Done, and this file is in that conversation whenever both skills load, so a realistic-looking example here becomes one of its candidates.
+`ZZZ` is a placeholder, not a real project. Keep example identifiers in this file unresolvable.
 
 Create the branch at the upstream point (not at HEAD):
 
@@ -164,6 +164,8 @@ Bad: `Added dark mode` (past tense)
 **Body:** Use this structure:
 
 ```markdown
+Issue: <ID>
+
 ## Summary
 <1-3 bullet points describing what changed and why>
 
@@ -173,10 +175,23 @@ Bad: `Added dark mode` (past tense)
 
 Derive the summary from the commit messages and the conversation context (what was discussed, what the subagent built, what was tested). The test plan should reflect what was actually verified during development.
 
+### Recording the work item
+
+`Issue: <ID>` goes on the first line of the body, above `## Summary`. Plane calls these work items, but the line stays `Issue:`. `/wf-wrap` reads it to decide which work item to mark Done once this merges, so a wrong identifier closes someone else's work.
+
+Include the line only when one of these holds:
+
+- The user named the work item for this change.
+- The branch name leads with an identifier (e.g. `zzz-0-add-auth-flow` → `ZZZ-0`).
+
+Otherwise omit it entirely - no placeholder, no `Issue: none`. Do not scan the conversation for identifier-shaped strings. They turn up in discussion, in skill examples, and in tool output for reasons that have nothing to do with this change, and nothing distinguishes those from a real assignment.
+
 Use a heredoc to pass the body:
 
 ```bash
 gh pr create --title "the title" --body "$(cat <<'EOF'
+Issue: ZZZ-0
+
 ## Summary
 - bullet points here
 
@@ -185,3 +200,5 @@ gh pr create --title "the title" --body "$(cat <<'EOF'
 EOF
 )"
 ```
+
+Drop the `Issue:` line and the blank line after it when no work item is known.

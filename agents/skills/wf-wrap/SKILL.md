@@ -96,13 +96,21 @@ The probe commit is dangling and gets garbage-collected; no ref moves. Do not su
 
 ## Step 3: Resolve the Plane work item identifier
 
-Best-effort, in this order:
+Two sources, both written deliberately for this change. In this order:
 
-1. **Conversation context** - scan the conversation for an explicit Plane identifier matching `\b[A-Z]{2,}-\d+\b`. The lexically most recent match wins.
+1. **The PR body** - `wf-ship` puts `Issue: <ID>` on the first line whenever a work item is known:
+
+   ```bash
+   gh pr view --json body --jq '.body' | head -3
+   ```
+
+   Match `^Issue:\s*([A-Z]+-\d+)\s*$`. No match means no candidate from this source.
 2. **Branch name** - strip a leading `worktree-` if present, then match the remainder against `^([a-zA-Z]+)-(\d+)`. Uppercase the prefix and join it to the number (e.g. `worktree-zzz-0-echo-slice` → strip → `zzz-0-echo-slice` → `ZZZ-0`; `zzz-1-foo-bar` → `ZZZ-1`). `EnterWorktree` prefixes the branches it creates, and without the strip those branches match nothing at all.
 3. If neither yields a candidate, set `<PLANE_ID>` to `none` and `<PLANE_OUTCOME>` to `not-inferred`.
 
-Keep the examples above unresolvable. `ZZZ` is not a real project identifier and Plane numbers work items from 1, so neither can name a live item. Rule 1 scans the whole conversation, which includes this file once the skill loads, so a realistic-looking example here becomes a candidate for Step 4 to mark Done.
+Do not scan the conversation for identifier-shaped strings. Identifiers appear there in discussion, in skill examples, and in tool output for reasons unrelated to the work being wrapped, and nothing distinguishes those from a real assignment. Both sources above are written for this change specifically; the transcript is not.
+
+`ZZZ` is a placeholder, not a real project. Keep example identifiers in this file unresolvable.
 
 The candidate is provisional at this point. Validation happens in Step 4. Once `<PLANE_ID>` is set, do not mutate it again - track what happened in `<PLANE_OUTCOME>` instead.
 
@@ -114,9 +122,10 @@ Skip this step entirely if `<PLANE_ID>` is `none` (Step 3 already set `<PLANE_OU
 
 1. Parse `<PLANE_ID>` into `project_identifier` (the alpha prefix) and `issue_identifier` (the integer suffix).
 2. Call the Plane MCP tool `retrieve_work_item_by_identifier` with `project_identifier` and `issue_identifier`. If it returns 404 (or any not-found error), set `<PLANE_OUTCOME>` to `not-found` and skip the remaining sub-steps. The inferred `<PLANE_ID>` value is preserved for the report. This is not a fatal error.
-3. From the response, save the work item's `id` field as the work item UUID and the `project` field as the project UUID.
-4. Call `list_states` with `project_id` set to the project UUID. Find the state whose `group` is `"completed"`. If multiple match, prefer the one named `"Done"`. If no `completed` state exists, set `<PLANE_OUTCOME>` to `no-completed-state` and skip the remaining sub-steps.
-5. Call `update_work_item` with `project_id` set to the project UUID, `work_item_id` set to the work item UUID, and `state` set to the completed state's UUID. Do not pass any other fields. On success, set `<PLANE_OUTCOME>` to `updated`.
+3. From the response, save the work item's `id` field as the work item UUID, the `project` field as the project UUID, and the `state` field as the current state UUID.
+4. Call `list_states` with `project_id` set to the project UUID. Collect every state whose `group` is `"completed"`. Pick the one named `"Done"` if it exists, otherwise the first. If the project has no `completed` state at all, set `<PLANE_OUTCOME>` to `no-completed-state` and skip the remaining sub-steps.
+5. If the current state UUID is already one of those `completed` states, set `<PLANE_OUTCOME>` to `already-done` and skip the update. Compare against the whole group, not just the state picked in sub-step 4 - a project can complete work items into more than one state, and rewriting one of those to "Done" would erase that distinction.
+6. Call `update_work_item` with `project_id` set to the project UUID, `work_item_id` set to the work item UUID, and `state` set to the completed state's UUID. Do not pass any other fields. On success, set `<PLANE_OUTCOME>` to `updated`.
 
 If any Plane MCP call returns a non-404 error (network, auth, server), stop and report. Nothing has been torn down yet - fix Plane (e.g. set the state in the UI), then re-run.
 
@@ -197,7 +206,8 @@ When `<IN_WORKTREE>` was no, omit the worktree line and write `- Switched to <DE
 Switch on `<PLANE_OUTCOME>` for the Plane line:
 
 - `updated`: `- Marked <PLANE_ID> as Done.`
-- `not-inferred`: `- No Plane work item updated - could not auto-infer one.`
+- `already-done`: `- <PLANE_ID> was already in a completed state - left as is.`
+- `not-inferred`: `- No Plane work item updated - none named in the PR body or branch name.`
 - `not-found`: `- No Plane work item updated - <PLANE_ID> was inferred but not found in Plane.`
 - `no-completed-state`: `- No Plane work item updated - project has no "completed" state.`
 
