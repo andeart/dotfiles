@@ -129,6 +129,7 @@ RULESETS=(
 # it has no REST or GraphQL API and is enabled by default (see the note printed
 # by run_repo_settings_section).
 REPO_SETTINGS=(
+  "allow_auto_merge|Allow auto-merge"
   "allow_update_branch|Always suggest updating pull request branches"
   "delete_branch_on_merge|Automatically delete head branches"
 )
