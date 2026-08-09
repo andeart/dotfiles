@@ -9,6 +9,11 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 RESET='\033[0m'
 
+# Split of the pairs handed to _offer_merge_conflicts, so callers can drop the
+# resolved ones and carry on. Both are reset on every call.
+_MERGE_RESOLVED=()
+_MERGE_UNRESOLVED=()
+
 # ---------------------------------------------------------------------------
 # Path mapping (repo source → live destinations)
 # Each entry: "<repo_relpath>|<live_dest_1>[,<live_dest_2>,...]"
@@ -58,7 +63,13 @@ _manifest_write() {
   local tmp
   tmp="$(mktemp)"
   trap 'rm -f "$tmp"' EXIT
-  jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$DOTFILES_STATE_FILE" > "$tmp"
+  # jq's status is checked before the mv: the redirect truncates $tmp up front,
+  # so an unchecked move would install an empty file as the whole sync state.
+  if ! jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$DOTFILES_STATE_FILE" > "$tmp"; then
+    rm -f "$tmp"
+    trap - EXIT
+    return 1
+  fi
   mv "$tmp" "$DOTFILES_STATE_FILE"
   trap - EXIT
 }
@@ -223,30 +234,200 @@ _print_conflict_diff() {
   diff -u "$repo_p" "$live_p" | sed 's/^/      /' || true
 }
 
-# After conflicts have been printed, prompt the user (interactive shells only)
-# to open each repo/live pair side-by-side in `code --diff`. Each positional
-# arg is a "repo_path|live_path" string. In non-interactive shells (no tty on
-# stdin) the helper returns silently — callers still exit non-zero.
+# Write the lines both sides have in common to $3, for use as the merge base.
+# Repo-only lines then read as additions on the left, live-only lines as
+# additions on the right, and colliding regions become real conflicts the editor
+# can highlight.
+#
+# GNU diff's --old-line-format / --unchanged-line-format would say this directly
+# but macOS ships the FreeBSD diff, which has neither. A context window larger
+# than any real file collapses the diff into one hunk, so its context lines are
+# exactly the common subsequence. The second awk arm keeps blank common lines,
+# which some diffs emit as a bare empty line rather than a lone space.
+#
+# Two sides sharing no lines legitimately produce an empty base. diff exits 1
+# whenever the files differ, which is the normal case here, so only a status
+# above 1 is a real failure.
+_write_merge_base() {
+  local repo_file="$1" live_file="$2" out="$3"
+  local rc=0
+  diff -U 1000000 "$repo_file" "$live_file" \
+    | tail -n +4 \
+    | awk '{ if (substr($0,1,1)==" ") print substr($0,2); else if ($0=="") print "" }' \
+    > "$out" || rc=$?
+  [ "$rc" -le 1 ]
+}
+
+# Write a merged result over both sides and record it in the manifest.
+#
+# Every caller invokes _offer_merge_conflicts with `|| true`, which suppresses
+# set -e for the helper's entire dynamic extent, so each write is checked here
+# explicitly. Any failure returns 1 with the manifest untouched, leaving the
+# path classified as a conflict - the safe state. Recording live as the anchor
+# while the repo copy failed would instead make the next push overwrite the
+# merged live file with stale repo content.
+#
+# `git add` runs before the manifest write so a staging failure leaves the
+# manifest untouched. Callers cannot lean on that alone: with no prior anchor,
+# two sides the copies just made identical read as in_sync to a fresh walk, so
+# callers carry _MERGE_UNRESOLVED over instead of rebuilding it from a walk.
+_merge_apply_result() {
+  local merged="$1" r_p="$2" l_p="$3"
+
+  if ! cp "$merged" "$r_p"; then
+    echo -e "  ${RED}failed to write $r_p - leaving this conflict unresolved${RESET}"
+    return 1
+  fi
+  if ! cp "$merged" "$l_p"; then
+    echo -e "  ${RED}failed to write $l_p - leaving this conflict unresolved${RESET}"
+    return 1
+  fi
+  if [ -n "${_MERGE_GIT_ADD:-}" ] && [ -z "${DOTFILES_PRECOMMIT_DRYRUN_GIT:-}" ]; then
+    if ! git -C "${DOTFILES_ROOT_OVERRIDE:-$DOTFILES_ROOT}" add "$r_p"; then
+      echo -e "  ${RED}failed to stage $r_p - leaving this conflict unresolved${RESET}"
+      return 1
+    fi
+  fi
+  local h
+  h="$(_sha256_file "$l_p")"
+  if ! _manifest_write "$l_p" "$h"; then
+    echo -e "  ${RED}failed to record $l_p in the sync manifest${RESET}"
+    return 1
+  fi
+  return 0
+}
+
+# Remove a staged merge directory. The four filenames are known, so this avoids
+# a recursive delete and cannot take anything unexpected with it.
+_merge_cleanup_stage() {
+  local tmp="$1" base="$2"
+  rm -f "$tmp/REPO.$base" "$tmp/LIVE.$base" "$tmp/BASE.$base" "$tmp/MERGED.$base"
+  rmdir "$tmp" 2>/dev/null || true
+}
+
+# Open each both_changed pair in VS Code's three-way merge editor and, on
+# confirmation, write the result over both sides and refresh the manifest.
+# Each positional arg is a "repo_path|live_path" string.
+#
+# Both sides normally share a basename (claude/settings.json against
+# ~/.claude/settings.json), which would render two identically titled panes, so
+# the copies are staged as REPO./LIVE./BASE./MERGED. with the original extension
+# kept for syntax highlighting. Renaming also stops VS Code applying its own
+# settings.json schema to a file that is Claude's.
+#
+# The true common ancestor is unrecoverable - the manifest stores only a hash -
+# so BASE is synthesized from the lines the two sides share (_write_merge_base),
+# which is what gives the editor real additions and conflicts to highlight.
+# Orientation is fixed (repo left, live right) in every caller so the panes read
+# the same way whichever command opened them.
+#
+# `code --wait` returns when the tab closes, which does not mean the merge was
+# completed, and content alone cannot decide it: resolving in favour of live
+# reproduces the pre-fill exactly. An explicit per-pair confirmation is
+# therefore the authority, as in `git mergetool`.
+#
+# Returns 0 only if every pair was resolved. In non-interactive shells (no tty
+# on stdin) it returns 1 without prompting, so callers keep exiting 2.
 # DOTFILES_ASSUME_INTERACTIVE=1 forces the prompt path so tests can pipe input.
-_offer_open_conflicts() {
+_offer_merge_conflicts() {
+  _MERGE_RESOLVED=()
+  # Every early return below leaves the whole input set unresolved.
+  _MERGE_UNRESOLVED=("$@")
   [ "$#" -eq 0 ] && return 0
   if [ -z "${DOTFILES_ASSUME_INTERACTIVE:-}" ] && [ ! -t 0 ]; then
-    return 0
+    return 1
   fi
+  if ! command -v code >/dev/null 2>&1; then
+    echo -e "  ${YELLOW}'code' is not on PATH - resolve these manually${RESET}"
+    return 1
+  fi
+
   echo ""
-  echo -en "  ${YELLOW}open conflicting pairs in 'code --diff'? [y/N] ${RESET}"
+  echo -en "  ${YELLOW}resolve $# conflict(s) in the VS Code merge editor? [y/N] ${RESET}"
   local reply=""
   read -r reply || true
   case "$reply" in
     y|Y|yes|Yes|YES) ;;
-    *) return 0 ;;
+    *) return 1 ;;
   esac
-  local pair r_p l_p
+
+  local pair r_p l_p base tmp rc
+  _MERGE_UNRESOLVED=()
   for pair in "$@"; do
     r_p="${pair%%|*}"
     l_p="${pair#*|}"
-    code --diff "$r_p" "$l_p"
+    base="$(basename "$l_p")"
+
+    # A symlink on either side would send the merged result outside the mapping
+    # entirely. push blocks symlinked live paths before it classifies, but
+    # status, freeze and the pre-commit hook do not, so the refusal lives here
+    # where it covers every caller.
+    if [ -L "$r_p" ] || [ -L "$l_p" ]; then
+      echo -e "  ${RED}refusing to merge through a symlink:${RESET}"
+      echo "    repo: $r_p"
+      echo "    live: $l_p"
+      _MERGE_UNRESOLVED+=("$pair")
+      continue
+    fi
+
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-merge.XXXXXX")"
+    trap '_merge_cleanup_stage "$tmp" "$base"' EXIT
+    if ! cp "$r_p" "$tmp/REPO.$base" \
+      || ! cp "$l_p" "$tmp/LIVE.$base" \
+      || ! cp "$l_p" "$tmp/MERGED.$base" \
+      || ! _write_merge_base "$r_p" "$l_p" "$tmp/BASE.$base"; then
+      echo -e "  ${RED}could not stage $l_p for merging${RESET}"
+      _MERGE_UNRESOLVED+=("$pair")
+      _merge_cleanup_stage "$tmp" "$base"
+      trap - EXIT
+      continue
+    fi
+
+    echo ""
+    echo -e "  ${BOLD}merging${RESET}  $l_p"
+    echo -e "    left    REPO.$base    <- $r_p"
+    echo -e "    right   LIVE.$base    <- $l_p"
+    echo -e "    result  MERGED.$base  -> written to both sides"
+
+    rc=0
+    code --wait --merge \
+      "$tmp/REPO.$base" "$tmp/LIVE.$base" "$tmp/BASE.$base" "$tmp/MERGED.$base" || rc=$?
+
+    if [ "$rc" -ne 0 ]; then
+      echo -e "  ${RED}editor exited $rc - leaving $l_p alone${RESET}"
+      _MERGE_UNRESOLVED+=("$pair")
+      _merge_cleanup_stage "$tmp" "$base"
+      trap - EXIT
+      continue
+    fi
+
+    if grep -qE '^(<<<<<<<|=======|>>>>>>>)' "$tmp/MERGED.$base"; then
+      echo -e "  ${RED}result still contains conflict markers${RESET}"
+    fi
+
+    echo -en "  ${YELLOW}apply merged result to both sides? [y/N] ${RESET}"
+    reply=""
+    read -r reply || true
+    case "$reply" in
+      y|Y|yes|Yes|YES)
+        if _merge_apply_result "$tmp/MERGED.$base" "$r_p" "$l_p"; then
+          _MERGE_RESOLVED+=("$pair")
+          echo -e "  ${GREEN}resolved${RESET}  $l_p"
+        else
+          _MERGE_UNRESOLVED+=("$pair")
+        fi
+        ;;
+      *)
+        _MERGE_UNRESOLVED+=("$pair")
+        echo -e "  ${YELLOW}skipped${RESET}  $l_p"
+        ;;
+    esac
+
+    _merge_cleanup_stage "$tmp" "$base"
+    trap - EXIT
   done
+
+  [ ${#_MERGE_UNRESOLVED[@]} -eq 0 ]
 }
 
 # True when both sides exist and have identical content. Used by status/push/
@@ -316,6 +497,7 @@ push() {
   local unharvested=()
   local writable=()
   local symlink_blockers=()
+  local resolved=0
 
   local state repo_p live_p
   while IFS=$'\t' read -r state repo_p live_p; do
@@ -381,22 +563,66 @@ push() {
       fi
     fi
 
-    if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
-      if [ ${#true_conflicts[@]} -gt 0 ]; then
-        echo -e "  ${RED}conflicts on the same path (resolve before pushing):${RESET}"
-        for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
-          l_p="${pair#*|}"
-          echo -e "    both_changed\t$l_p"
+    if [ ${#true_conflicts[@]} -gt 0 ]; then
+      echo -e "  ${RED}conflicts on the same path (resolve before pushing):${RESET}"
+      for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+        l_p="${pair#*|}"
+        echo -e "    both_changed\t$l_p"
+      done
+      echo ""
+      echo -e "  ${RED}conflict diffs:${RESET}"
+      for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+        r_p="${pair%%|*}"
+        l_p="${pair#*|}"
+        _print_conflict_diff "$r_p" "$l_p"
+      done
+
+      _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
+      resolved=$(( ${#true_conflicts[@]} - ${#_MERGE_UNRESOLVED[@]} ))
+      true_conflicts=("${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}")
+
+      if [ ${#_MERGE_RESOLVED[@]} -gt 0 ]; then
+        # A resolution rewrites both sides, and one repo file can back several
+        # live destinations, so every phase-1 list may now describe state that
+        # no longer exists. The fresh walk replaces the harvest lists outright.
+        # It cannot define the unresolved list, though: a resolution that failed
+        # after both copies landed leaves the sides identical, which a walk reads
+        # as in_sync when the path has no manifest anchor. _MERGE_UNRESOLVED is
+        # therefore carried over on top of what the walk found.
+        writable=()
+        unharvested=()
+        true_conflicts=()
+        while IFS=$'\t' read -r state repo_p live_p; do
+          case "$state" in
+            both_changed)
+              true_conflicts+=("$repo_p|$live_p")
+              ;;
+            live_changed|live_added|live_removed)
+              unharvested+=("$state\t$live_p")
+              ;;
+            repo_changed|repo_added|repo_removed)
+              writable+=("$state\t$repo_p\t$live_p")
+              ;;
+          esac
+        done < <(_walk_mapping)
+
+        local unres dup
+        for unres in "${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}"; do
+          dup=0
+          for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+            if [ "$pair" = "$unres" ]; then
+              dup=1
+              break
+            fi
+          done
+          if [ $dup -eq 0 ]; then
+            true_conflicts+=("$unres")
+          fi
         done
-        echo ""
-        echo -e "  ${RED}conflict diffs:${RESET}"
-        for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
-          r_p="${pair%%|*}"
-          l_p="${pair#*|}"
-          _print_conflict_diff "$r_p" "$l_p"
-        done
-        _offer_open_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}"
       fi
+    fi
+
+    if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
       echo ""
       echo -e "  ${YELLOW}resolve conflicts manually, then re-run push${RESET}"
       return 2
@@ -413,7 +639,8 @@ push() {
   fi
 
   # Phase 2: apply.
-  local applied=0
+  # Resolutions already wrote both sides, so they count as applied work.
+  local applied=$resolved
   local w
   for w in "${writable[@]+"${writable[@]}"}"; do
     state="$(echo -e "$w" | awk -F'\t' '{print $1}')"
@@ -448,7 +675,7 @@ status() {
   echo -e "${BOLD}agents/claude sync status${RESET}"
   echo ""
 
-  local found_conflict=0 has_drift=0
+  local found_conflict=0 has_drift=0 bi_count=0
   local true_conflicts=()
   local state repo_p live_p
   while IFS=$'\t' read -r state repo_p live_p; do
@@ -459,11 +686,11 @@ status() {
       both_changed)
         if _pair_is_byte_identical "$repo_p" "$live_p"; then
           echo -e "  ${RED}${state}${RESET}  $live_p ${YELLOW}(byte-identical)${RESET}"
+          bi_count=$((bi_count + 1))
         else
           echo -e "  ${RED}${state}${RESET}  $live_p"
           true_conflicts+=("$repo_p|$live_p")
         fi
-        found_conflict=1
         has_drift=1
         ;;
       *)
@@ -482,7 +709,25 @@ status() {
       l_p="${pair#*|}"
       _print_conflict_diff "$r_p" "$l_p"
     done
-    _offer_open_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}"
+
+    _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
+
+    if [ ${#_MERGE_UNRESOLVED[@]} -lt ${#true_conflicts[@]} ]; then
+      # A resolution rewrote both sides, so the drift recorded during the first
+      # walk is stale. Re-walk rather than clearing the flag outright: other
+      # paths may still be drifting for unrelated reasons.
+      has_drift=0
+      while IFS=$'\t' read -r state repo_p live_p; do
+        if [ "$state" != "in_sync" ]; then
+          has_drift=1
+        fi
+      done < <(_walk_mapping)
+    fi
+    true_conflicts=("${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}")
+  fi
+
+  if [ ${#true_conflicts[@]} -gt 0 ] || [ "$bi_count" -gt 0 ]; then
+    found_conflict=1
   fi
 
   echo ""
@@ -507,6 +752,7 @@ freeze_agents() {
   local conflicts=()
   local unpushed=()
   local writable=()
+  local resolved=0
 
   local state repo_p live_p
   while IFS=$'\t' read -r state repo_p live_p; do
@@ -557,22 +803,64 @@ freeze_agents() {
       fi
     fi
 
-    if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
-      if [ ${#true_conflicts[@]} -gt 0 ]; then
-        echo -e "  ${RED}conflicts on the same path (resolve before freezing):${RESET}"
-        for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
-          r_p="${pair%%|*}"
-          echo -e "    both_changed\t$r_p"
+    if [ ${#true_conflicts[@]} -gt 0 ]; then
+      echo -e "  ${RED}conflicts on the same path (resolve before freezing):${RESET}"
+      for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+        r_p="${pair%%|*}"
+        echo -e "    both_changed\t$r_p"
+      done
+      echo ""
+      echo -e "  ${RED}conflict diffs:${RESET}"
+      for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+        r_p="${pair%%|*}"
+        l_p="${pair#*|}"
+        _print_conflict_diff "$r_p" "$l_p"
+      done
+
+      _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
+      resolved=$(( ${#true_conflicts[@]} - ${#_MERGE_UNRESOLVED[@]} ))
+      true_conflicts=("${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}")
+
+      if [ ${#_MERGE_RESOLVED[@]} -gt 0 ]; then
+        # See push: the phase-1 lists are stale the moment a resolution writes
+        # both sides, and harvesting from them would copy a stale live file over
+        # the merged repo side. The walk replaces those lists but cannot define
+        # the unresolved one - a failed resolution can leave a pair looking
+        # in_sync to a walk - so _MERGE_UNRESOLVED is carried over on top.
+        writable=()
+        unpushed=()
+        true_conflicts=()
+        while IFS=$'\t' read -r state repo_p live_p; do
+          case "$state" in
+            both_changed)
+              true_conflicts+=("$repo_p|$live_p")
+              ;;
+            repo_changed|repo_added|repo_removed)
+              unpushed+=("$state\t$repo_p")
+              ;;
+            live_changed|live_added|live_removed)
+              writable+=("$state\t$repo_p\t$live_p")
+              ;;
+          esac
+        done < <(_walk_mapping)
+
+        local unres dup
+        for unres in "${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}"; do
+          dup=0
+          for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+            if [ "$pair" = "$unres" ]; then
+              dup=1
+              break
+            fi
+          done
+          if [ $dup -eq 0 ]; then
+            true_conflicts+=("$unres")
+          fi
         done
-        echo ""
-        echo -e "  ${RED}conflict diffs:${RESET}"
-        for pair in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
-          r_p="${pair%%|*}"
-          l_p="${pair#*|}"
-          _print_conflict_diff "$r_p" "$l_p"
-        done
-        _offer_open_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}"
       fi
+    fi
+
+    if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
       echo ""
       echo -e "  ${YELLOW}resolve conflicts manually, then re-run freeze${RESET}"
       return 2
@@ -588,7 +876,7 @@ freeze_agents() {
     echo ""
   fi
 
-  local applied=0
+  local applied=$resolved
   local w
   for w in "${writable[@]+"${writable[@]}"}"; do
     state="$(echo -e "$w" | awk -F'\t' '{print $1}')"
@@ -667,17 +955,56 @@ freeze_agents_precommit() {
       fi
     fi
 
-    if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
-      if [ ${#true_conflicts[@]} -gt 0 ]; then
-        echo -e "  ${RED}both_changed paths block this commit:${RESET}"
-        for c in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
-          r_p="${c%%|*}"
-          l_p="${c#*|}"
-          echo "    $r_p"
-          _print_conflict_diff "$r_p" "$l_p"
+    if [ ${#true_conflicts[@]} -gt 0 ]; then
+      echo -e "  ${RED}both_changed paths block this commit:${RESET}"
+      for c in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+        r_p="${c%%|*}"
+        l_p="${c#*|}"
+        echo "    $r_p"
+        _print_conflict_diff "$r_p" "$l_p"
+      done
+
+      # Resolutions here become part of the commit, so stage the repo side.
+      _MERGE_GIT_ADD=1 _offer_merge_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}" || true
+      true_conflicts=("${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}")
+
+      if [ ${#_MERGE_RESOLVED[@]} -gt 0 ]; then
+        # See push: the phase-1 harvest list is stale the moment a resolution
+        # writes both sides. The walk replaces it but cannot define the
+        # unresolved list - a resolution that failed after both copies landed
+        # leaves a pair looking in_sync to a walk - so _MERGE_UNRESOLVED is
+        # carried over on top. A pair whose `git add` failed would otherwise
+        # vanish and the commit would proceed with the repo side unstaged.
+        writable=()
+        true_conflicts=()
+        while IFS=$'\t' read -r state repo_p live_p; do
+          case "$state" in
+            both_changed)
+              true_conflicts+=("$repo_p|$live_p")
+              ;;
+            live_changed|live_added)
+              writable+=("$state\t$repo_p\t$live_p")
+              ;;
+          esac
+        done < <(_walk_mapping)
+
+        local unres dup
+        for unres in "${_MERGE_UNRESOLVED[@]+"${_MERGE_UNRESOLVED[@]}"}"; do
+          dup=0
+          for c in "${true_conflicts[@]+"${true_conflicts[@]}"}"; do
+            if [ "$c" = "$unres" ]; then
+              dup=1
+              break
+            fi
+          done
+          if [ $dup -eq 0 ]; then
+            true_conflicts+=("$unres")
+          fi
         done
-        _offer_open_conflicts "${true_conflicts[@]+"${true_conflicts[@]}"}"
       fi
+    fi
+
+    if [ ${#true_conflicts[@]} -gt 0 ] || [ ${#bi_conflicts[@]} -gt 0 ]; then
       echo ""
       echo -e "  ${YELLOW}resolve manually (pick repo or live), then re-commit${RESET}"
       return 2
