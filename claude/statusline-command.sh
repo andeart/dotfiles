@@ -24,12 +24,7 @@ IFS=$'\t' read -r model ctx_pct ctx_input ctx_cache_create ctx_cache_read \
 : "${five_h_pct:=0}" "${seven_d_pct:=0}" "${five_h_reset:=0}" "${seven_d_reset:=0}"
 
 # "-" means the key was absent or null.
-IFS=$'\t' read -r ws_dir ws_git_worktree < <(
-    jq -r '[
-        (.workspace.current_dir // "-"),
-        (.workspace.git_worktree // "-")
-    ] | @tsv' <<<"$input"
-)
+ws_dir=$(jq -r '.workspace.current_dir // "-"' <<<"$input")
 
 # Long-context models arrive as e.g. "Opus 4.8 (1M context)". Reduce the
 # parenthetical to a bare size suffix: "Opus 4.8 1M". Matched as a whole so any
@@ -203,12 +198,20 @@ abbrev_home() {
 # A linked worktree has a per-worktree git dir distinct from the shared common
 # dir; a normal clone's main working tree has the two equal. Paths forced
 # absolute so the comparison holds regardless of where git reports from.
+#
+# Also sets $wt_branch. The rev-parse that classifies the checkout reports HEAD
+# in the same pass, so the branch costs no extra process. It has to come from
+# git: the input JSON's nearest equivalent, .workspace.git_worktree, is the
+# worktree's registered name under .git/worktrees, which git seeds from the
+# directory name and never updates to track the branch.
 in_linked_worktree() {
     local dir=$1 git_dir="" common_dir=""
+    wt_branch=""
     [ -d "$dir" ] || return 1
-    { read -r git_dir; read -r common_dir; } < <(
+    { read -r git_dir; read -r common_dir; read -r wt_branch; } < <(
         cd "$dir" 2>/dev/null &&
-            git rev-parse --path-format=absolute --git-dir --git-common-dir 2>/dev/null
+            git rev-parse --path-format=absolute --git-dir --git-common-dir \
+                --abbrev-ref HEAD 2>/dev/null
     )
     [ -n "$git_dir" ] && [ "$git_dir" != "$common_dir" ]
 }
@@ -217,13 +220,23 @@ in_linked_worktree() {
 # live. Everywhere else the status stays a single line.
 extra_lines=""
 if in_linked_worktree "$ws_dir"; then
+    # A detached HEAD abbreviates to the literal "HEAD", which identifies
+    # nothing. The short SHA is the only handle left, and the extra process
+    # to get it stays confined to that rare case.
+    if [ "$wt_branch" = "HEAD" ]; then
+        wt_branch=$(cd "$ws_dir" 2>/dev/null && git rev-parse --short HEAD 2>/dev/null)
+        wt_branch="detached ${wt_branch:-?}"
+    fi
+
     ws_dir=$(abbrev_home "$ws_dir")
-    ws_git_worktree=$(abbrev_home "$ws_git_worktree")
 
-    worktree_line="$(field '' "$ws_git_worktree")"
-    workspace_line="$(field '' "$ws_dir")"
+    # Branch first: it is the volatile field, and the path under it already
+    # ends in the worktree's registered name.
+    lines=()
+    [ -n "$wt_branch" ] && lines+=("$(field '' "$wt_branch")")
+    lines+=("$(field '' "$ws_dir")")
 
-    extra_lines=$(printf '\n%s\n%s' "$worktree_line" "$workspace_line")
+    extra_lines=$(printf '\n%s' "${lines[@]}")
 fi
 
 # --- Output ---

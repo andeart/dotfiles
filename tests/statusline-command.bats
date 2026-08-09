@@ -150,3 +150,105 @@ strip_ansi() {
     [[ "$plain" == *"⁶ᴷ"* ]]         # context usage in thousands
   done
 }
+
+# ─── worktree lines ─────────────────────────────────────────────────────────────
+
+# Line labels, as UTF-8 byte escapes so they stay legible in editors that render
+# private-use glyphs as tofu:
+#   U+F418 oct-git_branch, U+F413 oct-file_directory
+GLYPH_BRANCH=$'\357\220\230'
+GLYPH_DIR=$'\357\220\223'
+
+# Build a repo with a linked worktree whose directory name and branch name
+# differ, which is the shape Claude Code's EnterWorktree produces: the worktree
+# registers as "feature-x" while its branch is "worktree-feature-x". Sets:
+#   $WT_BASE — the main working tree of the clone
+#   $WT_DIR  — the linked worktree, under .claude/worktrees/
+make_worktree_world() {
+  local parent
+  parent="$(mktemp -d)"
+  WT_BASE="$parent/base"
+  WT_DIR="$WT_BASE/.claude/worktrees/feature-x"
+
+  git init -q "$WT_BASE"
+  git -C "$WT_BASE" config user.email t@t.t
+  git -C "$WT_BASE" config user.name t
+  git -C "$WT_BASE" config commit.gpgsign false
+  git -C "$WT_BASE" commit -q --allow-empty -m init
+  git -C "$WT_BASE" branch -M main
+  git -C "$WT_BASE" worktree add -q "$WT_DIR" -b worktree-feature-x
+}
+
+# base_payload with a workspace pointing at $1. git_worktree is populated the way
+# Claude Code populates it — with the worktree's registered name — so the tests
+# below prove the branch comes from git rather than from that field.
+worktree_payload() {
+  base_payload | jq --arg d "$1" --arg n "$(basename "$1")" \
+    '.workspace = {current_dir: $d, git_worktree: $n}'
+}
+
+# The one status line labelled with glyph $1, drawn from captured output $2.
+line_with_glyph() {
+  printf '%s' "$2" | strip_ansi | grep -F "$1"
+}
+
+count_lines() {
+  printf '%s\n' "$1" | wc -l | tr -d ' '
+}
+
+@test "reports the branch a linked worktree is on, not its registered name" {
+  make_worktree_world
+  run_statusline "$(worktree_payload "$WT_DIR")"
+  [ "$status" -eq 0 ]
+  local branch_line
+  branch_line="$(line_with_glyph "$GLYPH_BRANCH" "$output")"
+  [[ "$branch_line" == *"worktree-feature-x"* ]]
+}
+
+@test "gives the worktree's registered name no line of its own" {
+  make_worktree_world
+  run_statusline "$(worktree_payload "$WT_DIR")"
+  [ "$status" -eq 0 ]
+  # The path line ends in the registered name, so the only other mention would
+  # be a line dedicated to it.
+  local plain
+  plain="$(printf '%s' "$output" | strip_ansi)"
+  [ "$(printf '%s' "$plain" | grep -c -- 'feature-x')" -eq 2 ]  # branch + path
+}
+
+@test "gives the branch and the path a line each, branch first" {
+  make_worktree_world
+  run_statusline "$(worktree_payload "$WT_DIR")"
+  [ "$status" -eq 0 ]
+  [ "$(count_lines "$output")" -eq 3 ]  # status line + branch + path
+  local plain
+  plain="$(printf '%s' "$output" | strip_ansi)"
+  [[ "$(printf '%s' "$plain" | sed -n 2p)" == *"$GLYPH_BRANCH"* ]]
+  [[ "$(printf '%s' "$plain" | sed -n 3p)" == *"$GLYPH_DIR"* ]]
+}
+
+@test "falls back to a short SHA when the worktree HEAD is detached" {
+  make_worktree_world
+  git -C "$WT_DIR" checkout -q --detach
+  local sha
+  sha="$(git -C "$WT_DIR" rev-parse --short HEAD)"
+  run_statusline "$(worktree_payload "$WT_DIR")"
+  [ "$status" -eq 0 ]
+  local branch_line
+  branch_line="$(line_with_glyph "$GLYPH_BRANCH" "$output")"
+  [[ "$branch_line" == *"detached $sha"* ]]
+  [[ "$branch_line" != *"detached ?"* ]]
+}
+
+@test "stays on one line in the main working tree of a normal clone" {
+  make_worktree_world
+  run_statusline "$(worktree_payload "$WT_BASE")"
+  [ "$status" -eq 0 ]
+  [ "$(count_lines "$output")" -eq 1 ]
+}
+
+@test "stays on one line when the payload carries no workspace at all" {
+  run_statusline "$(base_payload)"
+  [ "$status" -eq 0 ]
+  [ "$(count_lines "$output")" -eq 1 ]
+}
