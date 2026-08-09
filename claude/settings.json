@@ -25,6 +25,7 @@
       "Bash(git remote get-url:*)",
       "Bash(git rev-list:*)",
       "Bash(git symbolic-ref --short HEAD)",
+      "Bash(git worktree add *)",
       "mcp__claude_ai_Notion__notion-create-pages",
       "mcp__claude_ai_Notion__notion-fetch",
       "mcp__claude_ai_Notion__notion-update-page",
