@@ -164,7 +164,7 @@ Bad: `Added dark mode` (past tense)
 **Body:** Use this structure:
 
 ```markdown
-Issue: <ID>
+Issue: [<ID>](https://app.plane.so/byanu/browse/<ID>/)
 
 ## Summary
 <1-3 bullet points describing what changed and why>
@@ -177,7 +177,7 @@ Derive the summary from the commit messages and the conversation context (what w
 
 ### Recording the work item
 
-`Issue: <ID>` goes on the first line of the body, above `## Summary`. Plane calls these work items, but the line stays `Issue:`. `/wf-wrap` reads it to decide which work item to mark Done once this merges, so a wrong identifier closes someone else's work.
+`Issue: [<ID>](https://app.plane.so/byanu/browse/<ID>/)` goes on the first line of the body, above `## Summary`. Link the identifier to its Plane work item - `byanu` is the only workspace, so hardcode it, and keep the trailing slash. Plane calls these work items, but the line stays `Issue:`. `/wf-wrap` reads it to decide which work item to mark Done once this merges, so a wrong identifier closes someone else's work.
 
 Include the line only when one of these holds:
 
@@ -190,7 +190,7 @@ Use a heredoc to pass the body:
 
 ```bash
 gh pr create --title "the title" --body "$(cat <<'EOF'
-Issue: ZZZ-0
+Issue: [ZZZ-0](https://app.plane.so/byanu/browse/ZZZ-0/)
 
 ## Summary
 - bullet points here
