@@ -7,3 +7,6 @@ export LESS='-R'
 export GIT_PAGER=""
 
 export CLAUDE_CODE_NO_FLICKER=1
+
+# Per-directory env via .envrc; each file stays blocked until `direnv allow`.
+eval "$(direnv hook zsh)"

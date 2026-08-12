@@ -47,8 +47,8 @@ dotfiles/
 │       ├── 00-paths-defaults.zsh      # base PATH setup
 │       ├── 02-paths.local.zsh         # machine-specific paths
 │       ├── 05-paths-additional.zsh    # extra PATH entries
-│       ├── 10-flags.zsh               # shell flags
-│       ├── 12-flags.local.zsh         # machine-specific flags (also hooks direnv)
+│       ├── 10-flags.zsh               # shell flags, installs the direnv hook
+│       ├── 12-flags.local.zsh         # machine-specific flags
 │       ├── 30-aliases.zsh             # shared aliases
 │       └── 31-aliases.local.zsh       # machine-specific aliases
 ├── git/
@@ -88,7 +88,7 @@ The `agents/` and `claude/` subtrees are no longer symlinked - they're materiali
 
 Credentials live in `~/.config/env.d/`, one file per service, as bare `KEY=value` lines. The directory is `0700` and its files `0600`. Nothing here is committed. The layout is flat rather than nested inside each tool's own config dir, since those dirs belong to the tools and get rewritten.
 
-[direnv](https://direnv.net) loads them per directory:
+[direnv](https://github.com/direnv/direnv) loads them per directory:
 
 ```sh
 # ~/code/some-project/.envrc
