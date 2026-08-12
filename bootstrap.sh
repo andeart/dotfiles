@@ -91,6 +91,8 @@ find -H "$REPO_ROOT" -maxdepth 3 -name '*.local*.example' -not -path '*/.git/*' 
     printf "    %s\n" "$relative"
 done
 echo ''
+info "Credentials live outside the repo in ~/.config/env.d, one file per service (mode 600). See README."
+echo ''
 read -rp "  Ready to continue? (y/n) " confirm
 [ "$confirm" = "y" ] || { echo "Aborted."; exit 0; }
 echo ''
@@ -203,6 +205,14 @@ if is_enabled '.agents-and-claude.sync'; then
         warn "dotfiles push reported issues - run 'dotfiles status' for details"
     fi
 fi
+
+# --- credentials (env.d) ---
+# Created here so the 0700 mode is a property of the install rather than
+# something a human remembers to set. Contents are never managed by this repo.
+info "Ensuring ~/.config/env.d"
+mkdir -p "$HOME/.config/env.d"
+chmod 700 "$HOME/.config/env.d"
+success "~/.config/env.d ready"
 
 # --- pre-commit hook installation ---
 if command -v pre-commit &>/dev/null; then

@@ -21,7 +21,7 @@ brew bundle --file=brew/Brewfile
 
 The bootstrap reads `dotfiles.yml` to figure out what to symlink or install. It'll pause before doing anything irreversible.
 
-Some files have `.local` variants (with `.example` templates) for machine-specific config that shouldn't live in git, like paths that differ between machines, secrets, and such. The bootstrap will remind about these before it starts symlinking (I keep forgetting).
+Some files have `.local` variants (with `.example` templates) for machine-specific config that shouldn't live in git, like paths that differ between machines, editor preferences, and such. The bootstrap will remind about these before it starts symlinking (I keep forgetting). Credentials aren't among them - see [Credentials](#credentials).
 
 ## Structure
 
@@ -48,8 +48,7 @@ dotfiles/
 │       ├── 02-paths.local.zsh         # machine-specific paths
 │       ├── 05-paths-additional.zsh    # extra PATH entries
 │       ├── 10-flags.zsh               # shell flags
-│       ├── 12-flags.local.zsh         # machine-specific flags
-│       ├── 20-secrets.local.zsh       # machine-specific secrets
+│       ├── 12-flags.local.zsh         # machine-specific flags (also hooks direnv)
 │       ├── 30-aliases.zsh             # shared aliases
 │       └── 31-aliases.local.zsh       # machine-specific aliases
 ├── git/
@@ -84,6 +83,21 @@ The `agents/` and `claude/` subtrees are no longer symlinked - they're materiali
 - `warp/` is linked as a whole directory rather than file by file. Warp writes into `~/.warp` at runtime - it rewrites `settings.toml` whenever you flip a setting in the UI, and drops theme files in when you install one from the picker - so linking the directory means anything it creates is tracked without me having to add a symlink for it first. The trade-off is that toggling a Warp setting shows up as a diff.
 - `*.local.*` files are for per-machine overrides. Each one has a `.example` template.
 - The zsh-custom files are numbered because order matters when ZSH_CUSTOM is loaded by OMZ.
+
+## Credentials
+
+Credentials live in `~/.config/env.d/`, one file per service, as bare `KEY=value` lines. The directory is `0700` and its files `0600`. Nothing here is committed. The layout is flat rather than nested inside each tool's own config dir, since those dirs belong to the tools and get rewritten.
+
+[direnv](https://direnv.net) loads them per directory:
+
+```sh
+# ~/code/some-project/.envrc
+dotenv ~/.config/env.d/some-service.env
+```
+
+- Use `dotenv` where the service is required and `dotenv_if_exists` where it's optional.
+- Editing a value takes effect at the next prompt; `direnv allow` hashes the `.envrc`, not the env file.
+- direnv is directory-scoped, not command-scoped. Inside an allowed directory every process inherits the variables.
 
 ## Why I dropped symlinks for agents/ and claude/
 
