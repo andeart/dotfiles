@@ -98,13 +98,13 @@ The probe commit is dangling and gets garbage-collected; no ref moves. Do not su
 
 Two sources, both written deliberately for this change. In this order:
 
-1. **The PR body** - `wf-ship` puts `Issue: <ID>` on the first line whenever a work item is known:
+1. **The PR body** - `wf-ship` puts `Issue: [<ID>](<plane-url>)` on the first line whenever a work item is known:
 
    ```bash
    gh pr view --json body --jq '.body' | head -3
    ```
 
-   Match `^Issue:\s*([A-Z]+-\d+)\s*$`. No match means no candidate from this source.
+   Match `^Issue:\s*\[?([A-Z]+-\d+)\]?`. The optional brackets accept both the linked form and the bare `Issue: <ID>` that older PRs carry. No match means no candidate from this source.
 2. **Branch name** - strip a leading `worktree-` if present, then match the remainder against `^([a-zA-Z]+)-(\d+)`. Uppercase the prefix and join it to the number (e.g. `worktree-zzz-0-echo-slice` → strip → `zzz-0-echo-slice` → `ZZZ-0`; `zzz-1-foo-bar` → `ZZZ-1`). `EnterWorktree` prefixes the branches it creates, and without the strip those branches match nothing at all.
 3. If neither yields a candidate, set `<PLANE_ID>` to `none` and `<PLANE_OUTCOME>` to `not-inferred`.
 
