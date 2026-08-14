@@ -15,6 +15,27 @@ scrub_git_env() {
 }
 scrub_git_env
 
+# Point git at a fixed config instead of the caller's. scrub_git_env cannot do
+# this: --local-env-vars covers GIT_CONFIG and GIT_CONFIG_COUNT but not
+# GIT_CONFIG_GLOBAL/GIT_CONFIG_SYSTEM, so ~/.gitconfig still applied. An
+# inherited commit.gpgsign=true then breaks every test commit on a machine
+# without the signing key. Pinning identity and defaultBranch too keeps repos
+# built by a bare `git init` off git's machine-derived fallbacks.
+TEST_GITCONFIG="${BATS_RUN_TMPDIR:-${TMPDIR:-/tmp}}/dotfiles-test-gitconfig"
+cat > "$TEST_GITCONFIG" <<'EOF'
+[user]
+	name = Test
+	email = test@example.com
+[commit]
+	gpgsign = false
+[tag]
+	gpgsign = false
+[init]
+	defaultBranch = main
+EOF
+export GIT_CONFIG_GLOBAL="$TEST_GITCONFIG"
+export GIT_CONFIG_SYSTEM=/dev/null
+
 # Detach stdin from the caller's terminal. bats does not redirect stdin, so a
 # suite run from an interactive shell inherits its tty. Any code under test that
 # gates on `[ -t 0 ]` - `_offer_merge_conflicts` does - then takes its interactive
