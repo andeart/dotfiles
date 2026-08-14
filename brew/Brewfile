@@ -23,6 +23,7 @@ brew "docker-compose"
 
 brew "libpq"
 
+brew "bun"
 brew "ruby"
 
 brew "direnv"
