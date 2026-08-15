@@ -6,10 +6,6 @@
     # Find it with: gpg --list-secret-keys --keyid-format=long
     signingkey = GPGSIGNINGKEY
 
-# GPG-sign commits
-[commit]
-    gpgsign = true
-
 # Editor
 [core]
     editor = code --wait

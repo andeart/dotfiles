@@ -171,9 +171,6 @@ make_worktree_world() {
   WT_DIR="$WT_BASE/.claude/worktrees/feature-x"
 
   git init -q "$WT_BASE"
-  git -C "$WT_BASE" config user.email t@t.t
-  git -C "$WT_BASE" config user.name t
-  git -C "$WT_BASE" config commit.gpgsign false
   git -C "$WT_BASE" commit -q --allow-empty -m init
   git -C "$WT_BASE" branch -M main
   git -C "$WT_BASE" worktree add -q "$WT_DIR" -b worktree-feature-x

@@ -22,13 +22,12 @@ setup() {
   git init -q --bare "$REMOTE"
   git clone -q "$REMOTE" "$REPO" 2>/dev/null
   # Guard the cd: bats does not run setup() under `set -e`, so a failed clone
-  # would otherwise leave cwd on the real dotfiles repo and the git config
-  # writes below would land in its .git/config. Abort the test instead.
+  # would otherwise leave cwd on the real dotfiles repo and the commits and
+  # branch rewrites below would land in it. Abort the test instead.
   cd "$REPO" || return 1
-  git config user.email t@t.t
-  git config user.name t
-  git config commit.gpgsign false
 
+  # Identity and commit.gpgsign come from the pinned GIT_CONFIG_GLOBAL that
+  # tests/helpers/setup.bash exports.
   git commit -q --allow-empty -m init
   git branch -M main
   git push -q -u origin main

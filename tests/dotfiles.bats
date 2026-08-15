@@ -1228,8 +1228,6 @@ y"
 @test "freeze --pre-commit stages the merged repo file in the override root" {
   make_tmp_world
   git -c init.defaultBranch=main init -q "$TEST_REPO"
-  git -C "$TEST_REPO" config user.email "test@example.com"
-  git -C "$TEST_REPO" config user.name "Test"
   git -C "$TEST_REPO" add agents/AGENTS.md
   git -C "$TEST_REPO" commit -qm "seed"
   cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
@@ -1447,8 +1445,6 @@ y"
 @test "freeze --pre-commit keeps a pair whose staging failed after both sides were written" {
   make_tmp_world
   git -c init.defaultBranch=main init -q "$TEST_REPO"
-  git -C "$TEST_REPO" config user.email "test@example.com"
-  git -C "$TEST_REPO" config user.name "Test"
   # Two conflicting pairs and an empty manifest: with no anchor, a pair whose
   # sides were both rewritten by a failed resolution classifies as in_sync.
   printf 'edited in repo\n' > "$TEST_REPO/agents/AGENTS.md"

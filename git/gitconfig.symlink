@@ -8,6 +8,10 @@
     autoSetupRemote = true
 [pull]
     rebase = false
+# Enabled on every machine; the key it signs with is per-machine and lives in
+# the ~/.gitconfig.local include.
+[commit]
+    gpgsign = true
 
 [filter "lfs"]
     clean = git-lfs clean -- %f
