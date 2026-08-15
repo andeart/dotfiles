@@ -1535,6 +1535,45 @@ EOF
   [[ "$output" != *"unbound variable"* ]]
 }
 
+@test "_manifest_delete reports failure when the manifest move fails" {
+  make_tmp_world
+  printf '{"seeded":"anchor","%s":"deadbeef"}\n' "$TEST_LIVE/.agents/AGENTS.md" > "$TEST_STATE"
+  manifest_before="$(mktemp)"
+  cp "$TEST_STATE" "$manifest_before"
+  stub_dir="$(mktemp -d)"
+  real_mv="$(command -v mv)"
+  # Only the move that installs the manifest fails; every other mv is real.
+  cat > "$stub_dir/mv" <<EOF
+#!/usr/bin/env bash
+if [ "\${!#}" = "$TEST_STATE" ]; then
+  echo "stub mv: refusing to install the manifest" >&2
+  exit 1
+fi
+exec "$real_mv" "\$@"
+EOF
+  chmod +x "$stub_dir/mv"
+  # Pin the temp path so the failure path's cleanup is observable.
+  temp_file="$stub_dir/manifest-temp"
+  cat > "$stub_dir/mktemp" <<EOF
+#!/usr/bin/env bash
+: > "$temp_file"
+echo "$temp_file"
+EOF
+  chmod +x "$stub_dir/mktemp"
+  # Every call site is a bare command, so set -e already aborts on the failing
+  # move and the status is non-zero either way. What the check buys is clearing
+  # the trap while $tmp is still in scope, instead of leaving it to fire at exit
+  # under set -u and die on the unbound local before the rm runs.
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    "$DOTFILES_TEST_BIN" manifest_delete "$TEST_LIVE/.agents/AGENTS.md"
+  [ "$status" -ne 0 ]
+  cmp -s "$manifest_before" "$TEST_STATE"
+  [ ! -e "$temp_file" ]
+  [[ "$output" != *"unbound variable"* ]]
+}
+
 @test "freeze --pre-commit keeps a pair whose staging failed after both sides were written" {
   make_tmp_world
   git -c init.defaultBranch=main init -q "$TEST_REPO"
