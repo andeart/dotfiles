@@ -80,7 +80,14 @@ _manifest_delete() {
   local tmp
   tmp="$(mktemp)"
   trap 'rm -f "$tmp"' EXIT
-  jq --arg k "$key" 'del(.[$k])' "$DOTFILES_STATE_FILE" > "$tmp"
+  # Same guard as _manifest_write: the redirect truncates $tmp before jq runs,
+  # so an unchecked move would install an empty file as the whole sync state.
+  # Clearing the trap here also keeps it from firing once $tmp is out of scope.
+  if ! jq --arg k "$key" 'del(.[$k])' "$DOTFILES_STATE_FILE" > "$tmp"; then
+    rm -f "$tmp"
+    trap - EXIT
+    return 1
+  fi
   mv "$tmp" "$DOTFILES_STATE_FILE"
   trap - EXIT
 }
