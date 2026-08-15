@@ -65,3 +65,16 @@ make_tmp_world() {
   echo "{}" > "$TEST_REPO/claude/settings.json"
   echo "#!/usr/bin/env bash" > "$TEST_REPO/claude/statusline-command.sh"
 }
+
+# make_tmp_world plus the vscode/ and brew/ files the freeze helpers read. Both
+# carry a marker value no real machine would produce, so a test that reads the
+# wrong root shows it in the assertion rather than passing by coincidence.
+make_freeze_world() {
+  make_tmp_world
+  mkdir -p "$TEST_REPO/vscode" "$TEST_REPO/brew"
+  echo "publisher.temp-root-only" > "$TEST_REPO/vscode/extensions.txt"
+  cat > "$TEST_REPO/brew/Brewfile" <<'EOF'
+brew "temp-root-only-formula"
+cask "temp-root-only-cask"
+EOF
+}

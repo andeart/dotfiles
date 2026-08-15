@@ -1042,7 +1042,7 @@ freeze_agents_precommit() {
     cp "$live_p" "$repo_p"
     _manifest_write "$live_p" "$(_sha256_file "$repo_p")"
     if [ -z "${DOTFILES_PRECOMMIT_DRYRUN_GIT:-}" ]; then
-      git -C "$DOTFILES_ROOT" add "$repo_p"
+      git -C "${DOTFILES_ROOT_OVERRIDE:-$DOTFILES_ROOT}" add "$repo_p"
     fi
     harvested+=("$repo_p")
   done
@@ -1059,6 +1059,10 @@ freeze_agents_precommit() {
 
 # ---------------------------------------------------------------------------
 # freeze
+#
+# Repo paths here resolve through DOTFILES_ROOT_OVERRIDE, as _walk_mapping does.
+# $DOTFILES_ROOT is fixed to wherever bin/dotfiles lives, so reading it directly
+# makes a test run write to the developer's own tracked files.
 # ---------------------------------------------------------------------------
 
 freeze_vscode() {
@@ -1069,7 +1073,7 @@ freeze_vscode() {
     return
   fi
 
-  local ext_file="$DOTFILES_ROOT/vscode/extensions.txt"
+  local ext_file="${DOTFILES_ROOT_OVERRIDE:-$DOTFILES_ROOT}/vscode/extensions.txt"
   local live
   live=$(code --list-extensions | sort)
   local committed
@@ -1110,7 +1114,7 @@ freeze_brew() {
     return
   fi
 
-  local brewfile="$DOTFILES_ROOT/brew/Brewfile"
+  local brewfile="${DOTFILES_ROOT_OVERRIDE:-$DOTFILES_ROOT}/brew/Brewfile"
 
   # Collect what's declared in the Brewfile (strip comments and blank lines)
   local declared_brew declared_cask

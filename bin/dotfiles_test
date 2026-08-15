@@ -17,6 +17,8 @@ case "${1:-}" in
   classify)       _classify "${2:?usage: dotfiles_test classify <repo_path> <live_path>}" "${3:?usage: dotfiles_test classify <repo_path> <live_path>}" ;;
   walk)           _walk_mapping ;;
   freeze_agents)  freeze_agents ;;
+  freeze_vscode)  freeze_vscode ;;
+  freeze_brew)    freeze_brew ;;
   offer_merge_conflicts) shift; _offer_merge_conflicts "$@" ;;
   pair_is_byte_identical) _pair_is_byte_identical "${2:?usage: dotfiles_test pair_is_byte_identical <repo> <live>}" "${3:?usage: dotfiles_test pair_is_byte_identical <repo> <live>}" ;;
   offer_resolve_byte_identical) shift; _offer_resolve_byte_identical "$@" ;;

@@ -1697,9 +1697,8 @@ fi
 exec "$real_jq" "\$@"
 EOF
   chmod +x "$stub_dir/jq"
-  # freeze_agents, not the public `freeze`: the latter also runs freeze_vscode,
-  # which reads the real repo root and would answer `code --list-extensions`
-  # from the stub, overwriting the developer's vscode/extensions.txt.
+  # freeze_agents, not the public `freeze`: this asserts on the agent-sync
+  # output alone, which the other freeze phases would bury.
   run env \
     PATH="$stub_dir:$PATH" \
     DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
@@ -1718,4 +1717,106 @@ y"
   grep -q "merged by hand" "$TEST_REPO/claude/CLAUDE.md"
   grep -q "merged by hand" "$TEST_LIVE/.claude/CLAUDE.md"
   [ "$(jq -r --arg k "$TEST_LIVE/.claude/CLAUDE.md" '.[$k] // "null"' "$TEST_STATE")" = "null" ]
+}
+
+@test "freeze_vscode writes the extensions file under the overridden root" {
+  make_freeze_world
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+echo "publisher.installed"
+EOF
+  chmod +x "$stub_dir/code"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    "$DOTFILES_TEST_BIN" freeze_vscode
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TEST_REPO/vscode/extensions.txt")" = "publisher.installed" ]
+}
+
+@test "freeze_brew reads the Brewfile under the overridden root" {
+  make_freeze_world
+  stub_dir="$(mktemp -d)"
+  # Nothing installed, so every formula the Brewfile declares is reported
+  # missing - which is what names the file the helper actually read.
+  cat > "$stub_dir/brew" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "$stub_dir/brew"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    "$DOTFILES_TEST_BIN" freeze_brew
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"temp-root-only-formula"* ]]
+  [[ "$output" == *"temp-root-only-cask"* ]]
+}
+
+@test "freeze --pre-commit stages the harvested file in the overridden repo" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash_a=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash_a\"}" > "$TEST_STATE"
+  git -C "$TEST_REPO" init -q
+  git -C "$TEST_REPO" add -A
+  git -C "$TEST_REPO" commit -qm "seed"
+  echo "drifted" > "$TEST_LIVE/.agents/AGENTS.md"
+  # No DOTFILES_PRECOMMIT_DRYRUN_GIT: this is the real staging path.
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" freeze --pre-commit
+  [ "$status" -eq 0 ]
+  grep -q "drifted" "$TEST_REPO/agents/AGENTS.md"
+  git -C "$TEST_REPO" diff --cached --name-only | grep -qx "agents/AGENTS.md"
+}
+
+@test "freeze against an overridden root leaves the real repo untouched" {
+  make_freeze_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  echo '{}' > "$TEST_STATE"
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+echo "publisher.installed"
+EOF
+  cat > "$stub_dir/brew" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "$stub_dir/code" "$stub_dir/brew"
+
+  real_ext="$DOTFILES_ROOT/vscode/extensions.txt"
+  real_brewfile="$DOTFILES_ROOT/brew/Brewfile"
+  cp "$real_ext" "$stub_dir/extensions.bak"
+  cp "$real_brewfile" "$stub_dir/Brewfile.bak"
+  status_before="$(git -C "$DOTFILES_ROOT" status --porcelain)"
+
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" freeze
+
+  # Record the verdict, then put the real files back before asserting. A
+  # regression here writes to the developer's working tree, and a test that
+  # detects that must not also leave it that way.
+  ext_intact=0; cmp -s "$real_ext" "$stub_dir/extensions.bak" || ext_intact=1
+  brew_intact=0; cmp -s "$real_brewfile" "$stub_dir/Brewfile.bak" || brew_intact=1
+  cp "$stub_dir/extensions.bak" "$real_ext"
+  cp "$stub_dir/Brewfile.bak" "$real_brewfile"
+
+  [ "$status" -eq 0 ]
+  [ "$ext_intact" -eq 0 ]
+  [ "$brew_intact" -eq 0 ]
+  # Catches stray files dropped in the repo root as well as tracked-file edits.
+  [ "$(git -C "$DOTFILES_ROOT" status --porcelain)" = "$status_before" ]
+  # The overridden root is where the write should have landed.
+  [ "$(cat "$TEST_REPO/vscode/extensions.txt")" = "publisher.installed" ]
 }
