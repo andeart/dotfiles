@@ -1442,6 +1442,43 @@ y"
   [ "$(cat "$TEST_STATE")" = '{"seeded":"anchor"}' ]
 }
 
+@test "_manifest_delete refuses to blank the manifest when jq fails" {
+  make_tmp_world
+  printf '{"seeded":"anchor","%s":"deadbeef"}\n' "$TEST_LIVE/.agents/AGENTS.md" > "$TEST_STATE"
+  before="$(cat "$TEST_STATE")"
+  stub_dir="$(mktemp -d)"
+  real_jq="$(command -v jq)"
+  # `del(` appears only in the delete's own rewrite, so _manifest_ensure and
+  # every read still reach the real jq while that one invocation fails.
+  cat > "$stub_dir/jq" <<EOF
+#!/usr/bin/env bash
+if [[ " \$* " == *"del("* ]]; then
+  echo "stub jq: refusing to rewrite the manifest" >&2
+  exit 1
+fi
+exec "$real_jq" "\$@"
+EOF
+  chmod +x "$stub_dir/jq"
+  # Pin the temp path so the failure path's cleanup is observable.
+  temp_file="$stub_dir/manifest-temp"
+  cat > "$stub_dir/mktemp" <<EOF
+#!/usr/bin/env bash
+: > "$temp_file"
+echo "$temp_file"
+EOF
+  chmod +x "$stub_dir/mktemp"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    "$DOTFILES_TEST_BIN" manifest_delete "$TEST_LIVE/.agents/AGENTS.md"
+  # The truncated temp file must never be moved over the state file, and the
+  # failure has to clean up after itself rather than tripping the EXIT trap.
+  [ "$status" -ne 0 ]
+  [ "$(cat "$TEST_STATE")" = "$before" ]
+  [ ! -e "$temp_file" ]
+  [[ "$output" != *"unbound variable"* ]]
+}
+
 @test "freeze --pre-commit keeps a pair whose staging failed after both sides were written" {
   make_tmp_world
   git -c init.defaultBranch=main init -q "$TEST_REPO"
