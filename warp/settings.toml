@@ -70,7 +70,7 @@ focus_pane_on_hover = true
 [appearance.window]
 left_panel_visibility_across_tabs = true
 override_opacity = 100
-zoom_level = 90
+zoom_level = 100
 open_windows_at_custom_size = false
 override_blur = 1
 
