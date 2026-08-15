@@ -141,7 +141,7 @@ Before running `gh pr create`, check if a PR already exists for this branch:
 gh pr view --json url --jq .url 2>/dev/null
 ```
 
-If a PR URL is returned, use that URL - do not create a new PR, skip to Step 5.
+If a PR URL is returned, use that URL - do not create a new PR. Assign it with `gh pr edit <PR_URL> --add-assignee @me`, which is a no-op if it's already assigned, then skip to Step 5.
 
 Otherwise, create a PR with a proper summary (see "Writing the PR" section below). Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
 
@@ -153,7 +153,7 @@ Display the PR URL. You remain on the feature branch.
 
 ## Writing the PR
 
-Use `gh pr create` with a title and body. Do NOT use `--fill`.
+Use `gh pr create` with a title, a body, and `--assignee @me`. Do NOT use `--fill`.
 
 **Title:** Write in simple present imperative tense. The title should complete the sentence "This PR will..." Keep it under 70 characters. No conventional commit prefixes.
 
@@ -175,6 +175,12 @@ Issue: [<ID>](https://app.plane.so/byanu/browse/<ID>/)
 
 Derive the summary from the commit messages and the conversation context (what was discussed, what the subagent built, what was tested). The test plan should reflect what was actually verified during development.
 
+### Assigning the PR
+
+Pass `--assignee @me` so the PR lands on the shipper's plate instead of going out unowned. `@me` is whichever account `gh` is authenticated as in the calling repo, which is the identity that pushed the branch - do not try to derive a login from `git config user.email`, since private commit emails resolve to nothing.
+
+Assignees need push access on the repo, so this fails on repos you contribute to from the outside. If `gh pr create` rejects the assignee, retry the same command without `--assignee` and tell the user the PR went up unassigned. Treat every other `gh pr create` failure as fatal per the flow above.
+
 ### Recording the work item
 
 `Issue: [<ID>](https://app.plane.so/byanu/browse/<ID>/)` goes on the first line of the body, above `## Summary`. Link the identifier to its Plane work item - `byanu` is the only workspace, so hardcode it, and keep the trailing slash. Plane calls these work items, but the line stays `Issue:`. `/wf-wrap` reads it to decide which work item to mark Done once this merges, so a wrong identifier closes someone else's work.
@@ -189,7 +195,7 @@ Otherwise omit it entirely - no placeholder, no `Issue: none`. Do not scan the c
 Use a heredoc to pass the body:
 
 ```bash
-gh pr create --title "the title" --body "$(cat <<'EOF'
+gh pr create --assignee @me --title "the title" --body "$(cat <<'EOF'
 Issue: [ZZZ-0](https://app.plane.so/byanu/browse/ZZZ-0/)
 
 ## Summary
