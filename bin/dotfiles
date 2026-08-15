@@ -70,8 +70,15 @@ _manifest_write() {
     trap - EXIT
     return 1
   fi
-  mv "$tmp" "$DOTFILES_STATE_FILE"
+  if ! mv "$tmp" "$DOTFILES_STATE_FILE"; then
+    rm -f "$tmp"
+    trap - EXIT
+    return 1
+  fi
+  # `trap - EXIT` always exits 0, so an explicit return keeps it from becoming
+  # the function's status and masking a failure above.
   trap - EXIT
+  return 0
 }
 
 _manifest_delete() {
