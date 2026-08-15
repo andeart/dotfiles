@@ -1775,6 +1775,99 @@ EOF
   git -C "$TEST_REPO" diff --cached --name-only | grep -qx "agents/AGENTS.md"
 }
 
+@test "freeze --pre-commit leaves the manifest alone when staging a harvest fails" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash_a=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash_a\"}" > "$TEST_STATE"
+  git -C "$TEST_REPO" init -q
+  git -C "$TEST_REPO" add -A
+  git -C "$TEST_REPO" commit -qm "seed"
+  echo "drifted" > "$TEST_LIVE/.agents/AGENTS.md"
+  stub_dir="$(mktemp -d)"
+  real_git="$(command -v git)"
+  cat > "$stub_dir/git" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = "-C" ] && [ "\$3" = "add" ] && [ "\${!#}" = "$TEST_REPO/agents/AGENTS.md" ]; then
+  echo "stub: refusing to stage \${!#}" >&2
+  exit 1
+fi
+exec "$real_git" "\$@"
+EOF
+  chmod +x "$stub_dir/git"
+  # No DOTFILES_PRECOMMIT_DRYRUN_GIT: this is the real staging path.
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" freeze --pre-commit
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"failed to stage $TEST_REPO/agents/AGENTS.md"* ]]
+  # Nothing may be claimed as captured when the file never reached the index.
+  [[ "$output" != *"auto-harvested"* ]]
+  run git -C "$TEST_REPO" diff --cached --name-only
+  [[ "$output" != *"agents/AGENTS.md"* ]]
+  # The anchor still names the pre-drift content and the repo side was rolled
+  # back, so the pair stays live_changed rather than reading in_sync (which
+  # would drop the harvest) or both_changed (which no hook could resolve).
+  [ "$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")" = "$hash_a" ]
+  ! grep -q "drifted" "$TEST_REPO/agents/AGENTS.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_TEST_BIN" walk
+  [[ "$output" == live_changed* ]]
+
+  # The retry, with staging working again, has to complete the harvest.
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" freeze --pre-commit
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"auto-harvested"* ]]
+  grep -q "drifted" "$TEST_REPO/agents/AGENTS.md"
+  git -C "$TEST_REPO" diff --cached --name-only | grep -qx "agents/AGENTS.md"
+}
+
+@test "freeze --pre-commit reports the path when recording a harvest fails" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash_a=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash_a\"}" > "$TEST_STATE"
+  echo "drifted" > "$TEST_LIVE/.agents/AGENTS.md"
+  stub_dir="$(mktemp -d)"
+  real_jq="$(command -v jq)"
+  # Only _manifest_write passes `--arg v`, so failing on that flag breaks the
+  # harvest's write while every _manifest_read still reaches the real jq.
+  cat > "$stub_dir/jq" <<EOF
+#!/usr/bin/env bash
+if [[ " \$* " == *" --arg v "* && " \$* " == *" $TEST_LIVE/.agents/AGENTS.md "* ]]; then
+  echo "stub jq: refusing to write the manifest entry" >&2
+  exit 1
+fi
+exec "$real_jq" "\$@"
+EOF
+  chmod +x "$stub_dir/jq"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_PRECOMMIT_DRYRUN_GIT=1 \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_TEST_BIN" freeze_agents_precommit
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"failed to record $TEST_LIVE/.agents/AGENTS.md in the sync manifest"* ]]
+  [[ "$output" != *"auto-harvested"* ]]
+  [ "$(jq -r --arg k "$TEST_LIVE/.agents/AGENTS.md" '.[$k]' "$TEST_STATE")" = "$hash_a" ]
+}
+
 @test "freeze against an overridden root leaves the real repo untouched" {
   make_freeze_world
   cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
