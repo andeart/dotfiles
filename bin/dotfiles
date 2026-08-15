@@ -1032,17 +1032,54 @@ freeze_agents_precommit() {
   fi
 
   # Phase 2: apply.
+  #
+  # `git add` runs before the manifest write, as in _merge_apply_result. The
+  # manifest is what makes the next walk skip this pair: recording a harvest the
+  # staging step failed to include would classify repo and live in_sync, so the
+  # harvest is never retried and the live change never reaches a commit.
+  #
+  # Either failure returns 2 to block the commit. Earlier iterations have
+  # already staged their own files, but those are correct and stay staged; the
+  # harvest list is not printed, so nothing is claimed as captured.
   local harvested=()
-  local w
+  local w prior
   for w in "${writable[@]+"${writable[@]}"}"; do
     state="$(echo -e "$w" | awk -F'\t' '{print $1}')"
     repo_p="$(echo -e "$w" | awk -F'\t' '{print $2}')"
     live_p="$(echo -e "$w" | awk -F'\t' '{print $3}')"
     mkdir -p "$(dirname "$repo_p")"
+    # Snapshot the repo side so a staging failure can undo the copy. Left in
+    # place, repo and live match under a stale anchor, which the next walk reads
+    # as a byte-identical conflict - reported, but no longer a harvest, and its
+    # auto-resolve prompt is unreachable from a hook with no tty. Undoing the
+    # copy keeps the pair live_changed, which is retried on its own.
+    prior=""
+    if [ -f "$repo_p" ]; then
+      prior="$(mktemp)"
+      cp "$repo_p" "$prior"
+    fi
     cp "$live_p" "$repo_p"
-    _manifest_write "$live_p" "$(_sha256_file "$repo_p")"
-    if [ -z "${DOTFILES_PRECOMMIT_DRYRUN_GIT:-}" ]; then
-      git -C "${DOTFILES_ROOT_OVERRIDE:-$DOTFILES_ROOT}" add "$repo_p"
+    if [ -z "${DOTFILES_PRECOMMIT_DRYRUN_GIT:-}" ] &&
+       ! git -C "${DOTFILES_ROOT_OVERRIDE:-$DOTFILES_ROOT}" add "$repo_p"; then
+      # An empty $prior means this iteration's own copy created $repo_p, so the
+      # removal can only take back what it just wrote.
+      if [ -n "$prior" ]; then
+        cp "$prior" "$repo_p"
+        rm -f "$prior"
+      else
+        rm -f "$repo_p"
+      fi
+      echo -e "  ${RED}failed to stage $repo_p${RESET}"
+      echo -e "  ${YELLOW}nothing was recorded - re-commit to retry the harvest${RESET}"
+      return 2
+    fi
+    if [ -n "$prior" ]; then
+      rm -f "$prior"
+    fi
+    if ! _manifest_write "$live_p" "$(_sha256_file "$repo_p")"; then
+      echo -e "  ${RED}failed to record $live_p in the sync manifest${RESET}"
+      echo -e "  ${YELLOW}re-commit to retry the harvest${RESET}"
+      return 2
     fi
     harvested+=("$repo_p")
   done
