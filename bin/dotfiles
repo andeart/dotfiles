@@ -636,7 +636,11 @@ push() {
   local resolved=0
 
   local state repo_p live_p
-  _progress_begin "classifying" "$(_count_mapping_pairs)" "path"
+  # Kept past the animation so the closing summary can report the coverage the
+  # erased counter was showing.
+  local total
+  total="$(_count_mapping_pairs)"
+  _progress_begin "classifying" "$total" "path"
   while IFS=$'\t' read -r state repo_p live_p; do
     _progress_tick
     if [ -L "$live_p" ]; then
@@ -811,7 +815,9 @@ push() {
     echo ""
     echo -e "  ${GREEN}push complete (${applied} change(s))${RESET}"
   elif [ ${#unharvested[@]} -eq 0 ]; then
-    echo -e "  ${GREEN}nothing to do - already in sync${RESET}"
+    # Reached only when nothing was writable, harvestable or conflicting, so
+    # every pair the walk covered was in_sync.
+    echo -e "  ${GREEN}${total}/${total} already in sync. Nothing to do.${RESET}"
   fi
 }
 
@@ -824,7 +830,11 @@ status() {
   local state repo_p live_p
   # in_sync paths are the overwhelming majority and say nothing worth reading,
   # so the animation stands in for them and only drift gets a result line.
-  _progress_begin "checking" "$(_count_mapping_pairs)" "path"
+  # The total outlives the animation: it is the only remaining evidence of how
+  # much was covered once the line is erased, so the summary repeats it.
+  local total
+  total="$(_count_mapping_pairs)"
+  _progress_begin "checking" "$total" "path"
   while IFS=$'\t' read -r state repo_p live_p; do
     _progress_tick
     case "$state" in
@@ -880,13 +890,13 @@ status() {
 
   echo ""
   if [ $found_conflict -eq 1 ]; then
-    echo -e "  ${RED}conflicts present - resolve manually before running push or freeze${RESET}"
+    echo -e "  ${RED}${total}/${total} checked. Conflicts present - resolve manually before running push or freeze.${RESET}"
     return 2
   elif [ $has_drift -eq 1 ]; then
-    echo -e "  ${YELLOW}drift present - run 'dotfiles push' or 'dotfiles freeze' to reconcile${RESET}"
+    echo -e "  ${YELLOW}${total}/${total} checked. Drift present - run 'dotfiles push' or 'dotfiles freeze' to reconcile.${RESET}"
     return 0
   else
-    echo -e "  ${GREEN}clean${RESET}"
+    echo -e "  ${GREEN}${total}/${total} checked. All clean.${RESET}"
     return 0
   fi
 }

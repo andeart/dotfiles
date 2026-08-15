@@ -22,7 +22,7 @@ load helpers/setup
     DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
     "$DOTFILES_BIN" push
   [ "$status" -eq 0 ]
-  [[ "$output" == *"nothing to do"* ]]
+  [[ "$output" == *"1/1 already in sync. Nothing to do."* ]]
 }
 
 @test "dotfiles status exits 0 with clean state" {
@@ -2119,4 +2119,73 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" != *$'\r'* ]]
   [[ "$output" == *"auto-harvested"* ]]
+}
+
+@test "status closes with the count it checked when everything is clean" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  cp "$TEST_REPO/claude/CLAUDE.md" "$TEST_LIVE/.claude/CLAUDE.md"
+  a=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  c=$(shasum -a 256 "$TEST_REPO/claude/CLAUDE.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$a\",\"$TEST_LIVE/.claude/CLAUDE.md\":\"$c\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE=$'agents/AGENTS.md|~/.agents/AGENTS.md\nclaude/CLAUDE.md|~/.claude/CLAUDE.md' \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"2/2 checked. All clean."* ]]
+}
+
+@test "status keeps the count in its summary when drift is present" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  cp "$TEST_REPO/claude/CLAUDE.md" "$TEST_LIVE/.claude/CLAUDE.md"
+  a=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  c=$(shasum -a 256 "$TEST_REPO/claude/CLAUDE.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$a\",\"$TEST_LIVE/.claude/CLAUDE.md\":\"$c\"}" > "$TEST_STATE"
+  echo "drifted live" > "$TEST_LIVE/.claude/CLAUDE.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE=$'agents/AGENTS.md|~/.agents/AGENTS.md\nclaude/CLAUDE.md|~/.claude/CLAUDE.md' \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"2/2 checked. Drift present"* ]]
+}
+
+@test "status keeps the count in its summary when conflicts are present" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  echo "edited in repo" > "$TEST_REPO/agents/AGENTS.md"
+  echo "edited in live" > "$TEST_LIVE/.agents/AGENTS.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"1/1 checked. Conflicts present"* ]]
+}
+
+@test "push reports how many paths were already in sync when there is nothing to do" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  cp "$TEST_REPO/claude/CLAUDE.md" "$TEST_LIVE/.claude/CLAUDE.md"
+  a=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  c=$(shasum -a 256 "$TEST_REPO/claude/CLAUDE.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$a\",\"$TEST_LIVE/.claude/CLAUDE.md\":\"$c\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE=$'agents/AGENTS.md|~/.agents/AGENTS.md\nclaude/CLAUDE.md|~/.claude/CLAUDE.md' \
+    "$DOTFILES_BIN" push
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"2/2 already in sync. Nothing to do."* ]]
 }
