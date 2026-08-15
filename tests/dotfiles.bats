@@ -299,7 +299,7 @@ EOF
     "$DOTFILES_BIN" status
   [ "$status" -eq 0 ]
   [[ "$output" == *"agents/claude sync status"* ]]
-  [[ "$output" == *"in_sync"* ]]
+  [[ "$output" == *"checking 1 path"* ]]
 }
 
 @test "status returns non-zero and prints a diff when conflicts exist" {
@@ -1912,4 +1912,211 @@ EOF
   [ "$(git -C "$DOTFILES_ROOT" status --porcelain)" = "$status_before" ]
   # The overridden root is where the write should have landed.
   [ "$(cat "$TEST_REPO/vscode/extensions.txt")" = "publisher.installed" ]
+}
+
+# ---------------------------------------------------------------------------
+# Inline progress animation (shared helper)
+# ---------------------------------------------------------------------------
+
+@test "_progress helpers emit plain lines and no escape codes off a tty" {
+  run "$DOTFILES_TEST_BIN" progress
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"checking 3 paths"* ]]
+  [[ "$output" == *"found something"* ]]
+  # No carriage return, no erase-to-end-of-line, no counter redraw.
+  [[ "$output" != *$'\r'* ]]
+  [[ "$output" != *$'\033'* ]]
+  [[ "$output" != *"1/3"* ]]
+}
+
+@test "_progress helpers redraw one line with a counter on a tty" {
+  run env DOTFILES_ASSUME_TTY=1 "$DOTFILES_TEST_BIN" progress
+  [ "$status" -eq 0 ]
+  [[ "$output" == *$'\r'* ]]
+  [[ "$output" == *$'\033[K'* ]]
+  [[ "$output" == *"checking"* ]]
+  [[ "$output" == *"1/3"* ]]
+  [[ "$output" == *"2/3"* ]]
+  [[ "$output" == *"3/3"* ]]
+  # The plain-line phrasing belongs to the non-tty path only.
+  [[ "$output" != *"checking 3 paths"* ]]
+}
+
+@test "_progress advances the spinner frame on each tick" {
+  run env DOTFILES_ASSUME_TTY=1 "$DOTFILES_TEST_BIN" progress
+  [ "$status" -eq 0 ]
+  # Distinct glyphs across the sequence prove the animation moves rather than
+  # repainting one frame. Matched as literals: a bracket expression would be
+  # byte-matched under the C locale the suite runs in, collapsing them to one.
+  [[ "$output" == *⠋* ]]
+  [[ "$output" == *⠙* ]]
+  [[ "$output" == *⠹* ]]
+  [[ "$output" == *⠸* ]]
+}
+
+@test "_progress_end clears the line so nothing is left behind" {
+  run env DOTFILES_ASSUME_TTY=1 "$DOTFILES_TEST_BIN" progress
+  [ "$status" -eq 0 ]
+  # The last thing written is an erase, not a frame.
+  [[ "$output" == *$'\r\033[K' ]]
+}
+
+@test "_progress_print keeps result lines above the animation on a tty" {
+  run env DOTFILES_ASSUME_TTY=1 "$DOTFILES_TEST_BIN" progress
+  [ "$status" -eq 0 ]
+  # The result line is erased-then-printed with its own newline, so it scrolls
+  # up rather than being overwritten by the next frame.
+  [[ "$output" == *$'\r\033[K  found something\n'* ]]
+}
+
+@test "status animates an x/total counter while it walks the mapping" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  cp "$TEST_REPO/claude/CLAUDE.md" "$TEST_LIVE/.claude/CLAUDE.md"
+  run env \
+    DOTFILES_ASSUME_TTY=1 \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE=$'agents/AGENTS.md|~/.agents/AGENTS.md\nclaude/CLAUDE.md|~/.claude/CLAUDE.md' \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"1/2"* ]]
+  [[ "$output" == *"2/2"* ]]
+  [[ "$output" == *$'\033[K'* ]]
+}
+
+@test "status prints a plain phase line and no escape codes off a tty" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  cp "$TEST_REPO/claude/CLAUDE.md" "$TEST_LIVE/.claude/CLAUDE.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE=$'agents/AGENTS.md|~/.agents/AGENTS.md\nclaude/CLAUDE.md|~/.claude/CLAUDE.md' \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"checking 2 paths"* ]]
+  [[ "$output" != *$'\r'* ]]
+}
+
+@test "status omits in_sync paths from its results" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"in_sync"* ]]
+  [[ "$output" == *"clean"* ]]
+}
+
+@test "status still reports the paths that are not in_sync" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\",\"$TEST_LIVE/.claude/CLAUDE.md\":\"$hash\"}" > "$TEST_STATE"
+  echo "drifted live" > "$TEST_LIVE/.claude/CLAUDE.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE=$'agents/AGENTS.md|~/.agents/AGENTS.md\nclaude/CLAUDE.md|~/.claude/CLAUDE.md' \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"live_changed"* ]]
+  [[ "$output" == *".claude/CLAUDE.md"* ]]
+  # The in_sync sibling stays out of the way.
+  [[ "$output" != *"in_sync"* ]]
+  [[ "$output" != *".agents/AGENTS.md"* ]]
+}
+
+@test "push animates while it classifies and while it applies" {
+  make_tmp_world
+  echo '{}' > "$TEST_STATE"
+  run env \
+    DOTFILES_ASSUME_TTY=1 \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" push
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"classifying"* ]]
+  [[ "$output" == *"applying"* ]]
+  [[ "$output" == *$'\033[K'* ]]
+  # The result line survives the animation.
+  [[ "$output" == *"wrote"* ]]
+}
+
+@test "push prints plain phase lines off a tty" {
+  make_tmp_world
+  echo '{}' > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" push
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"classifying 1 path"* ]]
+  [[ "$output" != *$'\r'* ]]
+  [[ "$output" == *"wrote"* ]]
+}
+
+@test "freeze animates each of its steps" {
+  make_freeze_world
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = "--list-extensions" ] && echo "publisher.temp-root-only"
+EOF
+  cat > "$stub_dir/brew" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  leaves) echo "temp-root-only-formula" ;;
+  list) echo "temp-root-only-cask" ;;
+esac
+EOF
+  chmod +x "$stub_dir/code" "$stub_dir/brew"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ASSUME_TTY=1 \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" freeze
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"1/3"* ]]
+  [[ "$output" == *"2/3"* ]]
+  [[ "$output" == *"3/3"* ]]
+  [[ "$output" == *$'\033[K'* ]]
+}
+
+@test "freeze --pre-commit writes no escape codes into the hook log" {
+  make_tmp_world
+  # Anchor the pair first so the edited live file reads as live_changed rather
+  # than an unanchored both_changed, which would abort before any harvest.
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  echo "harvest me" > "$TEST_LIVE/.agents/AGENTS.md"
+  run env \
+    DOTFILES_ASSUME_TTY=1 \
+    DOTFILES_PRECOMMIT_DRYRUN_GIT=1 \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" freeze --pre-commit
+  [ "$status" -eq 0 ]
+  [[ "$output" != *$'\r'* ]]
+  [[ "$output" == *"auto-harvested"* ]]
 }

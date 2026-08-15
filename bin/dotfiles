@@ -15,6 +15,105 @@ _MERGE_RESOLVED=()
 _MERGE_UNRESOLVED=()
 
 # ---------------------------------------------------------------------------
+# Inline progress
+#
+# One shared line that status, push and freeze render through, so all three
+# animate identically. The frame advances on each _progress_tick rather than
+# from a background ticker: every caller already drives a loop this can hang
+# off, and a foreground-only spinner cannot outlive the script and keep writing
+# to a terminal it no longer owns.
+#
+# Off a tty the whole thing degrades to a single plain announcement per phase,
+# which is what keeps escape codes out of CI logs and the `freeze --pre-commit`
+# hook output. DOTFILES_ASSUME_TTY=1 forces the animated path so tests can
+# capture it, mirroring DOTFILES_ASSUME_INTERACTIVE.
+# ---------------------------------------------------------------------------
+_PROGRESS_FRAMES=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+_PROGRESS_LABEL=""
+_PROGRESS_NOUN="item"
+_PROGRESS_CURRENT=0
+_PROGRESS_TOTAL=0
+_PROGRESS_FRAME=0
+_PROGRESS_DRAWN=0
+
+_progress_is_animated() {
+  [ -n "${DOTFILES_ASSUME_TTY:-}" ] || [ -t 1 ]
+}
+
+# Repaint the line in place. Animated mode only.
+_progress_draw() {
+  local counter=""
+  if [ "$_PROGRESS_TOTAL" -gt 0 ]; then
+    counter="  $_PROGRESS_CURRENT/$_PROGRESS_TOTAL"
+  fi
+  printf '\r\033[K  %s %s%s' \
+    "${_PROGRESS_FRAMES[$_PROGRESS_FRAME]}" "$_PROGRESS_LABEL" "$counter"
+  _PROGRESS_DRAWN=1
+}
+
+# Start a phase. An empty label defers the announcement to the first tick, which
+# is how freeze drives one counter across three separately-labelled steps.
+_progress_begin() {
+  _PROGRESS_LABEL="${1:-}"
+  _PROGRESS_TOTAL="${2:-0}"
+  _PROGRESS_NOUN="${3:-item}"
+  _PROGRESS_CURRENT=0
+  _PROGRESS_FRAME=0
+  if [ -n "$_PROGRESS_LABEL" ]; then
+    if _progress_is_animated; then
+      _progress_draw
+    elif [ "$_PROGRESS_TOTAL" -gt 0 ]; then
+      local noun="$_PROGRESS_NOUN"
+      [ "$_PROGRESS_TOTAL" -eq 1 ] || noun="${noun}s"
+      echo "  $_PROGRESS_LABEL $_PROGRESS_TOTAL $noun"
+    else
+      echo "  $_PROGRESS_LABEL"
+    fi
+  fi
+  return 0
+}
+
+# Advance one unit of work, optionally relabelling. Silent off a tty: the phase
+# was already announced by _progress_begin, and freeze's steps are announced by
+# the headers those helpers print for themselves.
+_progress_tick() {
+  if [ -n "${1:-}" ]; then
+    _PROGRESS_LABEL="$1"
+  fi
+  _PROGRESS_CURRENT=$((_PROGRESS_CURRENT + 1))
+  _PROGRESS_FRAME=$(( (_PROGRESS_FRAME + 1) % ${#_PROGRESS_FRAMES[@]} ))
+  if _progress_is_animated; then
+    _progress_draw
+  fi
+  return 0
+}
+
+# Erase the line. The counter is deliberately left intact so a caller can clear
+# the animation, print a step's results, and resume at the next tick.
+_progress_end() {
+  if [ "$_PROGRESS_DRAWN" -eq 1 ] && _progress_is_animated; then
+    printf '\r\033[K'
+    _PROGRESS_DRAWN=0
+  fi
+  return 0
+}
+
+# Print a finished line above the animation: erase the frame, write the line,
+# then repaint, so results scroll up while the animation stays pinned at the
+# bottom. With no line drawn this is a plain `echo -e`, which is what makes the
+# non-animated path byte-identical to printing directly.
+_progress_print() {
+  if [ "$_PROGRESS_DRAWN" -eq 1 ] && _progress_is_animated; then
+    printf '\r\033[K'
+    echo -e "$1"
+    _progress_draw
+  else
+    echo -e "$1"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Path mapping (repo source → live destinations)
 # Each entry: "<repo_relpath>|<live_dest_1>[,<live_dest_2>,...]"
 # Leading ~/ in destinations is expanded to $HOME at runtime.
@@ -168,10 +267,29 @@ _classify() {
 
 # Returns 0 and prints lines: "<state>\t<repo_path>\t<live_path>"
 # for every (repo_file, live_file) pair across all entries in PATH_MAPPING.
-# Recurses into directory mappings; processes each mirror destination
-# independently. Honors DOTFILES_ROOT_OVERRIDE / DOTFILES_HOME_OVERRIDE
-# / DOTFILES_MAPPING_OVERRIDE for testing.
 _walk_mapping() {
+  local repo_p live_p
+  while IFS=$'\t' read -r repo_p live_p; do
+    printf "%s\t%s\t%s\n" "$(_classify "$repo_p" "$live_p")" "$repo_p" "$live_p"
+  done < <(_walk_pairs)
+}
+
+# The number of pairs _walk_mapping is about to yield, for the progress
+# counter's total. Enumeration only - no _classify, so none of the per-file
+# shasum and jq work the walk itself pays for.
+_count_mapping_pairs() {
+  _walk_pairs | wc -l | tr -d ' '
+}
+
+# Prints lines: "<repo_path>\t<live_path>" for every (repo_file, live_file) pair
+# across all entries in PATH_MAPPING, unclassified. Recurses into directory
+# mappings; processes each mirror destination independently. Honors
+# DOTFILES_ROOT_OVERRIDE / DOTFILES_HOME_OVERRIDE / DOTFILES_MAPPING_OVERRIDE
+# for testing.
+#
+# Kept separate from _walk_mapping so the counter's total and the walk cannot
+# disagree about what the mapping contains.
+_walk_pairs() {
   local repo_root="${DOTFILES_ROOT_OVERRIDE:-$DOTFILES_ROOT}"
   local home_root="${DOTFILES_HOME_OVERRIDE:-$HOME}"
 
@@ -196,14 +314,14 @@ _walk_mapping() {
       IFS="$IFS_save"
       # Expand ~ relative to home_root (not literal $HOME) so tests can swap
       live_full="${live_dest/#\~/$home_root}"
-      _walk_one_pair "$repo_full" "$live_full"
+      _emit_one_pair "$repo_full" "$live_full"
       IFS=','
     done
     IFS="$IFS_save"
   done
 }
 
-_walk_one_pair() {
+_emit_one_pair() {
   local repo_path="$1" live_path="$2"
 
   if [ -d "$repo_path" ] || [ -d "$live_path" ]; then
@@ -220,16 +338,14 @@ _walk_one_pair() {
       while IFS= read -r f; do
         local rel="${f#$repo_path/}"
         printf '%s\n' "$rel" >> "$seen_tmp"
-        local lp="$live_path/$rel"
-        printf "%s\t%s\t%s\n" "$(_classify "$f" "$lp")" "$f" "$lp"
+        printf "%s\t%s\n" "$f" "$live_path/$rel"
       done < <(find "$repo_path" -type f ! -name '.DS_Store' ! -name 'Thumbs.db')
     fi
     if [ -d "$live_path" ]; then
       while IFS= read -r f; do
         local rel="${f#$live_path/}"
         if ! grep -qxF "$rel" "$seen_tmp" 2>/dev/null; then
-          local rp="$repo_path/$rel"
-          printf "%s\t%s\t%s\n" "$(_classify "$rp" "$f")" "$rp" "$f"
+          printf "%s\t%s\n" "$repo_path/$rel" "$f"
         fi
       done < <(find "$live_path" -type f ! -name '.DS_Store' ! -name 'Thumbs.db')
     fi
@@ -237,7 +353,7 @@ _walk_one_pair() {
     trap - EXIT
   else
     # File mapping
-    printf "%s\t%s\t%s\n" "$(_classify "$repo_path" "$live_path")" "$repo_path" "$live_path"
+    printf "%s\t%s\n" "$repo_path" "$live_path"
   fi
 }
 
@@ -520,7 +636,9 @@ push() {
   local resolved=0
 
   local state repo_p live_p
+  _progress_begin "classifying" "$(_count_mapping_pairs)" "path"
   while IFS=$'\t' read -r state repo_p live_p; do
+    _progress_tick
     if [ -L "$live_p" ]; then
       symlink_blockers+=("$live_p")
       continue
@@ -547,6 +665,7 @@ push() {
         ;;
     esac
   done < <(_walk_mapping)
+  _progress_end
 
   if [ ${#symlink_blockers[@]} -gt 0 ]; then
     echo -e "  ${RED}refusing to overwrite symlink(s):${RESET}"
@@ -662,7 +781,11 @@ push() {
   # Resolutions already wrote both sides, so they count as applied work.
   local applied=$resolved
   local w
+  if [ ${#writable[@]} -gt 0 ]; then
+    _progress_begin "applying" "${#writable[@]}" "change"
+  fi
   for w in "${writable[@]+"${writable[@]}"}"; do
+    _progress_tick
     state="$(echo -e "$w" | awk -F'\t' '{print $1}')"
     repo_p="$(echo -e "$w" | awk -F'\t' '{print $2}')"
     live_p="$(echo -e "$w" | awk -F'\t' '{print $3}')"
@@ -671,17 +794,18 @@ push() {
         mkdir -p "$(dirname "$live_p")"
         cp "$repo_p" "$live_p"
         _manifest_write "$live_p" "$(_sha256_file "$live_p")"
-        echo -e "  ${GREEN}wrote${RESET}  $live_p"
+        _progress_print "  ${GREEN}wrote${RESET}  $live_p"
         applied=$((applied + 1))
         ;;
       repo_removed)
         rm -f "$live_p"
         _manifest_delete "$live_p"
-        echo -e "  ${YELLOW}removed${RESET}  $live_p"
+        _progress_print "  ${YELLOW}removed${RESET}  $live_p"
         applied=$((applied + 1))
         ;;
     esac
   done
+  _progress_end
 
   if [ $applied -gt 0 ]; then
     echo ""
@@ -698,27 +822,31 @@ status() {
   local found_conflict=0 has_drift=0 bi_count=0
   local true_conflicts=()
   local state repo_p live_p
+  # in_sync paths are the overwhelming majority and say nothing worth reading,
+  # so the animation stands in for them and only drift gets a result line.
+  _progress_begin "checking" "$(_count_mapping_pairs)" "path"
   while IFS=$'\t' read -r state repo_p live_p; do
+    _progress_tick
     case "$state" in
       in_sync)
-        echo -e "  ${GREEN}${state}${RESET}  $live_p"
         ;;
       both_changed)
         if _pair_is_byte_identical "$repo_p" "$live_p"; then
-          echo -e "  ${RED}${state}${RESET}  $live_p ${YELLOW}(byte-identical)${RESET}"
+          _progress_print "  ${RED}${state}${RESET}  $live_p ${YELLOW}(byte-identical)${RESET}"
           bi_count=$((bi_count + 1))
         else
-          echo -e "  ${RED}${state}${RESET}  $live_p"
+          _progress_print "  ${RED}${state}${RESET}  $live_p"
           true_conflicts+=("$repo_p|$live_p")
         fi
         has_drift=1
         ;;
       *)
-        echo -e "  ${YELLOW}${state}${RESET}  $live_p"
+        _progress_print "  ${YELLOW}${state}${RESET}  $live_p"
         has_drift=1
         ;;
     esac
   done < <(_walk_mapping)
+  _progress_end
 
   if [ ${#true_conflicts[@]} -gt 0 ]; then
     echo ""
@@ -765,6 +893,7 @@ status() {
 
 freeze_agents() {
   echo -e "${BOLD}Agents/Claude file sync${RESET}"
+  _progress_tick "agents/claude sync"
 
   # Phase 1: classify. Only both_changed is fatal; repo drift on other paths
   # is informational — freeze leaves it alone and tells the user to push if
@@ -798,6 +927,7 @@ freeze_agents() {
         ;;
     esac
   done < <(_walk_mapping)
+  _progress_end
 
   if [ ${#conflicts[@]} -gt 0 ]; then
     local bi_conflicts=() true_conflicts=()
@@ -1104,8 +1234,10 @@ freeze_agents_precommit() {
 
 freeze_vscode() {
   echo -e "${BOLD}VS Code extensions${RESET}"
+  _progress_tick "vscode extensions"
 
   if ! command -v code &>/dev/null; then
+    _progress_end
     echo -e "  ${RED}skipped${RESET} - 'code' CLI not found"
     return
   fi
@@ -1115,6 +1247,7 @@ freeze_vscode() {
   live=$(code --list-extensions | sort)
   local committed
   committed=$(sort "$ext_file")
+  _progress_end
 
   if [[ "$live" == "$committed" ]]; then
     echo -e "  ${GREEN}up to date${RESET}"
@@ -1145,8 +1278,10 @@ freeze_vscode() {
 
 freeze_brew() {
   echo -e "${BOLD}Homebrew packages${RESET}"
+  _progress_tick "homebrew packages"
 
   if ! command -v brew &>/dev/null; then
+    _progress_end
     echo -e "  ${RED}skipped${RESET} - brew not found"
     return
   fi
@@ -1168,6 +1303,7 @@ freeze_brew() {
   extra_brew=$(comm -13 <(echo "$declared_brew") <(echo "$installed_brew"))
   missing_cask=$(comm -23 <(echo "$declared_cask") <(echo "$installed_cask"))
   extra_cask=$(comm -13 <(echo "$declared_cask") <(echo "$installed_cask"))
+  _progress_end
 
   if [[ -z "$missing_brew" && -z "$extra_brew" && -z "$missing_cask" && -z "$extra_cask" ]]; then
     echo -e "  ${GREEN}up to date${RESET}"
@@ -1212,11 +1348,17 @@ freeze() {
     return $?
   fi
   echo ""
+  # One counter across all three steps. Each helper ends the line itself before
+  # printing; these calls are the safety net for the paths that return early.
+  _progress_begin "" 3
   freeze_vscode
+  _progress_end
   echo ""
   freeze_brew
+  _progress_end
   echo ""
   freeze_agents
+  _progress_end
   echo ""
 }
 
