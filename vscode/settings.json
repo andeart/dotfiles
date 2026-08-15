@@ -77,8 +77,6 @@
         "suppressGitMissingWarning": true
     },
     "gitlens.ai.enabled": false,
-    "gitlens.ai.model": "vscode",
-    "gitlens.ai.vscode.model": "copilot:gpt-4.1",
     "gitlens.gitkraken.mcp.autoEnabled": false,
     "go.toolsManagement.autoUpdate": true,
     "[json]": {
