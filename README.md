@@ -54,8 +54,7 @@ dotfiles/
 ├── git/
 │   ├── gitconfig.symlink              → ~/.gitconfig
 │   ├── gitconfig.local.symlink        → ~/.gitconfig.local (machine-specific)
-│   ├── bin/*                          # git functions
-│   └── hooks/*                        # git hooks
+│   └── bin/*                          # git functions
 ├── markdownlint/
 │   └── markdownlint.yml.symlink        → ~/.markdownlint.yml
 ├── vscode/

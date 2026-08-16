@@ -31,6 +31,7 @@ jobs:
       - name: Install lint and test tools
         env:
           GITLEAKS_VERSION: 8.30.1
+          YQ_VERSION: 4.53.2
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
@@ -42,6 +43,12 @@ jobs:
           gitleaks_url="${gitleaks_url}/v${GITLEAKS_VERSION}"
           gitleaks_url="${gitleaks_url}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           curl -sSfL "$gitleaks_url" | sudo tar -xz -C /usr/local/bin gitleaks
+          # Installed from releases rather than apt: the "yq" apt package is the
+          # Python one, which takes jq syntax and cannot run these expressions.
+          yq_url="https://github.com/mikefarah/yq/releases/download"
+          yq_url="${yq_url}/v${YQ_VERSION}/yq_linux_amd64"
+          sudo curl -sSfL "$yq_url" -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
           sudo apt-get update
           sudo apt-get install -y bats jq
 
