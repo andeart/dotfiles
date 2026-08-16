@@ -13,9 +13,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          # Full history so gitleaks attributes findings to their original
-          # commits, which is what the commit-pinned entries in
-          # .gitleaksignore are matched against.
+          # Full history for the secret scan below, so gitleaks attributes
+          # findings to their original commits - which is what the commit-pinned
+          # entries in .gitleaksignore are matched against.
           fetch-depth: 0
 
       - name: Set up Python
@@ -54,3 +54,19 @@ jobs:
 
       - name: Run pre-commit (mirrors local hooks)
         run: pre-commit run --all-files --show-diff-on-failure
+
+      # The step above reaches only the staged hook, against an empty index; the
+      # pre-push hook does not run there at all. This is the tier that covers
+      # history, and the only one doing real work in CI.
+      - name: Scan history for secrets
+        run: |
+          set -euo pipefail
+          log="$(mktemp)"
+          gitleaks git --redact --no-banner --no-color 2>&1 | tee "$log"
+          commits="$(grep -oE '[0-9]+ commits scanned' "$log" | cut -d' ' -f1 | tail -1 || true)"
+          # A scan that reaches no commits still exits 0, which would read as a
+          # pass while checking nothing.
+          if [[ "${commits:-0}" -eq 0 ]]; then
+            echo "gitleaks scanned 0 commits - the history tier is not scanning." >&2
+            exit 1
+          fi

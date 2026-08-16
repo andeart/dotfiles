@@ -6,3 +6,10 @@ updates:
       interval: weekly
     assignees:
       - andeart
+
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: weekly
+    assignees:
+      - andeart

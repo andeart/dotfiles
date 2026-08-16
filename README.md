@@ -32,10 +32,10 @@ dotfiles/
 ├── .markdownlint.yml                  → markdownlint/markdownlint.yml.symlink (in-repo .yml needed by pre-commit)
 ├── .yamllint.yml                      # yamllint config, used by pre-commit and CI
 ├── .github/
-│   ├── dependabot.yml                 # weekly bumps for pinned action SHAs
+│   ├── dependabot.yml                 # weekly bumps for pinned action SHAs and pre-commit hook revs
 │   └── workflows/
 │       ├── claude.yml                 # dispatches Claude Code on @claude mentions
-│       └── lint-and-test.yml          # runs pre-commit hooks on PRs to main and on push to main
+│       └── lint-and-test.yml          # runs pre-commit hooks and a full-history secret scan on PRs to main and on push to main
 ├── bin/*                              # utility scripts
 ├── tests/*                            # bats test suites
 ├── brew/

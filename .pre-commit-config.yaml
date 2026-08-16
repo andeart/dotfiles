@@ -20,11 +20,16 @@ repos:
         language: system
         files: \.(yml|yaml)$
 
-      - id: gitleaks
-        name: gitleaks
-        entry: gitleaks detect --redact --no-banner
+      # Range: everything on HEAD that no remote has yet. "origin/HEAD..HEAD"
+      # is deliberately avoided - where origin/HEAD is unset gitleaks swallows
+      # the git error, scans nothing, and exits 0.
+      - id: gitleaks-history
+        name: gitleaks (history)
+        entry: gitleaks git --redact --no-banner --log-opts "HEAD --not --remotes"
         language: system
         pass_filenames: false
+        always_run: true
+        stages: [pre-push]
 
       - id: bats
         name: bats
@@ -32,3 +37,12 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+
+  # Ordered after the local hooks so the staged diff this scans already includes
+  # whatever dotfiles-freeze-agents harvested into the commit. `entry` bakes in
+  # `--staged` and is not overridable from here, which is why the push-time tier
+  # above has to be a local hook rather than a second use of this one.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
