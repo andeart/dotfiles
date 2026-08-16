@@ -1,3 +1,9 @@
+# Both hook types install from a bare `pre-commit install`, which is what
+# bootstrap.sh runs; without this the pre-push tier is never installed.
+default_install_hook_types: [pre-commit, pre-push]
+# Commit-time unless a hook opts out; only gitleaks-history runs at push.
+default_stages: [pre-commit]
+
 repos:
   - repo: local
     hooks:
