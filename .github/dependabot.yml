@@ -1,8 +1,22 @@
 version: 2
+# Let a release sit in public for a month before taking it. Neither ecosystem
+# below supports the semver-bump cooldown keys, so default-days is the only
+# knob. Security updates bypass cooldown, so a CVE fix still lands right away.
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 30
+    assignees:
+      - andeart
+
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 30
     assignees:
       - andeart
