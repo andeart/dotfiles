@@ -2108,8 +2108,9 @@ EOF
   hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
   echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
   echo "harvest me" > "$TEST_LIVE/.agents/AGENTS.md"
+  # No DOTFILES_ASSUME_TTY: a commit hook runs without a terminal, so this is
+  # the configuration the hook log is actually produced under.
   run env \
-    DOTFILES_ASSUME_TTY=1 \
     DOTFILES_PRECOMMIT_DRYRUN_GIT=1 \
     DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
     DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
@@ -2118,6 +2119,7 @@ EOF
     "$DOTFILES_BIN" freeze --pre-commit
   [ "$status" -eq 0 ]
   [[ "$output" != *$'\r'* ]]
+  [[ "$output" != *$'\033'* ]]
   [[ "$output" == *"auto-harvested"* ]]
 }
 
@@ -2188,4 +2190,103 @@ EOF
     "$DOTFILES_BIN" push
   [ "$status" -eq 0 ]
   [[ "$output" == *"2/2 already in sync. Nothing to do."* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Colour is a terminal affordance: off a tty nothing should emit an escape byte
+# ---------------------------------------------------------------------------
+
+@test "status emits no escape codes at all when stdout is not a tty" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\",\"$TEST_LIVE/.claude/CLAUDE.md\":\"$hash\"}" > "$TEST_STATE"
+  echo "drifted live" > "$TEST_LIVE/.claude/CLAUDE.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE=$'agents/AGENTS.md|~/.agents/AGENTS.md\nclaude/CLAUDE.md|~/.claude/CLAUDE.md' \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"live_changed"* ]]
+  [[ "$output" != *$'\033'* ]]
+}
+
+@test "status still colours its output on a tty" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  run env \
+    DOTFILES_ASSUME_TTY=1 \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" status
+  [ "$status" -eq 0 ]
+  # Green on the closing summary - proves the gate didn't scrub the tty path too.
+  [[ "$output" == *$'\033[0;32m'* ]]
+}
+
+@test "push emits no escape codes at all when stdout is not a tty" {
+  make_tmp_world
+  echo '{}' > "$TEST_STATE"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" push
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"wrote"* ]]
+  [[ "$output" != *$'\033'* ]]
+}
+
+@test "a conflicting status emits no escape codes off a tty" {
+  make_tmp_world
+  cp "$TEST_REPO/agents/AGENTS.md" "$TEST_LIVE/.agents/AGENTS.md"
+  hash=$(shasum -a 256 "$TEST_REPO/agents/AGENTS.md" | awk '{print $1}')
+  echo "{\"$TEST_LIVE/.agents/AGENTS.md\":\"$hash\"}" > "$TEST_STATE"
+  echo "edited in repo" > "$TEST_REPO/agents/AGENTS.md"
+  echo "edited in live" > "$TEST_LIVE/.agents/AGENTS.md"
+  run env \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" status
+  # The conflict path prints the diff header and the summary through the same
+  # constants, so it is the densest colour surface in the script.
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"conflict diffs"* ]]
+  [[ "$output" != *$'\033'* ]]
+}
+
+@test "freeze emits no escape codes at all when stdout is not a tty" {
+  make_freeze_world
+  stub_dir="$(mktemp -d)"
+  cat > "$stub_dir/code" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = "--list-extensions" ] && echo "publisher.temp-root-only"
+EOF
+  cat > "$stub_dir/brew" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  leaves) echo "temp-root-only-formula" ;;
+  list) echo "temp-root-only-cask" ;;
+esac
+EOF
+  chmod +x "$stub_dir/code" "$stub_dir/brew"
+  run env \
+    PATH="$stub_dir:$PATH" \
+    DOTFILES_ROOT_OVERRIDE="$TEST_REPO" \
+    DOTFILES_HOME_OVERRIDE="$TEST_LIVE" \
+    DOTFILES_STATE_FILE="$TEST_STATE" \
+    DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
+    "$DOTFILES_BIN" freeze
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"up to date"* ]]
+  [[ "$output" != *$'\033'* ]]
 }
