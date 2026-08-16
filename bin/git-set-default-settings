@@ -10,6 +10,10 @@ confirmed individually and every prompt defaults to No. <path> defaults to the
 current directory. Re-runs are idempotent.
 
 Settings:
+  pre-commit base            Creates .pre-commit-config.yaml and sets
+                             default_stages (commit-time unless a hook opts out)
+                             and default_install_hook_types (so a bare
+                             `pre-commit install` covers the push tier too).
   gitleaks secret scanning   Two pre-commit hooks: the published gitleaks hook
                              scans the staged diff on every commit, and a
                              gitleaks-history hook scans the commits a push
@@ -35,13 +39,22 @@ EOF
 #
 # Each setting is a trio of functions sharing a <name>_ prefix:
 #   <name>_label            human label used in the confirmation prompt
-#   <name>_plan  <repo>     read-only; prints one "ok:"/"change:"/"blocked:"
-#                           line per sub-change
+#   <name>_plan  <repo>     read-only; prints one line per sub-change, prefixed
+#                           "ok:", "change:", "ask:", or "blocked:"
 #   <name>_apply <repo>     performs the changes
 #
 # To add a setting, define the trio and register its prefix in SETTINGS below.
-# The driver treats a plan with no "change:" line as already satisfied, and any
-# "blocked:" line as a refusal to apply.
+#
+# Plan prefixes:
+#   ok:       already satisfied
+#   change:   covered by the setting-level confirmation
+#   ask:      needs a confirmation of its own, for a sub-change that edits
+#             something the consumer already chose rather than adding something
+#             absent. Formatted "ask:<pad><key>|<question>"; apply reads the
+#             answer back with `ask_accepted <key>`.
+#   blocked:  a refusal to apply - the whole setting is skipped
+#
+# A plan with no "change:" or "ask:" line is already satisfied.
 # ---------------------------------------------------------------------------
 
 PRECOMMIT_CONFIG=".pre-commit-config.yaml"
@@ -80,11 +93,15 @@ reply_is_yes() {
 
 # Prompt on the tty (so it works even when stdin is otherwise occupied) and
 # return whether the answer is yes. Defaults to No.
-confirm() {
-  local label="$1" reply
-  printf 'Apply %s? [y/N] ' "$label" > /dev/tty
+prompt_yes_no() {
+  local question="$1" reply
+  printf '%s [y/N] ' "$question" > /dev/tty
   read -r reply < /dev/tty || reply=""
   reply_is_yes "$reply"
+}
+
+confirm() {
+  prompt_yes_no "Apply $1?"
 }
 
 # repo_root <path>: print the working-tree root of the repo containing <path>.
@@ -98,6 +115,28 @@ repo_root() {
 # plan_has <plan> <prefix>: whether any plan line carries that prefix.
 plan_has() {
   grep -q "^$2:" <<<"$1"
+}
+
+# plan_is_pending <plan>: whether the plan has any work left to do.
+plan_is_pending() {
+  plan_has "$1" change || plan_has "$1" ask
+}
+
+# An "ask:" line is "ask:<pad><key>|<question>". The key is an internal handle
+# the setting's apply reads back through ask_accepted; only the question is
+# shown.
+ask_key() {
+  local rest="${1#ask:}"
+  printf '%s\n' "${rest%%|*}" | tr -d '[:space:]'
+}
+
+ask_message() {
+  printf '%s\n' "${1#*|}"
+}
+
+# plan_display: filter that strips ask keys from a plan on its way to the user.
+plan_display() {
+  sed 's/^\(ask: *\)[a-z_]*|/\1/'
 }
 
 # yaml_has_hook <file> <repo> <hook-id>: "true" if the hook is registered under
@@ -119,6 +158,76 @@ hook_state() {
     echo pre-commit
   else
     echo foreign
+  fi
+}
+
+# yaml_has_key <file> <key>: "true" if the top-level key is present, "false"
+# otherwise (including when the file is absent).
+yaml_has_key() {
+  local file="$1"
+  [[ -f "$file" ]] || { echo false; return 0; }
+  K="$2" yq 'has(strenv(K))' "$file" 2>/dev/null || echo false
+}
+
+# yaml_list_has <file> <key> <value>: "true" if the top-level key is a sequence
+# containing that value, "false" otherwise (including when the file is absent).
+yaml_list_has() {
+  local file="$1"
+  [[ -f "$file" ]] || { echo false; return 0; }
+  K="$2" V="$3" yq '[.[strenv(K)][]? | select(. == strenv(V))] | length > 0' \
+    "$file" 2>/dev/null || echo false
+}
+
+# ask_accepted <key>: whether the driver recorded a yes for the "ask:" line
+# carrying that key.
+ask_accepted() {
+  [[ " ${ACCEPTED_ASKS:-} " == *" $1 "* ]]
+}
+
+precommit_base_label() { echo "pre-commit base configuration"; }
+
+precommit_base_plan() {
+  local config="$1/$PRECOMMIT_CONFIG"
+
+  if [[ "$(yaml_has_key "$config" default_stages)" == "true" ]]; then
+    echo "ok:      $PRECOMMIT_CONFIG already sets default_stages"
+  else
+    echo "change:  set default_stages to [pre-commit] in $PRECOMMIT_CONFIG"
+  fi
+
+  if [[ "$(yaml_has_key "$config" default_install_hook_types)" != "true" ]]; then
+    echo "change:  set default_install_hook_types to [pre-commit, pre-push] in $PRECOMMIT_CONFIG"
+  elif [[ "$(yaml_list_has "$config" default_install_hook_types pre-push)" == "true" ]]; then
+    echo "ok:      $PRECOMMIT_CONFIG already installs the pre-push hook type"
+  else
+    echo "ask:     widen_hook_types|default_install_hook_types omits pre-push, so a bare 'pre-commit install' leaves the push tier uninstalled - add it?"
+  fi
+}
+
+precommit_base_apply() {
+  local config="$1/$PRECOMMIT_CONFIG"
+
+  # A new config is written as a literal rather than built up with yq, which
+  # appends new top-level keys after the existing ones - inserting into a bare
+  # "repos: []" would leave the defaults stranded below the repo list.
+  if [[ ! -f "$config" ]]; then
+    printf 'default_stages: [pre-commit]\n' > "$config"
+    printf 'default_install_hook_types: [pre-commit, pre-push]\n' >> "$config"
+    printf 'repos: []\n' >> "$config"
+    return 0
+  fi
+
+  if [[ "$(yaml_has_key "$config" default_stages)" != "true" ]]; then
+    yq -i '.default_stages = ["pre-commit"] | .default_stages style="flow"' "$config"
+  fi
+
+  if [[ "$(yaml_has_key "$config" default_install_hook_types)" != "true" ]]; then
+    yq -i '.default_install_hook_types = ["pre-commit", "pre-push"]
+           | .default_install_hook_types style="flow"' "$config"
+  elif [[ "$(yaml_list_has "$config" default_install_hook_types pre-push)" != "true" ]] \
+    && ask_accepted widen_hook_types; then
+    yq -i '.default_install_hook_types += ["pre-push"]
+           | .default_install_hook_types style="flow"' "$config"
   fi
 }
 
@@ -239,8 +348,11 @@ dependabot_precommit_apply() {
   fi
 }
 
-# Registry of settings to offer, in order.
+# Registry of settings to offer, in order. precommit_base leads: it establishes
+# the config file and the framework-level defaults, and every hook setting after
+# it layers onto that.
 SETTINGS=(
+  precommit_base
   gitleaks_precommit
   dependabot_precommit
 )
@@ -250,19 +362,20 @@ SETTINGS=(
 # ---------------------------------------------------------------------------
 
 run_setting() {
-  local name="$1" plan
+  local name="$1" plan line
   plan="$("${name}_plan" "$REPO")"
+  ACCEPTED_ASKS=""
 
   echo
   echo "$("${name}_label"):"
-  printf '%s\n' "$plan" | sed 's/^/  /'
+  printf '%s\n' "$plan" | plan_display | sed 's/^/  /'
 
   if plan_has "$plan" blocked; then
     echo "  skipped: clear the blocked item above first."
     return 0
   fi
 
-  if ! plan_has "$plan" change; then
+  if ! plan_is_pending "$plan"; then
     echo "  nothing to do."
     return 0
   fi
@@ -271,12 +384,36 @@ run_setting() {
     return 0
   fi
 
-  if confirm "$("${name}_label")"; then
-    "${name}_apply" "$REPO"
-    echo "  applied."
-  else
-    echo "  skipped."
+  # The setting-level prompt covers the "change:" items. Declining it skips the
+  # setting outright, asks included - there is no reading of "no" under which
+  # the follow-up questions still apply.
+  local approved=""
+  if plan_has "$plan" change; then
+    if confirm "$("${name}_label")"; then
+      approved=1
+    else
+      echo "  skipped."
+      return 0
+    fi
   fi
+
+  # Each "ask:" item carries its own prompt, so a value the consumer already
+  # chose is never rewritten on the strength of a yes to something else.
+  while IFS= read -r line; do
+    [[ "$line" == ask:* ]] || continue
+    if prompt_yes_no "$(ask_message "$line")"; then
+      ACCEPTED_ASKS+=" $(ask_key "$line")"
+      approved=1
+    fi
+  done <<<"$plan"
+
+  if [[ -z "$approved" ]]; then
+    echo "  skipped."
+    return 0
+  fi
+
+  "${name}_apply" "$REPO"
+  echo "  applied."
 }
 
 main() {
