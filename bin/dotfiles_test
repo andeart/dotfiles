@@ -23,5 +23,16 @@ case "${1:-}" in
   pair_is_byte_identical) _pair_is_byte_identical "${2:?usage: dotfiles_test pair_is_byte_identical <repo> <live>}" "${3:?usage: dotfiles_test pair_is_byte_identical <repo> <live>}" ;;
   offer_resolve_byte_identical) shift; _offer_resolve_byte_identical "$@" ;;
   freeze_agents_precommit) freeze_agents_precommit ;;
+  # A canned progress sequence: begin, tick, tick, print a result, tick, end.
+  # Exercises every helper in one run so a test can assert on the whole shape of
+  # the output rather than one call at a time.
+  progress)
+    _progress_begin "checking" 3 "path"
+    _progress_tick
+    _progress_tick
+    _progress_print "  found something"
+    _progress_tick
+    _progress_end
+    ;;
   *)              echo "Unknown test command: ${1:-<none>}" >&2; exit 1 ;;
 esac
