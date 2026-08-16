@@ -3,11 +3,28 @@ set -euo pipefail
 
 DOTFILES_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-BOLD='\033[1m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-RESET='\033[0m'
+# True when stdout is a terminal. Gates colour and the progress animation
+# alike: both are terminal affordances, and a redirected run - a pipe, CI, the
+# pre-commit hook's log - should carry no escape bytes at all.
+# DOTFILES_ASSUME_TTY=1 forces the terminal path so tests can capture it,
+# mirroring DOTFILES_ASSUME_INTERACTIVE.
+_stdout_is_tty() {
+  [ -n "${DOTFILES_ASSUME_TTY:-}" ] || [ -t 1 ]
+}
+
+if _stdout_is_tty; then
+  BOLD='\033[1m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  RED='\033[0;31m'
+  RESET='\033[0m'
+else
+  BOLD=''
+  GREEN=''
+  YELLOW=''
+  RED=''
+  RESET=''
+fi
 
 # Split of the pairs handed to _offer_merge_conflicts, so callers can drop the
 # resolved ones and carry on. Both are reset on every call.
@@ -24,9 +41,8 @@ _MERGE_UNRESOLVED=()
 # to a terminal it no longer owns.
 #
 # Off a tty the whole thing degrades to a single plain announcement per phase,
-# which is what keeps escape codes out of CI logs and the `freeze --pre-commit`
-# hook output. DOTFILES_ASSUME_TTY=1 forces the animated path so tests can
-# capture it, mirroring DOTFILES_ASSUME_INTERACTIVE.
+# which together with the colour gate above is what keeps escape codes out of
+# CI logs and the `freeze --pre-commit` hook output.
 # ---------------------------------------------------------------------------
 _PROGRESS_FRAMES=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
 _PROGRESS_LABEL=""
@@ -35,10 +51,6 @@ _PROGRESS_CURRENT=0
 _PROGRESS_TOTAL=0
 _PROGRESS_FRAME=0
 _PROGRESS_DRAWN=0
-
-_progress_is_animated() {
-  [ -n "${DOTFILES_ASSUME_TTY:-}" ] || [ -t 1 ]
-}
 
 # Repaint the line in place. Animated mode only.
 _progress_draw() {
@@ -60,7 +72,7 @@ _progress_begin() {
   _PROGRESS_CURRENT=0
   _PROGRESS_FRAME=0
   if [ -n "$_PROGRESS_LABEL" ]; then
-    if _progress_is_animated; then
+    if _stdout_is_tty; then
       _progress_draw
     elif [ "$_PROGRESS_TOTAL" -gt 0 ]; then
       local noun="$_PROGRESS_NOUN"
@@ -82,7 +94,7 @@ _progress_tick() {
   fi
   _PROGRESS_CURRENT=$((_PROGRESS_CURRENT + 1))
   _PROGRESS_FRAME=$(( (_PROGRESS_FRAME + 1) % ${#_PROGRESS_FRAMES[@]} ))
-  if _progress_is_animated; then
+  if _stdout_is_tty; then
     _progress_draw
   fi
   return 0
@@ -91,7 +103,7 @@ _progress_tick() {
 # Erase the line. The counter is deliberately left intact so a caller can clear
 # the animation, print a step's results, and resume at the next tick.
 _progress_end() {
-  if [ "$_PROGRESS_DRAWN" -eq 1 ] && _progress_is_animated; then
+  if [ "$_PROGRESS_DRAWN" -eq 1 ] && _stdout_is_tty; then
     printf '\r\033[K'
     _PROGRESS_DRAWN=0
   fi
@@ -103,7 +115,7 @@ _progress_end() {
 # bottom. With no line drawn this is a plain `echo -e`, which is what makes the
 # non-animated path byte-identical to printing directly.
 _progress_print() {
-  if [ "$_PROGRESS_DRAWN" -eq 1 ] && _progress_is_animated; then
+  if [ "$_PROGRESS_DRAWN" -eq 1 ] && _stdout_is_tty; then
     printf '\r\033[K'
     echo -e "$1"
     _progress_draw
