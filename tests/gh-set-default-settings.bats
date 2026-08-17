@@ -133,8 +133,13 @@ EXISTING_RULESETS_JSON='[{"id":12345,"name":"default baseline guard"},{"id":99,"
 
 # ─── repo_settings_diff (pure) ─────────────────────────────────────────────
 
+FLAT_OFF='"allow_auto_merge":false,"allow_update_branch":false,"delete_branch_on_merge":false'
+FLAT_ON='"allow_auto_merge":true,"allow_update_branch":true,"delete_branch_on_merge":true'
+SA_ON='"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}'
+SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret_scanning_push_protection":{"status":"disabled"}}'
+
 @test "repo_settings_diff flags fields that are currently false" {
-  local cur='{"allow_auto_merge":false,"allow_update_branch":false,"delete_branch_on_merge":false}'
+  local cur="{$FLAT_OFF,\"private\":false,$SA_OFF}"
   call repo_settings_diff "$cur"
   [ "$status" -eq 0 ]
   [[ "$output" == *"allow_auto_merge"* ]]
@@ -144,9 +149,73 @@ EXISTING_RULESETS_JSON='[{"id":12345,"name":"default baseline guard"},{"id":99,"
 }
 
 @test "repo_settings_diff reports no change when already true" {
-  local cur='{"allow_auto_merge":true,"allow_update_branch":true,"delete_branch_on_merge":true}'
+  local cur="{$FLAT_ON,\"private\":false,$SA_ON}"
   call repo_settings_diff "$cur"
   [ "$status" -eq 0 ]
   [[ "$output" == *"true (no change)"* ]]
   [[ "$output" != *"would change"* ]]
+}
+
+# ─── repo_settings_diff: security settings (pure) ──────────────────────────
+
+@test "repo_settings_diff flags security settings that are currently disabled" {
+  local cur="{$FLAT_ON,\"private\":false,$SA_OFF}"
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"secret_scanning:"* ]]
+  [[ "$output" == *"secret_scanning_push_protection:"* ]]
+  [[ "$output" == *"disabled -> enabled (would change)"* ]]
+}
+
+@test "repo_settings_diff reports no change when security settings are already enabled" {
+  local cur="{$FLAT_ON,\"private\":false,$SA_ON}"
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"secret_scanning:"* ]]
+  [[ "$output" == *"enabled (no change)"* ]]
+  [[ "$output" != *"would change"* ]]
+}
+
+@test "repo_settings_diff treats an absent security_and_analysis as a change" {
+  local cur="{$FLAT_ON,\"private\":false,\"security_and_analysis\":null}"
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"null -> enabled (would change)"* ]]
+}
+
+@test "repo_settings_diff skips security settings on a private repo" {
+  local cur="{$FLAT_ON,\"private\":true,\"security_and_analysis\":null}"
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"secret_scanning:"* ]]
+  [[ "$output" == *"skipped (private repo - needs GitHub Secret Protection)"* ]]
+  [[ "$output" != *"would change"* ]]
+}
+
+@test "repo_settings_diff still diffs the flat settings on a private repo" {
+  local cur="{$FLAT_OFF,\"private\":true,\"security_and_analysis\":null}"
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"false -> true (would change)"* ]]
+}
+
+@test "repo_settings_diff keeps the widest field name aligned with the rest" {
+  local cur="{$FLAT_ON,\"private\":false,$SA_ON}"
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  # Every line pads the label to the same column, so the values line up.
+  run bash -c 'awk "{ print index(\$0, \$2) }" <<< "$1" | sort -u | wc -l' _ "$output"
+  [ "$output" -eq 1 ]
+}
+
+# ─── security_settings_available (pure) ────────────────────────────────────
+
+@test "security_settings_available accepts a public repo" {
+  call security_settings_available '{"private":false}'
+  [ "$status" -eq 0 ]
+}
+
+@test "security_settings_available rejects a private repo" {
+  call security_settings_available '{"private":true}'
+  [ "$status" -ne 0 ]
 }
