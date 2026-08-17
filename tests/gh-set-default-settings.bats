@@ -13,6 +13,12 @@ call() {
   run bash -c '_GH_SETTINGS_LIB_ONLY=1 source "$0"; "$@"' "$BIN" "$@"
 }
 
+# Like call(), with OWNER_REPO set. Functions that report on an applied write
+# name the repo in their failure message.
+call_in_repo() {
+  run bash -c '_GH_SETTINGS_LIB_ONLY=1 source "$0"; OWNER_REPO=owner/repo; "$@"' "$BIN" "$@"
+}
+
 # ─── flags & help ──────────────────────────────────────────────────────────
 
 @test "--help prints usage and exits 0" {
@@ -218,4 +224,91 @@ SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret
 @test "security_settings_available rejects a private repo" {
   call security_settings_available '{"private":true}'
   [ "$status" -ne 0 ]
+}
+
+# ─── assert_applied (pure) ─────────────────────────────────────────────────
+
+@test "assert_applied passes silently when the API echoed the requested value" {
+  call_in_repo assert_applied secret_scanning enabled enabled
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "assert_applied passes for a flat setting echoed as true" {
+  call_in_repo assert_applied allow_auto_merge true true
+  [ "$status" -eq 0 ]
+}
+
+@test "assert_applied fails naming the field, the value seen, and the value wanted" {
+  call_in_repo assert_applied secret_scanning disabled enabled
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"secret_scanning"* ]]
+  [[ "$output" == *"is 'disabled', not 'enabled'"* ]]
+  [[ "$output" == *"owner/repo"* ]]
+}
+
+@test "assert_applied fails when the field is absent from the response" {
+  call_in_repo assert_applied secret_scanning_push_protection null enabled
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"secret_scanning_push_protection"* ]]
+  [[ "$output" == *"is 'null', not 'enabled'"* ]]
+}
+
+@test "assert_applied fails when a flat setting comes back false" {
+  call_in_repo assert_applied delete_branch_on_merge false true
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"is 'false', not 'true'"* ]]
+}
+
+# ─── apply_* read-back, with gh stubbed ────────────────────────────────────
+#
+# A shell function named gh shadows the real binary, so these exercise the
+# apply path against a response of our choosing without touching the network.
+
+@test "apply_security_settings rejects a success response that did not apply" {
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { echo disabled; }
+    apply_security_settings
+  ' _ "$BIN"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"secret_scanning"* ]]
+  [[ "$output" == *"not 'enabled'"* ]]
+}
+
+@test "apply_security_settings accepts a response that reports the setting enabled" {
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { echo enabled; }
+    apply_security_settings
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+}
+
+@test "apply_repo_settings rejects a success response that did not apply" {
+  # Passed through the environment: an unquoted JSON literal inside the script
+  # body would brace-expand before the stub ever ran.
+  export STUB_RESPONSE='{"allow_auto_merge":true,"allow_update_branch":false,"delete_branch_on_merge":true}'
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { echo "$STUB_RESPONSE"; }
+    apply_repo_settings
+  ' _ "$BIN"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"allow_update_branch"* ]]
+  [[ "$output" == *"not 'true'"* ]]
+}
+
+@test "apply_repo_settings accepts a response with every setting true" {
+  export STUB_RESPONSE='{"allow_auto_merge":true,"allow_update_branch":true,"delete_branch_on_merge":true}'
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { echo "$STUB_RESPONSE"; }
+    apply_repo_settings
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
 }

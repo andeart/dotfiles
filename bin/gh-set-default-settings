@@ -361,14 +361,29 @@ repo_settings_diff() {
   done
 }
 
+# assert_applied <field> <actual> <expected>: die unless the API echoed back the
+# value that was just requested. A PATCH that returns 200 is not proof the write
+# landed, and a settings script is trusted precisely because it is not watched,
+# so every write is read back. The PATCH response carries the resulting repo
+# state, so this costs no extra request.
+assert_applied() {
+  local field="$1" actual="$2" expected="$3"
+  [[ "$actual" == "$expected" ]] \
+    || die "${OWNER_REPO} accepted the request but ${field} is '${actual}', not '${expected}'."
+}
+
 apply_repo_settings() {
-  local args=() entry field
+  local args=() entry field response
   for entry in "${REPO_SETTINGS[@]}"; do
     field="${entry%%|*}"
     args+=(-F "${field}=true")
   done
-  gh api --method PATCH "/repos/${OWNER_REPO}" "${args[@]}" >/dev/null \
+  response="$(gh api --method PATCH "/repos/${OWNER_REPO}" "${args[@]}")" \
     || die "failed to update repo settings for ${OWNER_REPO} (need admin access)."
+  for entry in "${REPO_SETTINGS[@]}"; do
+    field="${entry%%|*}"
+    assert_applied "$field" "$(jq -r --arg f "$field" '.[$f]' <<<"$response")" "true"
+  done
 }
 
 # apply_security_settings: enable each SECURITY_SETTINGS entry. One PATCH per
@@ -378,12 +393,14 @@ apply_repo_settings() {
 # gh's key[subkey]=value syntax builds the nested security_and_analysis object,
 # so this stays an -F arg list like apply_repo_settings rather than a JSON body.
 apply_security_settings() {
-  local entry field
+  local entry field status
   for entry in "${SECURITY_SETTINGS[@]}"; do
     field="${entry%%|*}"
-    gh api --method PATCH "/repos/${OWNER_REPO}" \
-      -F "security_and_analysis[${field}][status]=enabled" >/dev/null \
+    status="$(gh api --method PATCH "/repos/${OWNER_REPO}" \
+      -F "security_and_analysis[${field}][status]=enabled" \
+      --jq ".security_and_analysis.${field}.status")" \
       || die "failed to enable ${field} on ${OWNER_REPO} (need admin access, and GitHub Secret Protection on a private repo)."
+    assert_applied "$field" "$status" "enabled"
   done
 }
 
