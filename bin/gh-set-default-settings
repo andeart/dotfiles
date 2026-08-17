@@ -134,6 +134,18 @@ REPO_SETTINGS=(
   "delete_branch_on_merge|Automatically delete head branches"
 )
 
+# Repo-level settings to enable under the nested security_and_analysis object,
+# as "field|human label". These are not flat booleans: they read back at
+# .security_and_analysis.<field>.status and are set to "enabled" rather than
+# true, so they are diffed and applied separately from REPO_SETTINGS.
+#
+# Order matters. Push protection builds on secret scanning, so secret_scanning
+# has to be enabled first.
+SECURITY_SETTINGS=(
+  "secret_scanning|Secret scanning"
+  "secret_scanning_push_protection|Push protection for secret scanning"
+)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -309,38 +321,96 @@ run_rulesets_section() {
   echo '  runs CI checks.'
 }
 
+# security_settings_available <current_repo_json>: whether SECURITY_SETTINGS can
+# be applied to this repo. Secret scanning runs free on public repos; private
+# repos need a GitHub Secret Protection plan, and where there is none the API
+# returns security_and_analysis as null and rejects the PATCH. Gating on
+# visibility keeps a private-repo bootstrap from failing on a setting that was
+# never available to it. Repos on a plan that does cover private secret
+# scanning are skipped too - enable those two in Settings > Advanced Security.
+security_settings_available() {
+  [[ "$(jq -r '.private' <<<"$1")" != "true" ]]
+}
+
 # repo_settings_diff <current_repo_json>: print a change/no-change line per
-# desired setting, comparing the current value to the desired value (true).
+# desired setting, comparing the current value to the desired value.
 repo_settings_diff() {
   local current="$1" entry field cur
   for entry in "${REPO_SETTINGS[@]}"; do
     field="${entry%%|*}"
     cur="$(jq -r --arg f "$field" '.[$f]' <<<"$current")"
     if [[ "$cur" == "true" ]]; then
-      printf '  %-26s true (no change)\n' "${field}:"
+      printf '  %-33s true (no change)\n' "${field}:"
     else
-      printf '  %-26s %s -> true (would change)\n' "${field}:" "$cur"
+      printf '  %-33s %s -> true (would change)\n' "${field}:" "$cur"
+    fi
+  done
+
+  for entry in "${SECURITY_SETTINGS[@]}"; do
+    field="${entry%%|*}"
+    if ! security_settings_available "$current"; then
+      printf '  %-33s skipped (private repo - needs GitHub Secret Protection)\n' "${field}:"
+      continue
+    fi
+    cur="$(jq -r --arg f "$field" '.security_and_analysis[$f].status' <<<"$current")"
+    if [[ "$cur" == "enabled" ]]; then
+      printf '  %-33s enabled (no change)\n' "${field}:"
+    else
+      printf '  %-33s %s -> enabled (would change)\n' "${field}:" "$cur"
     fi
   done
 }
 
+# assert_applied <field> <actual> <expected>: die unless the API echoed back the
+# value that was just requested. A PATCH that returns 200 is not proof the write
+# landed, and a settings script is trusted precisely because it is not watched,
+# so every write is read back. The PATCH response carries the resulting repo
+# state, so this costs no extra request.
+assert_applied() {
+  local field="$1" actual="$2" expected="$3"
+  [[ "$actual" == "$expected" ]] \
+    || die "${OWNER_REPO} accepted the request but ${field} is '${actual}', not '${expected}'."
+}
+
 apply_repo_settings() {
-  local args=() entry field
+  local args=() entry field response
   for entry in "${REPO_SETTINGS[@]}"; do
     field="${entry%%|*}"
     args+=(-F "${field}=true")
   done
-  gh api --method PATCH "/repos/${OWNER_REPO}" "${args[@]}" >/dev/null \
+  response="$(gh api --method PATCH "/repos/${OWNER_REPO}" "${args[@]}")" \
     || die "failed to update repo settings for ${OWNER_REPO} (need admin access)."
+  for entry in "${REPO_SETTINGS[@]}"; do
+    field="${entry%%|*}"
+    assert_applied "$field" "$(jq -r --arg f "$field" '.[$f]' <<<"$response")" "true"
+  done
+}
+
+# apply_security_settings: enable each SECURITY_SETTINGS entry. One PATCH per
+# setting, not one batched call: it keeps a rejection attributable to the exact
+# setting that failed, and it honours the enable order the array documents.
+#
+# gh's key[subkey]=value syntax builds the nested security_and_analysis object,
+# so this stays an -F arg list like apply_repo_settings rather than a JSON body.
+apply_security_settings() {
+  local entry field status
+  for entry in "${SECURITY_SETTINGS[@]}"; do
+    field="${entry%%|*}"
+    status="$(gh api --method PATCH "/repos/${OWNER_REPO}" \
+      -F "security_and_analysis[${field}][status]=enabled" \
+      --jq ".security_and_analysis.${field}.status")" \
+      || die "failed to enable ${field} on ${OWNER_REPO} (need admin access, and GitHub Secret Protection on a private repo)."
+    assert_applied "$field" "$status" "enabled"
+  done
 }
 
 run_repo_settings_section() {
   echo
   echo "Repo settings:"
   local current entry field label
-  # Fetched to preflight repo access (dies on failure) and to diff current vs
-  # desired in the dry-run branch below; the apply path sets the fields
-  # unconditionally, so it does not read $current.
+  # Fetched to preflight repo access (dies on failure), to diff current vs
+  # desired in the dry-run branch below, and to read repo visibility for the
+  # security-settings gate. The flat settings are set unconditionally.
   current="$(gh api "/repos/${OWNER_REPO}")" \
     || die "failed to read repo settings for ${OWNER_REPO} (check the repo exists and gh is authenticated)."
 
@@ -353,12 +423,24 @@ run_repo_settings_section() {
   for entry in "${REPO_SETTINGS[@]}"; do
     field="${entry%%|*}"
     label="${entry#*|}"
-    printf '  %-24s = true   (%s)\n' "$field" "$label"
+    printf '  %-31s = true    (%s)\n' "$field" "$label"
+  done
+  for entry in "${SECURITY_SETTINGS[@]}"; do
+    field="${entry%%|*}"
+    label="${entry#*|}"
+    if security_settings_available "$current"; then
+      printf '  %-31s = enabled (%s)\n' "$field" "$label"
+    else
+      printf '  %-31s = skipped (%s - private repo needs GitHub Secret Protection)\n' "$field" "$label"
+    fi
   done
   echo "  auto-close linked issues: no API, on by default - verify in Settings UI"
 
   if confirm "repo settings"; then
     apply_repo_settings
+    if security_settings_available "$current"; then
+      apply_security_settings
+    fi
     echo 'Note: "Auto-close issues with merged linked pull requests" has no API. It is enabled by default - verify in Settings > General if needed.'
   else
     echo "  skipped."
