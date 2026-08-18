@@ -6,8 +6,9 @@ usage() {
 Usage: gh-set-default-settings [--dry-run] <repo>
 
 Apply a curated set of branch rulesets and repo-level settings to a GitHub
-repository via the gh CLI. Each ruleset is confirmed individually and the repo
-settings are confirmed as a group; every prompt defaults to No.
+repository via the gh CLI. Each ruleset is confirmed individually, the repo
+settings are confirmed as a group, and each Dependabot setting is confirmed on
+its own; every prompt defaults to No.
 
 <repo> may be any of:
   git@github.com:owner/repo.git
@@ -17,7 +18,8 @@ settings are confirmed as a group; every prompt defaults to No.
 
 Rulesets are idempotent: a ruleset whose name already exists is updated in place
 (PUT); otherwise it is created (POST). Repo settings are set with PATCH and are
-idempotent by nature.
+idempotent by nature. Dependabot settings already enabled are reported and left
+alone rather than prompted for.
 
 Requires: gh (authenticated), jq.
 
@@ -144,6 +146,24 @@ REPO_SETTINGS=(
 SECURITY_SETTINGS=(
   "secret_scanning|Secret scanning"
   "secret_scanning_push_protection|Push protection for secret scanning"
+)
+
+# Dependabot settings to offer, as "endpoint|human label", where endpoint is the
+# path segment under /repos/{owner}/{repo}. Neither is a field on the repo PATCH
+# body, so they cannot be entries in REPO_SETTINGS or SECURITY_SETTINGS: each is
+# its own sub-resource enabled by a PUT that carries no body, and each reports
+# its current state differently. Each also gets its own confirmation, because
+# security updates open pull requests unprompted - a larger change than alerts,
+# which only report.
+#
+# Deliberately not behind security_settings_available: that gate exists because
+# secret scanning on a private repo needs a paid plan, while both Dependabot
+# settings are free on private repos.
+#
+# Order matters. Security updates act on what alerts surface, so alerts go first.
+DEPENDABOT_SETTINGS=(
+  "vulnerability-alerts|Dependabot alerts"
+  "automated-security-fixes|Dependabot security updates"
 )
 
 # ---------------------------------------------------------------------------
@@ -404,6 +424,97 @@ apply_security_settings() {
   done
 }
 
+# dependabot_state <endpoint>: "enabled", "disabled", or "unknown".
+#
+# The status line is read rather than gh's exit code, so a 404 - a real answer
+# meaning "not enabled" - stays distinct from a transport or auth failure, which
+# must never be reported as "not enabled". Repo access is already proven by the
+# GET in run_repo_settings_section, which dies first if the repo is unreachable.
+#
+# The two endpoints answer differently. vulnerability-alerts is a bare status
+# code: 204 enabled, 404 not. automated-security-fixes returns a JSON body with
+# an "enabled" boolean; GitHub documents a 404 when Dependabot is off, but it
+# currently answers 200 with enabled=false, so both shapes are accepted.
+dependabot_state() {
+  local endpoint="$1" response code body enabled
+  response="$(gh api -i "/repos/${OWNER_REPO}/${endpoint}" 2>/dev/null)" || true
+  code="$(printf '%s\n' "$response" | awk 'NR==1 && $1 ~ /^HTTP/ { print $2; exit }')"
+
+  case "$code" in
+    204) echo enabled;  return 0 ;;
+    404) echo disabled; return 0 ;;
+    200) ;;
+    *)   echo unknown;  return 0 ;;
+  esac
+
+  # Only automated-security-fixes answers 200, and only with a body. jq reads
+  # .enabled directly rather than through `//`, which would fold false into the
+  # fallback and report an explicitly-disabled setting as unknown.
+  body="$(printf '%s\n' "$response" | awk 'blank { print } /^\r?$/ { blank = 1 }')"
+  enabled="$(jq -r '.enabled' <<<"$body" 2>/dev/null)" || enabled=""
+  case "$enabled" in
+    true)  echo enabled ;;
+    false) echo disabled ;;
+    *)     echo unknown ;;
+  esac
+}
+
+# dependabot_settings_diff: print a change/no-change line per Dependabot setting.
+# Unlike repo_settings_diff this takes no repo JSON, since neither setting is
+# carried on the repo response; each state costs its own request.
+dependabot_settings_diff() {
+  local entry endpoint cur
+  for entry in "${DEPENDABOT_SETTINGS[@]}"; do
+    endpoint="${entry%%|*}"
+    cur="$(dependabot_state "$endpoint")"
+    if [[ "$cur" == "enabled" ]]; then
+      printf '  %-33s enabled (no change)\n' "${endpoint}:"
+    else
+      printf '  %-33s %s -> enabled (would change)\n' "${endpoint}:" "$cur"
+    fi
+  done
+}
+
+# apply_dependabot_setting <endpoint> <label>: PUT the sub-resource, then read
+# the state back. The PUT answers 204 with no body, so unlike the PATCH writes
+# there is nothing to inspect in the response - the state is re-read instead.
+apply_dependabot_setting() {
+  local endpoint="$1" label="$2"
+  gh api --method PUT "/repos/${OWNER_REPO}/${endpoint}" >/dev/null \
+    || die "failed to enable ${label} on ${OWNER_REPO} (need admin access)."
+  assert_applied "$endpoint" "$(dependabot_state "$endpoint")" "enabled"
+}
+
+run_dependabot_section() {
+  echo
+  echo "Dependabot:"
+  local entry endpoint label state
+
+  if [[ -n "$DRY_RUN" ]]; then
+    dependabot_settings_diff
+    echo "  malware alerts: npm-only, no API - verify in Settings UI"
+    return 0
+  fi
+
+  for entry in "${DEPENDABOT_SETTINGS[@]}"; do
+    endpoint="${entry%%|*}"
+    label="${entry#*|}"
+    state="$(dependabot_state "$endpoint")"
+    if [[ "$state" == "enabled" ]]; then
+      printf '  %-31s already enabled\n' "${endpoint}:"
+      continue
+    fi
+    if confirm "$label"; then
+      apply_dependabot_setting "$endpoint" "$label"
+      echo "  enabled ${label}."
+    else
+      echo "  skipped."
+    fi
+  done
+
+  echo 'Note: Dependabot malware alerts are npm-only and have no API. Check them in Settings > Advanced Security.'
+}
+
 run_repo_settings_section() {
   echo
   echo "Repo settings:"
@@ -479,6 +590,8 @@ main() {
   run_rulesets_section
 
   run_repo_settings_section
+
+  run_dependabot_section
 
   echo "Done."
 }
