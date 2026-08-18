@@ -312,3 +312,291 @@ SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret
   ' _ "$BIN"
   [ "$status" -eq 0 ]
 }
+
+# ─── dependabot_state, with gh stubbed ─────────────────────────────────────
+#
+# The stub replays a whole `gh api -i` response - status line, headers, blank
+# line, body - because dependabot_state parses the status line rather than
+# trusting gh's exit code. STUB_RESPONSE travels through the environment and
+# STUB_RC sets the exit code, since gh exits non-zero on the 404 that means
+# "not enabled".
+
+# stub_gh_state <exit code> <response>: run dependabot_state against a canned
+# `gh api -i` response.
+stub_gh_state() {
+  export STUB_RC="$1" STUB_RESPONSE="$2"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { printf "%s\n" "$STUB_RESPONSE"; return "$STUB_RC"; }
+    dependabot_state "$2"
+  ' _ "$BIN" "$3"
+}
+
+@test "dependabot_state reads a 204 on vulnerability-alerts as enabled" {
+  stub_gh_state 0 'HTTP/2.0 204 No Content' vulnerability-alerts
+  [ "$status" -eq 0 ]
+  [ "$output" = "enabled" ]
+}
+
+@test "dependabot_state reads a 404 on vulnerability-alerts as disabled" {
+  stub_gh_state 1 'HTTP/2.0 404 Not Found' vulnerability-alerts
+  [ "$status" -eq 0 ]
+  [ "$output" = "disabled" ]
+}
+
+@test "dependabot_state reads enabled=true on automated-security-fixes as enabled" {
+  stub_gh_state 0 'HTTP/2.0 200 OK
+Content-Type: application/json
+
+{"enabled":true,"paused":false}' automated-security-fixes
+  [ "$status" -eq 0 ]
+  [ "$output" = "enabled" ]
+}
+
+# The live endpoint answers 200 with enabled=false rather than the 404 the docs
+# describe, and false must not be folded into the unknown fallback.
+@test "dependabot_state reads enabled=false on automated-security-fixes as disabled" {
+  stub_gh_state 0 'HTTP/2.0 200 OK
+Content-Type: application/json
+
+{"enabled":false,"paused":false}' automated-security-fixes
+  [ "$status" -eq 0 ]
+  [ "$output" = "disabled" ]
+}
+
+@test "dependabot_state reads the documented 404 on automated-security-fixes as disabled" {
+  stub_gh_state 1 'HTTP/2.0 404 Not Found' automated-security-fixes
+  [ "$status" -eq 0 ]
+  [ "$output" = "disabled" ]
+}
+
+@test "dependabot_state reports unknown rather than disabled on a server error" {
+  stub_gh_state 1 'HTTP/2.0 500 Internal Server Error' automated-security-fixes
+  [ "$status" -eq 0 ]
+  [ "$output" = "unknown" ]
+}
+
+@test "dependabot_state reports unknown when gh produces no status line" {
+  stub_gh_state 1 '' automated-security-fixes
+  [ "$status" -eq 0 ]
+  [ "$output" = "unknown" ]
+}
+
+@test "dependabot_state reports unknown when a 200 body has no enabled field" {
+  stub_gh_state 0 'HTTP/2.0 200 OK
+
+{"paused":false}' automated-security-fixes
+  [ "$status" -eq 0 ]
+  [ "$output" = "unknown" ]
+}
+
+@test "dependabot_state tolerates CRLF header line endings" {
+  stub_gh_state 0 "$(printf 'HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n{"enabled":true}')" automated-security-fixes
+  [ "$status" -eq 0 ]
+  [ "$output" = "enabled" ]
+}
+
+# ─── dependabot_settings_diff, with gh stubbed ─────────────────────────────
+
+@test "dependabot_settings_diff flags both settings when they are disabled" {
+  export STUB_RESPONSE='HTTP/2.0 404 Not Found'
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { printf "%s\n" "$STUB_RESPONSE"; return 1; }
+    dependabot_settings_diff
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"vulnerability-alerts:"* ]]
+  [[ "$output" == *"automated-security-fixes:"* ]]
+  [[ "$output" == *"disabled -> enabled (would change)"* ]]
+}
+
+@test "dependabot_settings_diff reports no change when both are enabled" {
+  # 204 satisfies alerts; security updates fall through to the body check.
+  export STUB_RESPONSE='HTTP/2.0 204 No Content'
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { printf "%s\n" "$STUB_RESPONSE"; }
+    dependabot_settings_diff
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"enabled (no change)"* ]]
+  [[ "$output" != *"would change"* ]]
+}
+
+@test "dependabot_settings_diff aligns its values with repo_settings_diff" {
+  export STUB_RESPONSE='HTTP/2.0 404 Not Found'
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { printf "%s\n" "$STUB_RESPONSE"; return 1; }
+    repo_settings_diff "{\"allow_auto_merge\":true,\"allow_update_branch\":true,\"delete_branch_on_merge\":true,\"private\":false,\"security_and_analysis\":{\"secret_scanning\":{\"status\":\"enabled\"},\"secret_scanning_push_protection\":{\"status\":\"enabled\"}}}"
+    dependabot_settings_diff
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  run bash -c 'awk "{ print index(\$0, \$2) }" <<< "$1" | sort -u | wc -l' _ "$output"
+  [ "$output" -eq 1 ]
+}
+
+# ─── apply_dependabot_setting, with gh stubbed ─────────────────────────────
+
+@test "apply_dependabot_setting dies when the PUT itself fails" {
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { return 1; }
+    apply_dependabot_setting vulnerability-alerts "Dependabot alerts"
+  ' _ "$BIN"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"failed to enable Dependabot alerts"* ]]
+  [[ "$output" == *"owner/repo"* ]]
+}
+
+@test "apply_dependabot_setting rejects a PUT that reported success but did not apply" {
+  # The PUT (no -i) succeeds silently; the read-back -i call reports a 404.
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() {
+      for a in "$@"; do [ "$a" = "-i" ] && { echo "HTTP/2.0 404 Not Found"; return 1; }; done
+      return 0
+    }
+    apply_dependabot_setting vulnerability-alerts "Dependabot alerts"
+  ' _ "$BIN"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"vulnerability-alerts"* ]]
+  [[ "$output" == *"is 'disabled', not 'enabled'"* ]]
+}
+
+@test "apply_dependabot_setting accepts a PUT the read-back confirms" {
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() {
+      for a in "$@"; do [ "$a" = "-i" ] && { echo "HTTP/2.0 204 No Content"; return 0; }; done
+      return 0
+    }
+    apply_dependabot_setting vulnerability-alerts "Dependabot alerts"
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+}
+
+# ─── run_dependabot_section ────────────────────────────────────────────────
+
+@test "run_dependabot_section dry run diffs both settings and makes no changes" {
+  export STUB_RESPONSE='HTTP/2.0 404 Not Found'
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    DRY_RUN=1
+    gh() {
+      for a in "$@"; do
+        [ "$a" = "--method" ] && { echo "DRY RUN WROTE" >&2; return 0; }
+      done
+      printf "%s\n" "$STUB_RESPONSE"; return 1
+    }
+    run_dependabot_section
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"vulnerability-alerts:"* ]]
+  [[ "$output" == *"automated-security-fixes:"* ]]
+  [[ "$output" == *"would change"* ]]
+  [[ "$output" != *"DRY RUN WROTE"* ]]
+}
+
+@test "run_dependabot_section dry run notes that malware alerts need the UI" {
+  export STUB_RESPONSE='HTTP/2.0 404 Not Found'
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    DRY_RUN=1
+    gh() { printf "%s\n" "$STUB_RESPONSE"; return 1; }
+    run_dependabot_section
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"malware alerts"* ]]
+  [[ "$output" == *"Settings UI"* ]]
+}
+
+@test "run_dependabot_section leaves already-enabled settings alone without prompting" {
+  export STUB_RESPONSE='HTTP/2.0 204 No Content'
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    DRY_RUN=""
+    confirm() { echo "PROMPTED" >&2; return 0; }
+    gh() {
+      for a in "$@"; do
+        [ "$a" = "--method" ] && { echo "WROTE" >&2; return 0; }
+      done
+      printf "%s\n" "$STUB_RESPONSE"
+    }
+    run_dependabot_section
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already enabled"* ]]
+  [[ "$output" != *"PROMPTED"* ]]
+  [[ "$output" != *"WROTE"* ]]
+}
+
+@test "run_dependabot_section offers each disabled setting its own confirmation" {
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    DRY_RUN=""
+    confirm() { echo "PROMPT: $1"; return 1; }
+    gh() { echo "HTTP/2.0 404 Not Found"; return 1; }
+    run_dependabot_section
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PROMPT: Dependabot alerts"* ]]
+  [[ "$output" == *"PROMPT: Dependabot security updates"* ]]
+}
+
+@test "run_dependabot_section writes nothing when both confirmations are declined" {
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    DRY_RUN=""
+    confirm() { return 1; }
+    gh() {
+      for a in "$@"; do
+        [ "$a" = "--method" ] && { echo "WROTE" >&2; return 0; }
+      done
+      echo "HTTP/2.0 404 Not Found"; return 1
+    }
+    run_dependabot_section
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"skipped."* ]]
+  [[ "$output" != *"WROTE"* ]]
+}
+
+@test "run_dependabot_section enables each confirmed setting and prints the malware note" {
+  STUB_DIR="$(mktemp -d)"
+  export STUB_DIR
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    DRY_RUN=""
+    confirm() { return 0; }
+    # Each endpoint reads 404 until its own PUT lands and 204 afterwards, so the
+    # read-back confirms the write it belongs to rather than a sibling setting.
+    gh() {
+      local path="${@: -1}" flag put=""
+      for a in "$@"; do [ "$a" = "--method" ] && put=1; done
+      flag="$STUB_DIR/$(basename "$path")"
+      if [ -n "$put" ]; then touch "$flag"; return 0; fi
+      if [ -e "$flag" ]; then echo "HTTP/2.0 204 No Content"; return 0; fi
+      echo "HTTP/2.0 404 Not Found"; return 1
+    }
+    run_dependabot_section
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"enabled Dependabot alerts."* ]]
+  [[ "$output" == *"enabled Dependabot security updates."* ]]
+  [[ "$output" == *"malware alerts are npm-only"* ]]
+}
