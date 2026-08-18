@@ -153,11 +153,9 @@ strip_ansi() {
 
 # ─── worktree lines ─────────────────────────────────────────────────────────────
 
-# Line labels, as UTF-8 byte escapes so they stay legible in editors that render
-# private-use glyphs as tofu:
-#   U+F418 oct-git_branch, U+F413 oct-file_directory
+# Line label, as a UTF-8 byte escape so it stays legible in editors that render
+# private-use glyphs as tofu: U+F418 oct-git_branch.
 GLYPH_BRANCH=$'\357\220\230'
-GLYPH_DIR=$'\357\220\223'
 
 # Build a repo with a linked worktree whose directory name and branch name
 # differ, which is the shape Claude Code's EnterWorktree produces: the worktree
@@ -221,7 +219,9 @@ count_lines() {
   local plain
   plain="$(printf '%s' "$output" | strip_ansi)"
   [[ "$(printf '%s' "$plain" | sed -n 2p)" == *"$GLYPH_BRANCH"* ]]
-  [[ "$(printf '%s' "$plain" | sed -n 3p)" == *"$GLYPH_DIR"* ]]
+  # The path stands alone on its line so a double-click selects the whole path
+  # and nothing else. Any prefix would be caught in the same selection.
+  [ "$(printf '%s' "$plain" | sed -n 3p)" = "$WT_DIR" ]
 }
 
 @test "falls back to a short SHA when the worktree HEAD is detached" {

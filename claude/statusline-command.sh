@@ -234,7 +234,7 @@ if in_linked_worktree "$ws_dir"; then
     # ends in the worktree's registered name.
     lines=()
     [ -n "$wt_branch" ] && lines+=("$(field '' "$wt_branch")")
-    lines+=("$(field '' "$ws_dir")")
+    lines+=("${DIM}${ws_dir}${RESET}")
 
     extra_lines=$(printf '\n%s' "${lines[@]}")
 fi
