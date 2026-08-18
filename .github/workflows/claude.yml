@@ -26,6 +26,9 @@ jobs:
         ))
       )
     runs-on: ubuntu-latest
+    # Agent runs vary a lot in length, so this is a runaway backstop rather
+    # than a bound on expected work.
+    timeout-minutes: 30
     environment: claude-scoped
     permissions:
       contents: write
