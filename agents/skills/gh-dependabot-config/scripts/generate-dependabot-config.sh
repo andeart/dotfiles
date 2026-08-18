@@ -336,6 +336,7 @@ Prints a .github/dependabot.yml to stdout and a detection report to stderr.
 
   --assignee LOGIN   GitHub login to assign update PRs to (required)
   --repo-root DIR    Repository to inspect (default: current directory)
+  --list-ecosystems  List every ecosystem this script can emit, then exit
   -h, --help         Print this message
 EOF
 }
@@ -353,6 +354,7 @@ main() {
       --assignee)  [ "$#" -ge 2 ] || die "--assignee needs a value"; assignee="$2"; shift 2 ;;
       --repo-root) [ "$#" -ge 2 ] || die "--repo-root needs a value"; repo_root="$2"; shift 2 ;;
       -h|--help)   usage; exit 0 ;;
+      --list-ecosystems) known_ecosystems; exit 0 ;;
       *)           usage >&2; die "unknown argument '$1'" ;;
     esac
   done
@@ -370,6 +372,23 @@ main() {
 
   report_detection "$pairs"
   printf '%s\n' "$pairs" | render_config "$assignee"
+}
+
+# known_ecosystems: print every package-ecosystem value this script can emit.
+# The self-healing step in SKILL.md diffs this against GitHub's live list to
+# catch ecosystems added upstream since the table was last touched.
+#
+# The placeholders in MANIFEST_TABLE and the suffix families in
+# ecosystem_for_manifest never appear literally on the right-hand side, so they
+# are named here. opentofu is listed because the table can reach it only by a
+# human overriding the terraform default.
+known_ecosystems() {
+  {
+    printf '%s\n' "$MANIFEST_TABLE" | grep '|' | cut -d'|' -f2 | grep -v '^@'
+    printf 'npm\nbun\ndeno\n'
+    printf 'pip\nuv\n'
+    printf 'nuget\ndocker\nterraform\nopentofu\n'
+  } | sort -u
 }
 
 # Sourced with _DEPENDABOT_LIB_ONLY=1 (by tests): define functions and stop
