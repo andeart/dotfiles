@@ -127,7 +127,12 @@ After committing (or if there was nothing to commit), check whether there are un
 - If the branch has an upstream configured, run `git log @{upstream}..HEAD --oneline`. If this outputs nothing, there are no unpushed commits.
 - If the branch has no upstream yet, there are commits to push by definition.
 
-Only stop with "nothing to ship" if ALL of the following are true: nothing was committed AND the branch has an upstream AND there are no unpushed commits.
+If nothing was committed AND the branch has an upstream AND there are no unpushed commits, there is nothing new to push - which is not the same as nothing to do. Run Step 4's PR lookup now and branch on it:
+
+- **A PR exists** - skip Step 3 entirely, then pick up Step 4 at its existing-PR branch: take `PR_URL` from the lookup, run the `--add-assignee @me` no-op, and continue into Step 5. The work item may still be missing its link: Plane can have been down on the ship that created the PR, the PR can predate the link step, or the link can have been removed by hand. Step 5 is the only thing that puts it back, and its duplicate check makes running it again free. Note that nothing was pushed, for the report.
+- **No PR exists** - stop with "nothing to ship".
+
+The default-branch flow's equivalent stop stays absolute. There, no unpushed commits means there is no work to move off the default branch at all - no feature branch and no PR for one - so there is nothing for a fall-through to act on.
 
 ### 3. Push
 
@@ -151,11 +156,13 @@ Otherwise, create a PR with a proper summary (see "Writing the PR" section below
 
 ### 5. Link the PR to Plane
 
-Follow the "Linking the PR to Plane" section below. Step 4's early exit lands here on purpose: a branch that already has a PR still needs the link checked, and that section is what keeps a second ship from adding a duplicate.
+Follow the "Linking the PR to Plane" section below. Two paths reach here without having created anything - Step 2's fall-through when there was nothing to push, and Step 4's early exit when a PR already existed - and both land here on purpose. A branch that already has a PR still needs its link checked, and that section is what keeps a repeat run from adding a duplicate.
 
 ### 6. Report
 
 Print the PR URL, then the Plane line from "Reporting the Plane outcome". You remain on the feature branch.
+
+If Step 2 found nothing new to push, say so above the PR URL. A run that only checked the link should not read like one that shipped work.
 
 ---
 
@@ -232,7 +239,7 @@ A link, not a comment: the sidebar holds one canonical entry that stays findable
 Whichever identifier "Recording the work item" resolved. That is the only source.
 
 - **No identifier there** - set `<PLANE_OUTCOME>` to `not-inferred` and skip the rest of this section. Do not re-derive a candidate and do not scan the conversation for one; the reasons in that section apply here unchanged.
-- **The PR already existed** (feature-branch flow, Step 4's early exit) - this run never composed a body, so read the identifier back off the PR that is already up:
+- **The PR already existed** (feature-branch flow, via Step 2's fall-through or Step 4's early exit) - this run never composed a body, so read the identifier back off the PR that is already up:
 
   ```bash
   gh pr view --json body --jq '.body' | head -1

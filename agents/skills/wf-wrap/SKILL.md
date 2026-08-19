@@ -126,7 +126,15 @@ Skip this step entirely if `<PLANE_ID>` is `none` (Step 3 already set `<PLANE_OU
 4. If the current state UUID is already one of those `completed` states, set `<PLANE_OUTCOME>` to `already-done` and skip the update. Compare against the whole group, not just the state picked in sub-step 3 - a project can complete work items into more than one state, and rewriting one of those to "Done" would erase that distinction.
 5. Call `workitem` with `action: "update"`, `project_id` set to the project UUID, `workitem_id` set to the work item UUID, and `state` set to the completed state's UUID. The parameter is `workitem_id`, not `work_item_id`. Do not pass any other fields. On success, set `<PLANE_OUTCOME>` to `updated`.
 
-If any Plane MCP call returns a non-404 error (network, auth, server), stop and report. Nothing has been torn down yet - fix Plane (e.g. set the state in the UI), then re-run.
+Then make sure the PR is linked, whatever `<PLANE_OUTCOME>` those sub-steps produced. The one exception is `not-found`, which never got as far as reading the UUIDs and so has nothing to link against. `wf-ship` attaches `<PR_URL>` to the work item's Links sidebar when it ships, but it cannot always get there: Plane may have been down for that ship, or the PR may predate the step that does it. This is the last point where anything still knows both the work item and the PR, so it is the last chance to make the link exist.
+
+1. Call `workitem_link` with `action: "list"`, `project_id`, and `workitem_id`.
+2. If any result's `url` equals `<PR_URL>` ignoring a trailing slash, set `<PLANE_LINK>` to `present` and do nothing else.
+3. Otherwise call `workitem_link` with `action: "create"`, `project_id`, `workitem_id`, and `url` set to `<PR_URL>`, and set `<PLANE_LINK>` to `backfilled`.
+
+If the state sub-steps hit a non-404 error (network, auth, server), stop and report. Nothing has been torn down yet - fix Plane (e.g. set the state in the UI), then re-run.
+
+The link calls are the exception to that rule: they run after the state is already correct, and the link is a convenience rather than the point of the wrap. On any error there, set `<PLANE_LINK>` to `failed`, keep the error text, and carry on into Step 5. Blocking a cleanup over a sidebar entry would leave the branch and worktree standing for no good reason.
 
 ## Step 5: Get back to the default branch
 
@@ -209,5 +217,11 @@ Switch on `<PLANE_OUTCOME>` for the Plane line:
 - `not-inferred`: `- No Plane work item updated - none named in the PR body or branch name.`
 - `not-found`: `- No Plane work item updated - <PLANE_ID> was inferred but not found in Plane.`
 - `no-completed-state`: `- No Plane work item updated - project has no "completed" state.`
+
+Then add a line for `<PLANE_LINK>`, but only when it has something to say:
+
+- `backfilled`: `- Linked the PR on <PLANE_ID> - the ship had not.`
+- `failed`: `- Could not link the PR on <PLANE_ID>: <error>. The wrap itself is done.`
+- `present`: no line. The link being there is the expected case, and reporting it every wrap buries the two outcomes that matter.
 
 The user always sees whether Plane was touched and why.

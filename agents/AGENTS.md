@@ -70,3 +70,4 @@
 ## Tool Usage
 
 - Never truncate output from linters, test runners, or compilers. Errors and summaries appear at the end - using `head` hides them. If output is long, use `tail` to see the summary.
+- `gh pr checks` always 403s on a fine-grained PAT - there is no "Checks" permission to grant. Read CI from the Actions API instead: `gh api repos/:owner/:repo/actions/runs?branch=<branch>` for the run, `.../actions/runs/<id>/jobs` for per-job results.
