@@ -18,12 +18,12 @@
       "Bash(gh run view:*)",
       "Bash(git --version)",
       "Bash(git add:*)",
-      "Bash(git config --get init.defaultBranch)",
-      "Bash(git config --global --list)",
-      "Bash(git config --show-origin --get *)",
       "Bash(git check-ignore:*)",
       "Bash(git cherry-pick *)",
       "Bash(git commit:*)",
+      "Bash(git config --get init.defaultBranch)",
+      "Bash(git config --global --list)",
+      "Bash(git config --show-origin --get *)",
       "Bash(git fetch:*)",
       "Bash(git help --man *)",
       "Bash(git log:*)",
@@ -31,7 +31,11 @@
       "Bash(git pull:*)",
       "Bash(git remote get-url:*)",
       "Bash(git rev-list:*)",
+      "Bash(git rev-parse --git-dir --git-common-dir --show-toplevel)",
+      "Bash(git rev-parse --is-inside-work-tree)",
       "Bash(git rev-parse --local-env-vars)",
+      "Bash(git rev-parse --verify --quiet *)",
+      "Bash(git status --porcelain)",
       "Bash(git symbolic-ref --short HEAD)",
       "Bash(git worktree add *)",
       "Bash(npm --version)",
@@ -104,8 +108,8 @@
     "command": "bash $HOME/.claude/statusline-command.sh"
   },
   "enabledPlugins": {
-    "superpowers@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
     "warp@claude-code-warp": true
   },
   "extraKnownMarketplaces": {

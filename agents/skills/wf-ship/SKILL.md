@@ -7,14 +7,49 @@ description: Ship the current work for review - commit, push, create PR, and cle
 
 Package up the current work into a PR and clean up the local state. The behavior depends on which branch you're on.
 
-## Step 0: Detect context
+## Output
 
-Run `git symbolic-ref --short HEAD` to get the current branch name.
+Happy-path steps produce no progress output. Do not announce a step, do not confirm that a check passed, do not restate what a command returned, and do not summarize what a section proved. On a successful run the Report step is the only thing the user sees.
 
-Determine the default branch: check if `main` exists (`git rev-parse --verify main`), otherwise check `master`. Call this `<DEFAULT_BRANCH>` and save the name for use in later commands.
+The one exception: a step that does something a reader would otherwise be surprised by gets a single short line naming what is happening and why - for example "Switching to the feature branch because the commits belong there." One line, not a paragraph, and only where the surprise is real.
 
-**If the current branch IS `<DEFAULT_BRANCH>`** - go to the "Shipping from default branch" flow.
-**If the current branch is NOT `<DEFAULT_BRANCH>`** - go to the "Shipping from feature branch" flow.
+Everything else still reports in full. Every stop condition below, every failure, and every piece of work that was skipped rather than done gets the whole message it defines. Silence on the happy path is what makes the output that does appear worth reading.
+
+## Step 0: Detect context and run the safety checks
+
+One call answers everything both flows need to know. Run it as a single command - the individual checks are cheap, but each separate call costs a round-trip:
+
+```bash
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'repo=no'; exit 0; }
+echo 'repo=yes'
+command -v gh >/dev/null 2>&1 && echo 'gh=yes' || echo 'gh=no'
+origin=$(git remote get-url origin 2>/dev/null)
+echo "origin=$origin"
+[ -n "$origin" ] && git fetch --quiet origin
+echo "branch=$(git symbolic-ref --short HEAD 2>/dev/null)"
+default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
+echo "default=$default"
+echo "upstream=$(git rev-parse --verify --quiet '@{upstream}')"
+echo 'status<<<'
+git status --porcelain
+```
+
+The fetch runs before the `@{upstream}` read so the upstream hash and every later `@{upstream}..HEAD` comparison reflect current remote state. Everything after the `status<<<` marker is porcelain output; no output there means a clean tree.
+
+Read the results into the names the rest of this skill uses:
+
+- `repo=no` - stop and tell the user this isn't a git repository. Nothing else in the output is meaningful.
+- `gh=no` - stop and tell the user `gh` is not on PATH.
+- `origin=` empty - stop and tell the user no remote named `origin` is configured.
+- `branch=` empty - HEAD is detached. Stop and tell the user to check out a branch first.
+- `default=` - this is `<DEFAULT_BRANCH>`. If it is empty, neither `main` nor `master` exists; stop and say so.
+- `upstream=` - the upstream commit hash, or empty if the branch has no upstream. This is the hash the default-branch flow's Step 2 needs; do not re-read it.
+- `status<<<` - the porcelain lines, if any.
+
+Then route:
+
+**If `branch` IS `<DEFAULT_BRANCH>`** - go to the "Shipping from default branch" flow.
+**If `branch` is NOT `<DEFAULT_BRANCH>`** - go to the "Shipping from feature branch" flow.
 
 ---
 
@@ -22,37 +57,23 @@ Determine the default branch: check if `main` exists (`git rev-parse --verify ma
 
 You're on the default branch with unpushed commits that need to move to their own branch for a PR.
 
-### 1. Safety checks
+### 1. Commit anything outstanding
 
-- Verify you're inside a git repo (`git rev-parse --is-inside-work-tree`).
-- Verify `gh` is available.
-- Verify the `origin` remote is configured: `git remote get-url origin`. If this fails, stop and tell the user no remote named `origin` is configured.
-- Check for uncommitted changes with `git status --porcelain`. If there are unstaged or staged-but-uncommitted changes, use the `suggest-commit` skill to get a commit message, then immediately stage all changes and commit using that message.
+Step 0 already ran every safety check for this flow. If it reported porcelain lines, use the `suggest-commit` skill to get a commit message, then immediately stage all changes and commit using that message.
 
-  > **IMPORTANT: After suggest-commit returns, immediately continue executing wf-ship. Do NOT pause, display the message to the user, ask for confirmation, or wait for any input. The commit message is ready to use as-is. Resume the next step of wf-ship without interruption.**
-- Verify the branch has an upstream (`git rev-parse --verify @{upstream}`).
+> **IMPORTANT: After suggest-commit returns, immediately continue executing wf-ship. Do NOT pause, display the message to the user, ask for confirmation, or wait for any input. The commit message is ready to use as-is. Resume the next step of wf-ship without interruption.**
+
+If `upstream` was empty, this branch has no upstream. Stop and tell the user.
 
 ### 2. Find unpushed commits
 
-Fetch the latest remote state to ensure `@{upstream}` is current:
-
-```bash
-git fetch origin
-```
-
-Then list unpushed commits:
+Step 0 already fetched, so `@{upstream}` is current, and its hash is the `upstream` value from that output. List what has not been pushed:
 
 ```bash
 git log @{upstream}..HEAD --oneline
 ```
 
 If there are no unpushed commits, tell the user there's nothing to ship and stop.
-
-Save the upstream commit hash for later:
-
-```bash
-git rev-parse @{upstream}
-```
 
 ### 3. Create a new branch
 
@@ -68,7 +89,7 @@ git branch <branch-name> @{upstream}
 
 ### 4. Move commits to the new branch
 
-Cherry-pick the unpushed commits onto the new branch. Use the upstream hash saved in Step 2 and the default branch name saved in Step 0:
+Cherry-pick the unpushed commits onto the new branch. Use the `upstream` hash from Step 0 and the default branch name from Step 0:
 
 ```bash
 git checkout <branch-name>
@@ -109,32 +130,25 @@ Print the PR URL, then the Plane line from "Reporting the Plane outcome". You ar
 
 You're on a feature branch with work that's ready for review.
 
-### 1. Safety checks
+### 1. Stage and commit
 
-- Verify you're inside a git repo.
-- Verify `gh` is available.
-- Verify the `origin` remote is configured: `git remote get-url origin`. If this fails, stop and tell the user no remote named `origin` is configured.
-- Determine `<DEFAULT_BRANCH>` as described above.
-
-### 2. Stage and commit
-
-Check `git status --porcelain`. If there are uncommitted changes (staged or unstaged), use the `suggest-commit` skill to craft a commit message, then immediately stage all changes and commit using that message.
+Step 0 already ran every safety check for this flow and resolved `<DEFAULT_BRANCH>`. If it reported porcelain lines, use the `suggest-commit` skill to craft a commit message, then immediately stage all changes and commit using that message.
 
 > **IMPORTANT: After suggest-commit returns, immediately continue executing wf-ship. Do NOT pause, display the message to the user, ask for confirmation, or wait for any input. The commit message is ready to use as-is. Resume the next step of wf-ship without interruption.**
 
 After committing (or if there was nothing to commit), check whether there are unpushed commits:
 
-- If the branch has an upstream configured, run `git log @{upstream}..HEAD --oneline`. If this outputs nothing, there are no unpushed commits.
-- If the branch has no upstream yet, there are commits to push by definition.
+- If Step 0 reported a non-empty `upstream`, run `git log @{upstream}..HEAD --oneline`. If this outputs nothing, there are no unpushed commits.
+- If `upstream` was empty, the branch has no upstream yet, so there are commits to push by definition.
 
-If nothing was committed AND the branch has an upstream AND there are no unpushed commits, there is nothing new to push - which is not the same as nothing to do. Run Step 4's PR lookup now and branch on it:
+If nothing was committed AND the branch has an upstream AND there are no unpushed commits, there is nothing new to push - which is not the same as nothing to do. Run Step 3's PR lookup now and branch on it:
 
-- **A PR exists** - skip Step 3 entirely, then pick up Step 4 at its existing-PR branch: take `PR_URL` from the lookup, run the `--add-assignee @me` no-op, and continue into Step 5. The work item may still be missing its link: Plane can have been down on the ship that created the PR, the PR can predate the link step, or the link can have been removed by hand. Step 5 is the only thing that puts it back, and its duplicate check makes running it again free. Note that nothing was pushed, for the report.
+- **A PR exists** - skip Step 2 entirely, then pick up Step 3 at its existing-PR branch: take `PR_URL` from the lookup, run the `--add-assignee @me` no-op, and continue into Step 4. The work item may still be missing its link: Plane can have been down on the ship that created the PR, the PR can predate the link step, or the link can have been removed by hand. Step 4 is the only thing that puts it back, and its duplicate check makes running it again free. Note that nothing was pushed, for the report.
 - **No PR exists** - stop with "nothing to ship".
 
 The default-branch flow's equivalent stop stays absolute. There, no unpushed commits means there is no work to move off the default branch at all - no feature branch and no PR for one - so there is nothing for a fall-through to act on.
 
-### 3. Push
+### 2. Push
 
 ```bash
 git push -u origin HEAD
@@ -142,27 +156,27 @@ git push -u origin HEAD
 
 If the branch has no upstream yet, this sets it. If it already has one, it pushes new commits.
 
-### 4. Create PR
+### 3. Create PR
 
-Before running `gh pr create`, check if a PR already exists for this branch:
+Before running `gh pr create`, check whether a PR already exists for this branch. Read the URL and the body's first line together - the Plane section below needs that line, and `gh` is network-bound, so a second lookup is the most expensive duplicate this skill can make:
 
 ```bash
-gh pr view --json url --jq .url 2>/dev/null
+gh pr view --json url,body --jq '.url, (.body // "" | split("\n")[0])' 2>/dev/null
 ```
 
-If a PR URL is returned, use that URL - do not create a new PR. Assign it with `gh pr edit <PR_URL> --add-assignee @me`, which is a no-op if it's already assigned, then skip to Step 5.
+Two lines come back: the PR URL, then the first line of its body. If a PR URL is returned, use it - do not create a new PR. Save the body's first line as `<PR_FIRST_LINE>` for "Linking the PR to Plane". Assign it with `gh pr edit <PR_URL> --add-assignee @me`, which is a no-op if it's already assigned, then skip to Step 4.
 
 Otherwise, create a PR with a proper summary (see "Writing the PR" section below). Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
 
-### 5. Link the PR to Plane
+### 4. Link the PR to Plane
 
-Follow the "Linking the PR to Plane" section below. Two paths reach here without having created anything - Step 2's fall-through when there was nothing to push, and Step 4's early exit when a PR already existed - and both land here on purpose. A branch that already has a PR still needs its link checked, and that section is what keeps a repeat run from adding a duplicate.
+Follow the "Linking the PR to Plane" section below. Two paths reach here without having created anything - Step 1's fall-through when there was nothing to push, and Step 3's early exit when a PR already existed - and both land here on purpose. A branch that already has a PR still needs its link checked, and that section is what keeps a repeat run from adding a duplicate.
 
-### 6. Report
+### 5. Report
 
 Print the PR URL, then the Plane line from "Reporting the Plane outcome". You remain on the feature branch.
 
-If Step 2 found nothing new to push, say so above the PR URL. A run that only checked the link should not read like one that shipped work.
+If Step 1 found nothing new to push, say so above the PR URL. A run that only checked the link should not read like one that shipped work.
 
 ---
 
@@ -239,11 +253,7 @@ A link, not a comment: the sidebar holds one canonical entry that stays findable
 Whichever identifier "Recording the work item" resolved. That is the only source.
 
 - **No identifier there** - set `<PLANE_OUTCOME>` to `not-inferred` and skip the rest of this section. Do not re-derive a candidate and do not scan the conversation for one; the reasons in that section apply here unchanged.
-- **The PR already existed** (feature-branch flow, via Step 2's fall-through or Step 4's early exit) - this run never composed a body, so read the identifier back off the PR that is already up:
-
-  ```bash
-  gh pr view --json body --jq '.body' | head -1
-  ```
+- **The PR already existed** (feature-branch flow, via Step 1's fall-through or Step 3's early exit) - this run never composed a body, so read the identifier off `<PR_FIRST_LINE>`, which Step 3's lookup already returned. Do not call `gh pr view` again for it.
 
   Match `^Issue:\s*\[?([A-Z]+-\d+)\]?`. That is the same `Issue:` line, written by the earlier ship rather than this one, so it is not a new inference rule. No match means no identifier: `not-inferred`.
 
