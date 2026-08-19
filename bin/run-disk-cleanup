@@ -1,0 +1,497 @@
+#!/usr/bin/env bash
+# Reclaims disk space held by local dev-tool scratch. Five targets, each
+# independently selectable:
+#
+#   cdk           leaked CDK cloud assemblies under $TMPDIR
+#   docker        a Docker prune plus the Colima guest trim that actually
+#                 shrinks the host disk image
+#   simulators    unavailable simulator devices and superseded iOS runtimes
+#   ndk           superseded Android NDK versions
+#   derived-data  the contents of Xcode's DerivedData
+#
+# macOS-only: assumes $TMPDIR is the per-user temp dir and that Xcode and the
+# Android SDK sit at their default locations under ~/Library.
+#
+# Sizes come from du, so figures are allocated blocks rather than apparent
+# size. That is both what the volume gets back and what `du -sh` on the same
+# path will agree with.
+#
+# Usage: run-disk-cleanup [-n|--dry-run] [--include-recent] [target...] [-h|--help]
+
+set -uo pipefail
+
+if [[ -t 1 ]]; then
+  RED='\033[0;31m'
+  YELLOW='\033[1;33m'
+  GREEN='\033[0;32m'
+  DIM='\033[2m'
+  BOLD='\033[1m'
+  RESET='\033[0m'
+else
+  RED='' YELLOW='' GREEN='' DIM='' BOLD='' RESET=''
+fi
+
+DRY_RUN="${DRY_RUN:-}"
+INCLUDE_RECENT="${INCLUDE_RECENT:-}"
+TOTAL_KB=0
+OFFERED_KB=0
+UNESTIMATED_KB=0
+
+# Directories untouched for this long are fair game. A CDK test run holds its
+# assembly open only for the length of the run, so a day's grace keeps the
+# script safe to fire mid-suite.
+CDK_STALE_MINUTES=1440
+
+usage() {
+  cat <<'EOF'
+Usage: run-disk-cleanup [-n|--dry-run] [--include-recent] [target...] [-h|--help]
+
+Reclaims disk space held by local dev-tool scratch. With no target named,
+every target runs; naming one or more restricts the run to those.
+
+Targets:
+  --cdk            Leaked CDK cloud assemblies (cdk.out*) under $TMPDIR. CDK
+                   writes one per App constructed without an outdir and never
+                   cleans them up. Only directories untouched for 24 hours are
+                   removed, unless --include-recent says otherwise.
+  --docker         Prune Docker images, stopped containers, build cache and
+                   unused volumes, then fstrim inside the Colima VM. The trim
+                   is the part that returns space to macOS: the guest disk is
+                   a sparse file that only shrinks once the guest discards the
+                   blocks, so it runs whether or not the prune freed anything.
+  --simulators     Delete unavailable simulator devices, then list installed
+                   iOS runtimes and offer superseded ones for deletion.
+  --ndk            List installed Android NDK versions and offer superseded
+                   ones for deletion.
+  --derived-data   Empty Xcode's DerivedData. The directory itself stays, as
+                   Xcode expects to find it.
+
+Runtime and NDK removals are confirmed one at a time and default to No, since
+a superseded version may still be the one a project pins. Every other target
+runs without prompting.
+
+Options:
+  -n, --dry-run         Report what each target would remove and roughly how
+                        much it would reclaim, without deleting anything.
+      --include-recent  Include cdk.out directories touched in the last 24h.
+  -h, --help            Show this help.
+
+Requires du and find. jq is needed to list simulator runtimes, and colima and
+docker for the Docker target; a missing dependency skips its target rather
+than failing the run.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Reporting helpers
+# ---------------------------------------------------------------------------
+
+section() { printf '\n%b%s%b\n' "$BOLD" "$1" "$RESET"; }
+info()    { printf '  %s\n' "$1"; }
+skip()    { printf '  %bskipped%b - %s\n' "$DIM" "$RESET" "$1"; }
+indent()  { sed 's/^/    /'; }
+
+# du -k counts allocated 1024-byte blocks. Apparent size would badly overstate
+# sparse files: the Colima image reads as 20 GiB apparent against ~1.4 GiB
+# allocated, and only the latter is space the volume can hand back.
+size_kb() {
+  [[ $# -gt 0 ]] || { printf '0\n'; return; }
+  du -sk "$@" 2>/dev/null | awk '{ s += $1 } END { printf "%d\n", s + 0 }'
+}
+
+human() {
+  awk -v kb="${1:-0}" 'BEGIN {
+    split("KB MB GB TB", unit, " ")
+    i = 1
+    while (kb >= 1024 && i < 4) { kb /= 1024; i++ }
+    if (i == 1) printf "%d %s\n", kb, unit[i]
+    else printf "%.1f %s\n", kb, unit[i]
+  }'
+}
+
+record() { TOTAL_KB=$(( TOTAL_KB + ${1:-0} )); }
+
+# Space sitting behind a prompt: real, but not counted as reclaimed, since the
+# prompts default to No and a superseded version is often still wanted. Kept
+# apart from the total so neither figure has to lie.
+offer() { OFFERED_KB=$(( OFFERED_KB + ${1:-0} )); }
+
+# A ceiling on what a step could return when its yield cannot be predicted.
+# Reported as its own bound rather than folded into the total, so an
+# unestimated step never reads as a step that reclaims nothing.
+unestimated() { UNESTIMATED_KB=$(( UNESTIMATED_KB + ${1:-0} )); }
+
+free_kb() { df -k / 2>/dev/null | awk 'NR == 2 { print $4 + 0 }'; }
+
+# Prompts default to No. Without a terminal there is nobody to ask, so the
+# answer is No rather than a blocked read.
+confirm() {
+  if [[ ! -t 0 ]]; then
+    info "  no terminal to prompt on - leaving it in place"
+    return 1
+  fi
+  local reply=""
+  read -r -p "    $1 [y/N] " reply
+  [[ "$reply" == [Yy] || "$reply" == [Yy][Ee][Ss] ]]
+}
+
+# ---------------------------------------------------------------------------
+# Targets
+# ---------------------------------------------------------------------------
+
+clean_cdk() {
+  section "Leaked CDK cloud assemblies"
+
+  local tmpdir="${TMPDIR:-/tmp}"
+  tmpdir="${tmpdir%/}"
+
+  local dirs=() dir
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] && dirs+=("$dir")
+  done < <(
+    if [[ -n "$INCLUDE_RECENT" ]]; then
+      find "$tmpdir" -maxdepth 1 -type d -name 'cdk.out*' 2>/dev/null
+    else
+      find "$tmpdir" -maxdepth 1 -type d -name 'cdk.out*' -mmin "+$CDK_STALE_MINUTES" 2>/dev/null
+    fi
+  )
+
+  if [[ ${#dirs[@]} -eq 0 ]]; then
+    info "Nothing stale in $tmpdir"
+    return
+  fi
+
+  local kb
+  kb=$(size_kb "${dirs[@]}")
+  info "${#dirs[@]} directories, $(human "$kb")"
+
+  if [[ -n "$DRY_RUN" ]]; then
+    info "would remove all of them"
+    record "$kb"
+    return
+  fi
+
+  rm -rf -- "${dirs[@]}"
+  info "removed"
+  record "$kb"
+}
+
+# Layouts differ by Colima version and VM driver: a single `disk` under the
+# Virtualization.framework driver, a `diffdisk`/`datadisk` pair under qemu.
+colima_disk_files() {
+  local profile_dir name file
+  for profile_dir in "$HOME"/.colima/_lima/*/; do
+    [[ -d "$profile_dir" ]] || continue
+    name=$(basename -- "$profile_dir")
+    # Lima keeps shared config, disk and network state in _-prefixed siblings
+    # of the per-profile directories.
+    [[ "$name" == _* ]] && continue
+    for file in disk diffdisk datadisk; do
+      [[ -f "$profile_dir$file" ]] && printf '%s\n' "$profile_dir$file"
+    done
+  done
+}
+
+clean_docker() {
+  section "Docker and the Colima disk image"
+
+  if ! command -v colima >/dev/null 2>&1; then
+    skip "colima is not installed"
+    return
+  fi
+  if ! colima status >/dev/null 2>&1; then
+    skip "Colima is not running, so there is nothing to prune or trim"
+    return
+  fi
+
+  local disks=() file
+  while IFS= read -r file; do
+    [[ -n "$file" ]] && disks+=("$file")
+  done < <(colima_disk_files)
+
+  local before=0
+  if [[ ${#disks[@]} -gt 0 ]]; then
+    before=$(size_kb "${disks[@]}")
+    info "Disk image before: $(human "$before") allocated"
+  else
+    info "No Colima disk image found on the host"
+  fi
+
+  if [[ -n "$DRY_RUN" ]]; then
+    if command -v docker >/dev/null 2>&1; then
+      info "Reclaimable, per docker system df:"
+      docker system df --format '{{.Type}}: {{.Reclaimable}}' 2>/dev/null | indent
+    fi
+    # fstrim --dry-run skips the discard ioctl outright and always reports 0 B,
+    # so the trim's yield cannot be predicted. Docker's own reclaimable figure
+    # is no substitute: it measures space inside the guest filesystem, which
+    # reaches macOS only once the trim discards it, and it can exceed the whole
+    # host image. What the image occupies now is the one defensible ceiling.
+    info "would prune Docker, then fstrim the guest"
+    info "the trim's yield cannot be predicted, so the total carries it as a bound"
+    unestimated "$before"
+    return
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    docker system prune --force --volumes 2>&1 | indent
+  else
+    info "docker is not installed - pruning skipped, trimming anyway"
+  fi
+
+  # A prune frees blocks inside the guest filesystem but leaves the host file
+  # as large as it ever grew. Only the guest discarding those blocks shrinks
+  # the sparse file, and blocks freed by an earlier prune can still be sitting
+  # untrimmed, so this runs every time rather than only after a fruitful prune.
+  info "Trimming the guest filesystem"
+  colima ssh -- sudo fstrim -v / 2>&1 | indent
+
+  if [[ ${#disks[@]} -gt 0 ]]; then
+    local after
+    after=$(size_kb "${disks[@]}")
+    info "Disk image after: $(human "$after") allocated"
+    if (( before > after )); then
+      record $(( before - after ))
+    fi
+  fi
+}
+
+clean_simulators() {
+  section "Simulator devices and iOS runtimes"
+
+  if ! command -v xcrun >/dev/null 2>&1; then
+    skip "xcrun is not available"
+    return
+  fi
+
+  local devices_dir="$HOME/Library/Developer/CoreSimulator/Devices"
+  local unavailable
+  unavailable=$(xcrun simctl list devices 2>/dev/null | grep -c 'unavailable')
+
+  if [[ "${unavailable:-0}" -eq 0 ]]; then
+    info "No unavailable devices"
+  elif [[ -n "$DRY_RUN" ]]; then
+    # Unavailable devices are interleaved with live ones under the same
+    # directory, so their share of it cannot be priced without deleting them.
+    info "would delete $unavailable unavailable device(s)"
+  else
+    local before after
+    before=$(size_kb "$devices_dir")
+    info "Deleting $unavailable unavailable device(s)"
+    xcrun simctl delete unavailable 2>&1 | indent
+    after=$(size_kb "$devices_dir")
+    if (( before > after )); then
+      record $(( before - after ))
+    fi
+  fi
+
+  if ! command -v jq >/dev/null 2>&1; then
+    skip "jq is not installed, so runtimes cannot be listed"
+    return
+  fi
+
+  local runtimes
+  runtimes=$(xcrun simctl runtime list -j 2>/dev/null)
+  if [[ -z "$runtimes" || "$runtimes" == "{}" ]]; then
+    info "No runtimes installed"
+    return
+  fi
+
+  local newest
+  newest=$(printf '%s' "$runtimes" | jq -r '.[].version' | sort -V | tail -1)
+  info "Installed runtimes (newest is $newest):"
+
+  local id version bytes deletable kb
+  while IFS=$'\t' read -r id version bytes deletable; do
+    [[ -n "$id" ]] || continue
+    kb=$(( bytes / 1024 ))
+
+    if [[ "$version" == "$newest" ]]; then
+      printf '    %b%s%b  %s  newest, kept\n' "$GREEN" "$version" "$RESET" "$(human "$kb")"
+      continue
+    fi
+
+    printf '    %b%s%b  %s  superseded\n' "$YELLOW" "$version" "$RESET" "$(human "$kb")"
+
+    if [[ "$deletable" != "true" ]]; then
+      info "  simctl reports it as not deletable - leaving it in place"
+      continue
+    fi
+    if [[ -n "$DRY_RUN" ]]; then
+      info "  would offer this for deletion"
+      offer "$kb"
+      continue
+    fi
+    if confirm "Delete iOS $version?"; then
+      if xcrun simctl runtime delete "$id" 2>&1 | indent; then
+        record "$kb"
+      fi
+    else
+      offer "$kb"
+    fi
+  done < <(printf '%s' "$runtimes" |
+    jq -r '.[] | [.identifier, .version, (.sizeBytes // 0), (.deletable // false)] | @tsv')
+}
+
+clean_ndk() {
+  section "Android NDK versions"
+
+  local ndk_root="${ANDROID_HOME:-$HOME/Library/Android/sdk}/ndk"
+  if [[ ! -d "$ndk_root" ]]; then
+    skip "no NDK directory at $ndk_root"
+    return
+  fi
+
+  local versions=() dir
+  for dir in "$ndk_root"/*/; do
+    [[ -d "$dir" ]] || continue
+    versions+=("$(basename -- "$dir")")
+  done
+
+  if [[ ${#versions[@]} -eq 0 ]]; then
+    info "No NDK versions installed"
+    return
+  fi
+
+  local newest
+  newest=$(printf '%s\n' "${versions[@]}" | sort -V | tail -1)
+  info "Installed versions (newest is $newest):"
+
+  local version kb
+  for version in "${versions[@]}"; do
+    kb=$(size_kb "$ndk_root/$version")
+
+    if [[ "$version" == "$newest" ]]; then
+      printf '    %b%s%b  %s  newest, kept\n' "$GREEN" "$version" "$RESET" "$(human "$kb")"
+      continue
+    fi
+
+    printf '    %b%s%b  %s  superseded\n' "$YELLOW" "$version" "$RESET" "$(human "$kb")"
+
+    if [[ -n "$DRY_RUN" ]]; then
+      info "  would offer this for deletion"
+      offer "$kb"
+      continue
+    fi
+    # sdkmanager --uninstall would be the official route, but it needs a Java
+    # runtime that a machine building only through Android Studio may not have
+    # on PATH. An NDK version directory is self-contained, so removing it is
+    # equivalent and has no such dependency.
+    if confirm "Delete NDK $version?"; then
+      rm -rf -- "${ndk_root:?}/$version"
+      record "$kb"
+    else
+      offer "$kb"
+    fi
+  done
+}
+
+clean_derived_data() {
+  section "Xcode DerivedData"
+
+  local derived="$HOME/Library/Developer/Xcode/DerivedData"
+  if [[ ! -d "$derived" ]]; then
+    skip "no DerivedData directory"
+    return
+  fi
+
+  local entries=() entry
+  while IFS= read -r entry; do
+    [[ -n "$entry" ]] && entries+=("$entry")
+  done < <(find "$derived" -mindepth 1 -maxdepth 1 2>/dev/null)
+
+  if [[ ${#entries[@]} -eq 0 ]]; then
+    info "Already empty"
+    return
+  fi
+
+  local kb
+  kb=$(size_kb "$derived")
+  info "${#entries[@]} entries, $(human "$kb")"
+
+  if [[ -n "$DRY_RUN" ]]; then
+    info "would empty it, keeping the directory itself"
+    record "$kb"
+    return
+  fi
+
+  # Xcode expects DerivedData to exist and will not recreate it mid-build, so
+  # only the contents go.
+  rm -rf -- "${entries[@]}"
+  info "emptied"
+  record "$kb"
+}
+
+# ---------------------------------------------------------------------------
+
+main() {
+  local targets=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n|--dry-run)     DRY_RUN=1; shift ;;
+      --include-recent) INCLUDE_RECENT=1; shift ;;
+      --cdk)            targets+=(cdk); shift ;;
+      --docker)         targets+=(docker); shift ;;
+      --simulators)     targets+=(simulators); shift ;;
+      --ndk)            targets+=(ndk); shift ;;
+      --derived-data)   targets+=(derived-data); shift ;;
+      -h|--help)        usage; exit 0 ;;
+      *)
+        printf '%bUnknown option: %s%b\n\n' "$RED" "$1" "$RESET" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  if [[ ${#targets[@]} -eq 0 ]]; then
+    targets=(cdk docker simulators ndk derived-data)
+  fi
+
+  if [[ -n "$DRY_RUN" ]]; then
+    printf '%bDry run - nothing will be deleted.%b\n' "$YELLOW" "$RESET"
+  fi
+
+  local free_before
+  free_before=$(free_kb)
+
+  local target
+  for target in "${targets[@]}"; do
+    case "$target" in
+      cdk)          clean_cdk ;;
+      docker)       clean_docker ;;
+      simulators)   clean_simulators ;;
+      ndk)          clean_ndk ;;
+      derived-data) clean_derived_data ;;
+    esac
+  done
+
+
+  section "Total"
+  if [[ -n "$DRY_RUN" ]]; then
+    printf '  %bwould reclaim about %s%b\n' "$BOLD" "$(human "$TOTAL_KB")" "$RESET"
+    if (( OFFERED_KB > 0 )); then
+      printf '  plus %s offered one prompt at a time\n' "$(human "$OFFERED_KB")"
+    fi
+    if (( UNESTIMATED_KB > 0 )); then
+      printf '  plus an unestimated amount from the Docker prune and trim,\n'
+      printf '  bounded by the %s the disk image occupies now\n' "$(human "$UNESTIMATED_KB")"
+    fi
+  else
+    printf '  %breclaimed about %s%b\n' "$BOLD" "$(human "$TOTAL_KB")" "$RESET"
+    if (( OFFERED_KB > 0 )); then
+      printf '  left in place: %s you declined\n' "$(human "$OFFERED_KB")"
+    fi
+    printf '  free on /: %s before, %s now\n' "$(human "$free_before")" "$(human "$(free_kb)")"
+  fi
+
+  # A run that found nothing to do is still a successful run.
+  return 0
+}
+
+# Sourced with this set, the file defines its functions and runs nothing, which
+# is how the bats suite exercises the pieces.
+if [[ -z "${_DISK_CLEANUP_LIB_ONLY:-}" ]]; then
+  main "$@"
+fi
