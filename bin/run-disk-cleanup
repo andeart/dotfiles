@@ -35,6 +35,7 @@ DRY_RUN="${DRY_RUN:-}"
 INCLUDE_RECENT="${INCLUDE_RECENT:-}"
 TOTAL_KB=0
 OFFERED_KB=0
+UNESTIMATED_KB=0
 
 # Directories untouched for this long are fair game. A CDK test run holds its
 # assembly open only for the length of the run, so a day's grace keeps the
@@ -114,6 +115,11 @@ record() { TOTAL_KB=$(( TOTAL_KB + ${1:-0} )); }
 # prompts default to No and a superseded version is often still wanted. Kept
 # apart from the total so neither figure has to lie.
 offer() { OFFERED_KB=$(( OFFERED_KB + ${1:-0} )); }
+
+# A ceiling on what a step could return when its yield cannot be predicted.
+# Reported as its own bound rather than folded into the total, so an
+# unestimated step never reads as a step that reclaims nothing.
+unestimated() { UNESTIMATED_KB=$(( UNESTIMATED_KB + ${1:-0} )); }
 
 free_kb() { df -k / 2>/dev/null | awk 'NR == 2 { print $4 + 0 }'; }
 
@@ -217,10 +223,13 @@ clean_docker() {
       docker system df --format '{{.Type}}: {{.Reclaimable}}' 2>/dev/null | indent
     fi
     # fstrim --dry-run skips the discard ioctl outright and always reports 0 B,
-    # so there is no honest way to predict the trim's yield. The allocated size
-    # above is its ceiling, and the total at the end leaves it out entirely.
+    # so the trim's yield cannot be predicted. Docker's own reclaimable figure
+    # is no substitute: it measures space inside the guest filesystem, which
+    # reaches macOS only once the trim discards it, and it can exceed the whole
+    # host image. What the image occupies now is the one defensible ceiling.
     info "would prune Docker, then fstrim the guest"
-    info "the trim's yield cannot be estimated, so it is excluded from the total"
+    info "the trim's yield cannot be predicted, so the total carries it as a bound"
+    unestimated "$before"
     return
   fi
 
@@ -464,6 +473,10 @@ main() {
     printf '  %bwould reclaim about %s%b\n' "$BOLD" "$(human "$TOTAL_KB")" "$RESET"
     if (( OFFERED_KB > 0 )); then
       printf '  plus %s offered one prompt at a time\n' "$(human "$OFFERED_KB")"
+    fi
+    if (( UNESTIMATED_KB > 0 )); then
+      printf '  plus an unestimated amount from the Docker prune and trim,\n'
+      printf '  bounded by the %s the disk image occupies now\n' "$(human "$UNESTIMATED_KB")"
     fi
   else
     printf '  %breclaimed about %s%b\n' "$BOLD" "$(human "$TOTAL_KB")" "$RESET"

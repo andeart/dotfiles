@@ -45,6 +45,17 @@ lib() {
     /bin/bash -c '_DISK_CLEANUP_LIB_ONLY=1 source "$0"; eval "$1"' "$SCRIPT" "$code"
 }
 
+# Run the script proper rather than sourcing it, in the same sandbox. Needed
+# for anything that asserts on the Total block, which only main() prints.
+run_script() {
+  run env -i \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_TMP" \
+    ANDROID_HOME="$TEST_HOME/sdk" \
+    PATH="$STUB_BIN:$SYS_BIN" \
+    /bin/bash "$SCRIPT" "$@"
+}
+
 # stub <name> <body>: drop an executable of that name into the stub dir.
 stub() {
   printf '#!/bin/sh\n%s\n' "$2" > "$STUB_BIN/$1"
@@ -338,14 +349,48 @@ stub_xcrun() {
   [[ "$output" == *"would prune Docker, then fstrim the guest"* ]]
 }
 
-@test "the dry run says the trim cannot be estimated and leaves it out" {
+@test "the dry run says the trim cannot be predicted and keeps it out of the total" {
   mkdir -p "$TEST_HOME/.colima/_lima/colima"
   touch "$TEST_HOME/.colima/_lima/colima/disk"
   stub colima 'case "$1" in status) exit 0 ;; esac'
 
   lib 'DRY_RUN=1; clean_docker; echo "TOTAL=$TOTAL_KB"'
-  [[ "$output" == *"cannot be estimated"* ]]
+  [[ "$output" == *"cannot be predicted"* ]]
   [[ "$output" == *"TOTAL=0"* ]]
+}
+
+@test "the dry run carries the image size as the trim's ceiling" {
+  mkdir -p "$TEST_HOME/.colima/_lima/colima"
+  mkfile_kb "$TEST_HOME/.colima/_lima/colima/disk" 2048
+  stub colima 'case "$1" in status) exit 0 ;; esac'
+  local expected
+  expected=$(du -sk "$TEST_HOME/.colima/_lima/colima/disk" | awk '{print $1}')
+
+  lib 'DRY_RUN=1; clean_docker > /dev/null; echo "TOTAL=$TOTAL_KB UNEST=$UNESTIMATED_KB"'
+  [[ "$output" == *"TOTAL=0"* ]]
+  [[ "$output" == *"UNEST=$expected"* ]]
+}
+
+# Without a disk image there is no defensible ceiling, so no bound is claimed.
+@test "the dry run claims no ceiling when no disk image was found" {
+  stub colima 'case "$1" in status) exit 0 ;; esac'
+
+  lib 'DRY_RUN=1; clean_docker > /dev/null; echo "UNEST=$UNESTIMATED_KB"'
+  [[ "$output" == *"UNEST=0"* ]]
+}
+
+@test "a real run measures the trim rather than carrying a ceiling" {
+  mkdir -p "$TEST_HOME/.colima/_lima/colima"
+  mkfile_kb "$TEST_HOME/.colima/_lima/colima/disk" 4096
+  stub colima "case \"\$1\" in
+    status) exit 0 ;;
+    ssh) : > '$TEST_HOME/.colima/_lima/colima/disk' ;;
+  esac"
+  stub docker 'exit 0'
+
+  lib 'clean_docker > /dev/null; echo "TOTAL=$TOTAL_KB UNEST=$UNESTIMATED_KB"'
+  [[ "$output" == *"UNEST=0"* ]]
+  [[ "$output" != *"TOTAL=0"* ]]
 }
 
 # ─── ndk ───────────────────────────────────────────────────────────────────
@@ -616,6 +661,34 @@ JSON
 @test "record accumulates and offer is tracked separately" {
   lib 'record 100; record 50; offer 25; echo "$TOTAL_KB $OFFERED_KB"'
   [ "$output" = "150 25" ]
+}
+
+@test "unestimated accumulates separately from both other tallies" {
+  lib 'record 100; offer 25; unestimated 4096; echo "$TOTAL_KB $OFFERED_KB $UNESTIMATED_KB"'
+  [ "$output" = "100 25 4096" ]
+}
+
+# A 0 KB total on its own reads as "this target reclaims nothing", which is the
+# opposite of what an unpredictable trim means.
+@test "the total names the bound rather than implying the Docker target is empty" {
+  mkdir -p "$TEST_HOME/.colima/_lima/colima"
+  mkfile_kb "$TEST_HOME/.colima/_lima/colima/disk" 2048
+  stub colima 'case "$1" in status) exit 0 ;; esac'
+
+  run_script -n --docker
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"would reclaim about 0 KB"* ]]
+  [[ "$output" == *"plus an unestimated amount from the Docker prune and trim"* ]]
+  [[ "$output" == *"bounded by the"*"the disk image occupies now"* ]]
+}
+
+@test "the total omits the bound when no unestimated target ran" {
+  mkdir -p "$TEST_HOME/Library/Developer/Xcode/DerivedData/Proj-abc"
+
+  run_script -n --derived-data
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"would reclaim about"* ]]
+  [[ "$output" != *"unestimated"* ]]
 }
 
 @test "confirm declines rather than blocking when there is no terminal" {
