@@ -53,6 +53,15 @@
 - Comments should only be: technical explanations of non-obvious code, occasional judgment/decision notes that direct future design, and critical warnings.
 - Do NOT write natural-language prose explanations, narration, historical records, or change/paper-trail notes. The comment explains the code as it stands now, not how it got here.
 
+## Design docs and specs
+
+Covers anything that records how a decision was reached - design docs, specs, ADRs, RFCs, postmortems. They are dated, and nothing re-reads them when the system changes, so be strict about what they are allowed to claim.
+
+- **Belongs there:** a measurement tied to its date and setup, and the alternatives that were rejected with the reason why. These stay true permanently - the number was what it was on the day, and a rejected option stays rejected for the reason given.
+- **Does not belong there:** a bare assertion about how the system behaves now. Nothing re-reads the doc when that behaviour changes, so the claim rots silently while still reading as authoritative. Ask of every sentence: is this still true if the system changes? If no, it is in the wrong file.
+- Current-state rules belong where something enforces them - a test, the source comment beside the code they constrain, or the runbook someone actually follows. When a design doc has to mention current behaviour, date the sentence or link the enforcing file instead of restating the rule.
+- This is the mirror of the Code comments rule above: a comment carries the present and no history, a design doc carries the history and asserts no present.
+
 ## Permissions & capability grants
 
 - When proposing changes to any capability-grant surface (IAM policies, K8s RBAC, GitHub PAT/OAuth scopes, sudoers, file ACLs, firewall rules, MCP tool allowlists, etc.) where the exact required set is uncertain, never include "best-estimate" entries. Every entry should have a demonstrated reason to exist.
@@ -71,3 +80,4 @@
 
 - Never truncate output from linters, test runners, or compilers. Errors and summaries appear at the end - using `head` hides them. If output is long, use `tail` to see the summary.
 - `gh pr checks` always 403s on a fine-grained PAT - there is no "Checks" permission to grant. Read CI from the Actions API instead: `gh api repos/:owner/:repo/actions/runs?branch=<branch>` for the run, `.../actions/runs/<id>/jobs` for per-job results.
+- Plane `workitem_relation list_definitions` always 402s on my workspace plan, so custom relations (`relates to`, `duplicate`, `implements`) cannot be created in any project. Use the built-in dependency types - `blocked_by`, `blocking`, and the rarely-needed scheduling four - and never probe for definitions first.
