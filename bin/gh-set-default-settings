@@ -141,11 +141,14 @@ REPO_SETTINGS=(
 # .security_and_analysis.<field>.status and are set to "enabled" rather than
 # true, so they are diffed and applied separately from REPO_SETTINGS.
 #
-# Order matters. Push protection builds on secret scanning, so secret_scanning
-# has to be enabled first.
+# Order matters. Push protection and non-provider patterns both build on secret
+# scanning, so secret_scanning has to be enabled first.
+#
+# Entries are not uniformly available: see security_setting_skip_reason.
 SECURITY_SETTINGS=(
   "secret_scanning|Secret scanning"
   "secret_scanning_push_protection|Push protection for secret scanning"
+  "secret_scanning_non_provider_patterns|Non-provider secret scanning patterns"
 )
 
 # Dependabot settings to offer, as "endpoint|human label", where endpoint is the
@@ -352,31 +355,58 @@ security_settings_available() {
   [[ "$(jq -r '.private' <<<"$1")" != "true" ]]
 }
 
+# non_provider_patterns_available <current_repo_json>: whether non-provider
+# patterns can be applied to this repo.
+#
+# GitHub honours the field only on organization-owned repositories. On a
+# personal-account repo the PATCH is accepted with 200 and the field stays
+# "disabled" - even an invalid status value is accepted there rather than
+# rejected with a 422, so the request is being discarded wholesale rather than
+# failing. Nothing in the response distinguishes that from success, so an
+# ungated apply would trip assert_applied on every personal-account repo.
+non_provider_patterns_available() {
+  [[ "$(jq -r '.owner.type' <<<"$1")" == "Organization" ]]
+}
+
+# security_setting_skip_reason <field> <current_repo_json>: why that entry
+# cannot be applied here, or empty when it can. One source of truth for the
+# diff, the preview, and the apply.
+security_setting_skip_reason() {
+  local field="$1" current="$2"
+  if ! security_settings_available "$current"; then
+    echo "private repo - needs GitHub Secret Protection"
+  elif [[ "$field" == "secret_scanning_non_provider_patterns" ]] \
+    && ! non_provider_patterns_available "$current"; then
+    echo "personal-account repo - needs an organization-owned repo"
+  fi
+}
+
 # repo_settings_diff <current_repo_json>: print a change/no-change line per
 # desired setting, comparing the current value to the desired value.
 repo_settings_diff() {
-  local current="$1" entry field cur
+  local current="$1" entry field cur reason
   for entry in "${REPO_SETTINGS[@]}"; do
     field="${entry%%|*}"
     cur="$(jq -r --arg f "$field" '.[$f]' <<<"$current")"
     if [[ "$cur" == "true" ]]; then
-      printf '  %-33s true (no change)\n' "${field}:"
+      printf '  %-39s true (no change)\n' "${field}:"
     else
-      printf '  %-33s %s -> true (would change)\n' "${field}:" "$cur"
+      printf '  %-39s %s -> true (would change)\n' "${field}:" "$cur"
     fi
   done
 
   for entry in "${SECURITY_SETTINGS[@]}"; do
     field="${entry%%|*}"
-    if ! security_settings_available "$current"; then
-      printf '  %-33s skipped (private repo - needs GitHub Secret Protection)\n' "${field}:"
+    reason="$(security_setting_skip_reason "$field" "$current")"
+    if [[ -n "$reason" ]]; then
+      printf '  %-39s skipped (%s)\n' "${field}:" "$reason"
       continue
     fi
     cur="$(jq -r --arg f "$field" '.security_and_analysis[$f].status' <<<"$current")"
     if [[ "$cur" == "enabled" ]]; then
-      printf '  %-33s enabled (no change)\n' "${field}:"
+      printf '  %-39s enabled (no change)\n' "${field}:"
     else
-      printf '  %-33s %s -> enabled (would change)\n' "${field}:" "$cur"
+      printf '  %-39s %s -> enabled (would change)\n' "${field}:" "$cur"
     fi
   done
 }
@@ -413,9 +443,10 @@ apply_repo_settings() {
 # gh's key[subkey]=value syntax builds the nested security_and_analysis object,
 # so this stays an -F arg list like apply_repo_settings rather than a JSON body.
 apply_security_settings() {
-  local entry field status
+  local current="$1" entry field status
   for entry in "${SECURITY_SETTINGS[@]}"; do
     field="${entry%%|*}"
+    [[ -z "$(security_setting_skip_reason "$field" "$current")" ]] || continue
     status="$(gh api --method PATCH "/repos/${OWNER_REPO}" \
       -F "security_and_analysis[${field}][status]=enabled" \
       --jq ".security_and_analysis.${field}.status")" \
@@ -468,9 +499,9 @@ dependabot_settings_diff() {
     endpoint="${entry%%|*}"
     cur="$(dependabot_state "$endpoint")"
     if [[ "$cur" == "enabled" ]]; then
-      printf '  %-33s enabled (no change)\n' "${endpoint}:"
+      printf '  %-39s enabled (no change)\n' "${endpoint}:"
     else
-      printf '  %-33s %s -> enabled (would change)\n' "${endpoint}:" "$cur"
+      printf '  %-39s %s -> enabled (would change)\n' "${endpoint}:" "$cur"
     fi
   done
 }
@@ -518,10 +549,11 @@ run_dependabot_section() {
 run_repo_settings_section() {
   echo
   echo "Repo settings:"
-  local current entry field label
+  local current entry field label reason
   # Fetched to preflight repo access (dies on failure), to diff current vs
-  # desired in the dry-run branch below, and to read repo visibility for the
-  # security-settings gate. The flat settings are set unconditionally.
+  # desired in the dry-run branch below, and to read the repo visibility and
+  # owner type the security-settings gates need. The flat settings are set
+  # unconditionally.
   current="$(gh api "/repos/${OWNER_REPO}")" \
     || die "failed to read repo settings for ${OWNER_REPO} (check the repo exists and gh is authenticated)."
 
@@ -534,24 +566,23 @@ run_repo_settings_section() {
   for entry in "${REPO_SETTINGS[@]}"; do
     field="${entry%%|*}"
     label="${entry#*|}"
-    printf '  %-31s = true    (%s)\n' "$field" "$label"
+    printf '  %-37s = true    (%s)\n' "$field" "$label"
   done
   for entry in "${SECURITY_SETTINGS[@]}"; do
     field="${entry%%|*}"
     label="${entry#*|}"
-    if security_settings_available "$current"; then
-      printf '  %-31s = enabled (%s)\n' "$field" "$label"
+    reason="$(security_setting_skip_reason "$field" "$current")"
+    if [[ -z "$reason" ]]; then
+      printf '  %-37s = enabled (%s)\n' "$field" "$label"
     else
-      printf '  %-31s = skipped (%s - private repo needs GitHub Secret Protection)\n' "$field" "$label"
+      printf '  %-37s = skipped (%s - %s)\n' "$field" "$label" "$reason"
     fi
   done
   echo "  auto-close linked issues: no API, on by default - verify in Settings UI"
 
   if confirm "repo settings"; then
     apply_repo_settings
-    if security_settings_available "$current"; then
-      apply_security_settings
-    fi
+    apply_security_settings "$current"
     echo 'Note: "Auto-close issues with merged linked pull requests" has no API. It is enabled by default - verify in Settings > General if needed.'
   else
     echo "  skipped."

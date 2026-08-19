@@ -141,8 +141,10 @@ EXISTING_RULESETS_JSON='[{"id":12345,"name":"default baseline guard"},{"id":99,"
 
 FLAT_OFF='"allow_auto_merge":false,"allow_update_branch":false,"delete_branch_on_merge":false'
 FLAT_ON='"allow_auto_merge":true,"allow_update_branch":true,"delete_branch_on_merge":true'
-SA_ON='"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}'
-SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret_scanning_push_protection":{"status":"disabled"}}'
+SA_ON='"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"},"secret_scanning_non_provider_patterns":{"status":"enabled"}}'
+SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret_scanning_push_protection":{"status":"disabled"},"secret_scanning_non_provider_patterns":{"status":"disabled"}}'
+OWNER_ORG='"owner":{"type":"Organization"}'
+OWNER_USER='"owner":{"type":"User"}'
 
 @test "repo_settings_diff flags fields that are currently false" {
   local cur="{$FLAT_OFF,\"private\":false,$SA_OFF}"
@@ -165,7 +167,7 @@ SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret
 # ─── repo_settings_diff: security settings (pure) ──────────────────────────
 
 @test "repo_settings_diff flags security settings that are currently disabled" {
-  local cur="{$FLAT_ON,\"private\":false,$SA_OFF}"
+  local cur="{$FLAT_ON,\"private\":false,$OWNER_ORG,$SA_OFF}"
   call repo_settings_diff "$cur"
   [ "$status" -eq 0 ]
   [[ "$output" == *"secret_scanning:"* ]]
@@ -174,7 +176,7 @@ SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret
 }
 
 @test "repo_settings_diff reports no change when security settings are already enabled" {
-  local cur="{$FLAT_ON,\"private\":false,$SA_ON}"
+  local cur="{$FLAT_ON,\"private\":false,$OWNER_ORG,$SA_ON}"
   call repo_settings_diff "$cur"
   [ "$status" -eq 0 ]
   [[ "$output" == *"secret_scanning:"* ]]
@@ -183,7 +185,7 @@ SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret
 }
 
 @test "repo_settings_diff treats an absent security_and_analysis as a change" {
-  local cur="{$FLAT_ON,\"private\":false,\"security_and_analysis\":null}"
+  local cur="{$FLAT_ON,\"private\":false,$OWNER_ORG,\"security_and_analysis\":null}"
   call repo_settings_diff "$cur"
   [ "$status" -eq 0 ]
   [[ "$output" == *"null -> enabled (would change)"* ]]
@@ -206,12 +208,64 @@ SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret
 }
 
 @test "repo_settings_diff keeps the widest field name aligned with the rest" {
-  local cur="{$FLAT_ON,\"private\":false,$SA_ON}"
+  local cur="{$FLAT_ON,\"private\":false,$OWNER_ORG,$SA_ON}"
   call repo_settings_diff "$cur"
   [ "$status" -eq 0 ]
   # Every line pads the label to the same column, so the values line up.
   run bash -c 'awk "{ print index(\$0, \$2) }" <<< "$1" | sort -u | wc -l' _ "$output"
   [ "$output" -eq 1 ]
+}
+
+@test "repo_settings_diff flags non-provider patterns on an organization-owned repo" {
+  local cur="{$FLAT_ON,\"private\":false,$OWNER_ORG,$SA_OFF}" line
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  line="$(grep secret_scanning_non_provider_patterns <<< "$output")"
+  [[ "$line" == *"disabled -> enabled (would change)"* ]]
+}
+
+@test "repo_settings_diff skips non-provider patterns on a personal-account repo" {
+  local cur="{$FLAT_ON,\"private\":false,$OWNER_USER,$SA_OFF}" line
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  line="$(grep secret_scanning_non_provider_patterns <<< "$output")"
+  [[ "$line" == *"skipped (personal-account repo - needs an organization-owned repo)"* ]]
+}
+
+@test "repo_settings_diff still diffs the other security settings on a personal-account repo" {
+  local cur="{$FLAT_ON,\"private\":false,$OWNER_USER,$SA_OFF}" line
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  line="$(grep "secret_scanning_push_protection" <<< "$output")"
+  [[ "$line" == *"disabled -> enabled (would change)"* ]]
+}
+
+@test "repo_settings_diff reports the private-repo reason for every security setting" {
+  local cur="{$FLAT_ON,\"private\":true,$OWNER_ORG,\"security_and_analysis\":null}" line
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  line="$(grep secret_scanning_non_provider_patterns <<< "$output")"
+  [[ "$line" == *"skipped (private repo - needs GitHub Secret Protection)"* ]]
+}
+
+@test "repo_settings_diff reports no change when non-provider patterns are already enabled" {
+  local cur="{$FLAT_ON,\"private\":false,$OWNER_ORG,$SA_ON}" line
+  call repo_settings_diff "$cur"
+  [ "$status" -eq 0 ]
+  line="$(grep secret_scanning_non_provider_patterns <<< "$output")"
+  [[ "$line" == *"enabled (no change)"* ]]
+}
+
+# ─── non_provider_patterns_available (pure) ────────────────────────────────
+
+@test "non_provider_patterns_available accepts an organization-owned repo" {
+  call non_provider_patterns_available '{"owner":{"type":"Organization"}}'
+  [ "$status" -eq 0 ]
+}
+
+@test "non_provider_patterns_available rejects a personal-account repo" {
+  call non_provider_patterns_available '{"owner":{"type":"User"}}'
+  [ "$status" -ne 0 ]
 }
 
 # ─── security_settings_available (pure) ────────────────────────────────────
@@ -266,11 +320,12 @@ SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret
 # apply path against a response of our choosing without touching the network.
 
 @test "apply_security_settings rejects a success response that did not apply" {
+  export STUB_REPO="{\"private\":false,$OWNER_ORG}"
   run bash -c '
     _GH_SETTINGS_LIB_ONLY=1 source "$1"
     OWNER_REPO=owner/repo
     gh() { echo disabled; }
-    apply_security_settings
+    apply_security_settings "$STUB_REPO"
   ' _ "$BIN"
   [ "$status" -ne 0 ]
   [[ "$output" == *"secret_scanning"* ]]
@@ -278,13 +333,55 @@ SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret
 }
 
 @test "apply_security_settings accepts a response that reports the setting enabled" {
+  export STUB_REPO="{\"private\":false,$OWNER_ORG}"
   run bash -c '
     _GH_SETTINGS_LIB_ONLY=1 source "$1"
     OWNER_REPO=owner/repo
     gh() { echo enabled; }
-    apply_security_settings
+    apply_security_settings "$STUB_REPO"
   ' _ "$BIN"
   [ "$status" -eq 0 ]
+}
+
+@test "apply_security_settings writes non-provider patterns on an organization-owned repo" {
+  export STUB_REPO="{\"private\":false,$OWNER_ORG}"
+  export CALLS="$BATS_TEST_TMPDIR/calls"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { printf "%s\n" "$*" >> "$CALLS"; echo enabled; }
+    apply_security_settings "$STUB_REPO"
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$CALLS")" == *"secret_scanning_non_provider_patterns"* ]]
+}
+
+@test "apply_security_settings never writes non-provider patterns on a personal-account repo" {
+  export STUB_REPO="{\"private\":false,$OWNER_USER}"
+  export CALLS="$BATS_TEST_TMPDIR/calls"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { printf "%s\n" "$*" >> "$CALLS"; echo enabled; }
+    apply_security_settings "$STUB_REPO"
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  # The other two still land; only the unsupported one is held back.
+  [[ "$(cat "$CALLS")" == *"secret_scanning_push_protection"* ]]
+  [[ "$(cat "$CALLS")" != *"secret_scanning_non_provider_patterns"* ]]
+}
+
+@test "apply_security_settings writes nothing on a private repo" {
+  export STUB_REPO="{\"private\":true,$OWNER_ORG}"
+  export CALLS="$BATS_TEST_TMPDIR/calls"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { printf "%s\n" "$*" >> "$CALLS"; echo enabled; }
+    apply_security_settings "$STUB_REPO"
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [ ! -s "$CALLS" ]
 }
 
 @test "apply_repo_settings rejects a success response that did not apply" {
@@ -311,6 +408,48 @@ SA_OFF='"security_and_analysis":{"secret_scanning":{"status":"disabled"},"secret
     apply_repo_settings
   ' _ "$BIN"
   [ "$status" -eq 0 ]
+}
+
+# ─── run_repo_settings_section, with gh stubbed ────────────────────────────
+
+@test "run_repo_settings_section dry run names the non-provider skip and writes nothing" {
+  export STUB_REPO="{$FLAT_OFF,\"private\":false,$OWNER_USER,$SA_OFF}"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    DRY_RUN=1
+    gh() {
+      for a in "$@"; do
+        [ "$a" = "--method" ] && { echo "DRY RUN WROTE" >&2; return 0; }
+      done
+      printf "%s\n" "$STUB_REPO"
+    }
+    run_repo_settings_section
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"skipped (personal-account repo - needs an organization-owned repo)"* ]]
+  [[ "$output" != *"DRY RUN WROTE"* ]]
+}
+
+@test "run_repo_settings_section dry run flags the non-provider change on an organization repo" {
+  export STUB_REPO="{$FLAT_OFF,\"private\":false,$OWNER_ORG,$SA_OFF}"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    DRY_RUN=1
+    gh() {
+      for a in "$@"; do
+        [ "$a" = "--method" ] && { echo "DRY RUN WROTE" >&2; return 0; }
+      done
+      printf "%s\n" "$STUB_REPO"
+    }
+    run_repo_settings_section
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  local line
+  line="$(grep secret_scanning_non_provider_patterns <<< "$output")"
+  [[ "$line" == *"disabled -> enabled (would change)"* ]]
+  [[ "$output" != *"DRY RUN WROTE"* ]]
 }
 
 # ─── dependabot_state, with gh stubbed ─────────────────────────────────────
