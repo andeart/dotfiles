@@ -95,9 +95,13 @@ git branch -f <DEFAULT_BRANCH> <upstream-hash>
 
 This removes the local commit from the default branch now that it lives on the feature branch.
 
-### 7. Report
+### 7. Link the PR to Plane
 
-Display the PR URL. You are now on the feature branch.
+Follow the "Linking the PR to Plane" section below.
+
+### 8. Report
+
+Print the PR URL, then the Plane line from "Reporting the Plane outcome". You are now on the feature branch.
 
 ---
 
@@ -145,9 +149,13 @@ If a PR URL is returned, use that URL - do not create a new PR. Assign it with `
 
 Otherwise, create a PR with a proper summary (see "Writing the PR" section below). Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
 
-### 5. Report
+### 5. Link the PR to Plane
 
-Display the PR URL. You remain on the feature branch.
+Follow the "Linking the PR to Plane" section below. Step 4's early exit lands here on purpose: a branch that already has a PR still needs the link checked, and that section is what keeps a second ship from adding a duplicate.
+
+### 6. Report
+
+Print the PR URL, then the Plane line from "Reporting the Plane outcome". You remain on the feature branch.
 
 ---
 
@@ -185,6 +193,8 @@ Assignees need push access on the repo, so this fails on repos you contribute to
 
 `Issue: [<ID>](https://app.plane.so/byanu/browse/<ID>/)` goes on the first line of the body, above `## Summary`. Link the identifier to its Plane work item - `byanu` is the only workspace, so hardcode it, and keep the trailing slash. Plane calls these work items, but the line stays `Issue:`. `/wf-wrap` reads it to decide which work item to mark Done once this merges, so a wrong identifier closes someone else's work.
 
+Whatever this section resolves is also the work item that "Linking the PR to Plane" attaches the PR to. There is one identifier per ship and it is decided here.
+
 Include the line only when one of these holds:
 
 - The user named the work item for this change.
@@ -208,3 +218,49 @@ EOF
 ```
 
 Drop the `Issue:` line and the blank line after it when no work item is known.
+
+---
+
+## Linking the PR to Plane
+
+With `PR_URL` in hand, attach it to the work item's Links sidebar so opening the work item shows the PR carrying it. Record the result in `<PLANE_OUTCOME>`; the Report step switches on it.
+
+A link, not a comment: the sidebar holds one canonical entry that stays findable once the work item has a timeline, and listing those links is what makes the re-run check in sub-step 3 cheap.
+
+### Which work item
+
+Whichever identifier "Recording the work item" resolved. That is the only source.
+
+- **No identifier there** - set `<PLANE_OUTCOME>` to `not-inferred` and skip the rest of this section. Do not re-derive a candidate and do not scan the conversation for one; the reasons in that section apply here unchanged.
+- **The PR already existed** (feature-branch flow, Step 4's early exit) - this run never composed a body, so read the identifier back off the PR that is already up:
+
+  ```bash
+  gh pr view --json body --jq '.body' | head -1
+  ```
+
+  Match `^Issue:\s*\[?([A-Z]+-\d+)\]?`. That is the same `Issue:` line, written by the earlier ship rather than this one, so it is not a new inference rule. No match means no identifier: `not-inferred`.
+
+### Attaching it
+
+1. Split the identifier into its alpha prefix and integer suffix (e.g. `ZZZ-0` → `ZZZ` and `0`).
+2. Call the Plane MCP tool `workitem` with `action: "retrieve_by_identifier"` and `workitem_identifier` set to the full identifier. Save `id` from the response as the work item UUID and `project` as the project UUID. On a 404 or any not-found error, set `<PLANE_OUTCOME>` to `not-found` and stop - the identifier names nothing that exists, and reaching for a near miss would hang the PR off unrelated work.
+3. Call `workitem_link` with `action: "list"`, `project_id`, and `workitem_id`. If any result's `url` already equals `PR_URL` ignoring a trailing slash, set `<PLANE_OUTCOME>` to `already-linked` and stop. Plane does not reject a duplicate URL, so this check is the only thing standing between a re-ship and two identical entries in the sidebar.
+4. Call `workitem_link` with `action: "create"`, `project_id`, `workitem_id`, and `url` set to `PR_URL`. On success set `<PLANE_OUTCOME>` to `linked`.
+
+`ZZZ` is a placeholder, not a real project. Keep example identifiers in this file unresolvable.
+
+### When Plane is unreachable
+
+**A Plane failure never fails the ship.** By the time this section runs the branch is pushed and the PR exists - there is nothing to roll back, and stopping here strands the user mid-flow with no report of work that already went out. On any error other than the not-found handled above (network, auth, server), set `<PLANE_OUTCOME>` to `failed`, keep the error text, and continue to the Report step. Do not retry and do not fall back to posting a comment instead.
+
+### Reporting the Plane outcome
+
+The Report step prints the PR URL, then one line for `<PLANE_OUTCOME>`:
+
+- `linked`: `- Linked the PR on <ID>.`
+- `already-linked`: `- <ID> already links this PR - left as is.`
+- `not-inferred`: `- No Plane work item linked - none known for this change.`
+- `not-found`: `- No Plane work item linked - <ID> was not found in Plane.`
+- `failed`: `- No Plane work item linked - Plane returned: <error>. The PR is up; add the link by hand if you want it.`
+
+The user always sees whether Plane was touched, and why not when it wasn't.

@@ -7,7 +7,7 @@ description: >
   "file a bug", "report a problem", or describes a feature/bug/improvement they want tracked in
   Plane, even if they don't mention Plane by name. This skill covers work item structure, section
   ordering, sentence style, and acceptance criteria patterns. Use it alongside the Plane MCP tools
-  (`create_work_item`, `list_work_items`, `list_states`, `get_workspace_members`, etc.).
+  (`workitem`, `state`, `member`, etc.).
 ---
 
 # Plane Create Work Item
@@ -44,8 +44,8 @@ Supported keys:
 | --- | ----------- | ------- |
 | `mode` | `mcp` (default) or `manual` | `manual` |
 | `workspace` | Optional. Plane workspace slug (the part after `app.plane.so/` in URLs), handy for constructing work-item links. The MCP tools infer the workspace from the API token, so it isn't required for creation. | `byanu` |
-| `project` | Plane project name or identifier (the prefix shown in work-item IDs, e.g. `DX` for `DX-22`). Resolved via `list_projects` to a project UUID. | `DX` |
-| `assignee` | Plane display name or email (resolved via `get_workspace_members` to a user UUID) | `anurag` |
+| `project` | Plane project name or identifier (the prefix shown in work-item IDs, e.g. `DX` for `DX-22`). Resolved via `project` `list` to a project UUID. | `DX` |
+| `assignee` | Plane display name or email (resolved via `member` `list_workspace` to a user UUID) | `anurag` |
 | `state` | Initial state name from the project's configured states | `Todo` |
 | `estimate_points` | Map of estimate label → its estimate point. Each value is either a bare `estimate_point` UUID (legacy) or a `{ id, info }` map where `id` is the UUID and `info` documents what the point means. Required to send any estimate, since Plane's MCP API expects the UUID, not the integer label. See "Estimate points" and "Annotated entities" below. | `{1: {id: <uuid>, info: "Trivial"}}` |
 | `modules` | List of the project's Plane modules, each `{ name, id?, info? }`. `info` describes what belongs in the module so the skill can pick the best fit. See "Annotated entities". | see below |
@@ -116,7 +116,7 @@ silently ignore it. Offer to migrate its values into a new `.plane.yml` first.
    - `state`: map `Backlog`/`Todo` → a state in the project's `backlog` or `unstarted` group
      (commonly `Backlog` or `Todo`); `In Progress` → a `started` state (commonly `In Progress`);
      `Done`/`Canceled`/`Duplicate` → a `completed` or `cancelled` state. Confirm the actual state
-     name with `list_states` before writing.
+     name with `state` `list` before writing.
    - `priority`: map `1` (Urgent) → `urgent`, `2` (High) → `high`, `3` (Medium) → `medium`,
      `4` (Low) → `low`. Leave `0` (None) unset so the default (`low`) kicks in.
    - `mode`, `assignee`: copy as-is. Verify the assignee matches a Plane workspace member.
@@ -127,7 +127,7 @@ silently ignore it. Offer to migrate its values into a new `.plane.yml` first.
 2. Translate them:
    - `space` → `project`.
    - `state`: map `To Do` → an `unstarted` state, `In Progress` → a `started` state,
-     `Done` → a `completed` state. Confirm with `list_states`.
+     `Done` → a `completed` state. Confirm with `state` `list`.
    - `priority`: map `Highest` → `urgent`, `High` → `high`, `Medium` → `medium`, `Low` → `low`,
      `Lowest` → `low`.
    - `mode`, `assignee`: copy as-is. Verify the assignee matches a Plane workspace member.
@@ -177,8 +177,8 @@ confirmation before modifying the file.
 The `mode` key in `.plane.yml` (or a user-provided override) controls how the work item is
 delivered. If no mode is configured, default to `mcp`.
 
-- **`mcp`** - Create the work item directly via Plane MCP tools (`create_work_item`, etc.). This
-  is the default.
+- **`mcp`** - Create the work item directly via Plane MCP tools (`workitem` with
+  `action: "create"`, etc.). This is the default.
 - **`manual`** - Do not call Plane MCP tools. Instead, output the fully composed work item (title,
   description, and field values) as Markdown in the response so the user can copy-paste it into
   Plane.
@@ -216,14 +216,14 @@ identically regardless of mode.
 
 For non-trivial work item creation, the skill composes several Plane MCP calls in order:
 
-1. **Resolve the project.** Call `list_projects` and match the `project` value from `.plane.yml`
-   against the project's `identifier` (e.g. `DX`) or `name`. Cache the resolved `project_id`
-   (UUID) per session - it's stable.
-2. **Resolve the assignee's user UUID** via `get_workspace_members`. Match on `display_name` or
-   `email`. Cache the result per session.
-3. **Resolve the state UUID**, if a non-default `state` is configured. Call `list_states` for the
-   project (cache the result per project per session - state IDs are stable within a project) and
-   match by name (case-insensitive).
+1. **Resolve the project.** Call `project` with `action: "list"` and match the `project` value
+   from `.plane.yml` against the project's `identifier` (e.g. `DX`) or `name`. Cache the resolved
+   `project_id` (UUID) per session - it's stable.
+2. **Resolve the assignee's user UUID** via `member` with `action: "list_workspace"`. Match on
+   `display_name` or `email`. Cache the result per session.
+3. **Resolve the state UUID**, if a non-default `state` is configured. Call `state` with
+   `action: "list"` for the project (cache the result per project per session - state IDs are
+   stable within a project) and match by name (case-insensitive).
 4. **Derive and resolve the estimate point UUID.** Determine the estimate for this work item using
    the Fibonacci-from-hours rule in `CONVENTIONS.md`'s "Estimate" section (infer expected hours
    from the task scope, round up to the Fibonacci point, surface it in the preview; ask for an
@@ -231,8 +231,8 @@ For non-trivial work item creation, the skill composes several Plane MCP calls i
    inferred one. Then map the chosen value to a UUID via the
    `estimate_points` map from `.plane.yml` and use the matching UUID (if the entry is a
    `{ id, info }` map, use its `id` — see "Annotated entities"). Do **not** rely on the `point`
-   integer field on `create_work_item` / `update_work_item` - Plane's web UI reads the estimate
-   from `estimate_point` (UUID) only, and the integer `point` field is silently ignored for
+   integer field on `workitem` `create` / `update` - Plane's web UI reads the estimate from
+   `estimate_point` (UUID) only, and the integer `point` field is silently ignored for
    display. The `estimate_points` map caches the label-to-UUID pairs; discover or refresh it with
    the estimate-point MCP tools (see "Estimate points"). Handle the map's absence or a missing value
    per the resolution rules in `CONVENTIONS.md`: offer to discover and fill `estimate_points` if
@@ -241,7 +241,7 @@ For non-trivial work item creation, the skill composes several Plane MCP calls i
    and alert the user rather than snapping to a neighbouring point (a missing Fibonacci point
    signals the project's estimate set needs correcting). Never guess a UUID or send the bare
    integer.
-5. **Create the work item** via `create_work_item`:
+5. **Create the work item** via `workitem` with `action: "create"`:
    - `project_id`: the project UUID.
    - `name`: the title.
    - `description_html`: the HTML body per `CONVENTIONS.md`.
@@ -264,11 +264,12 @@ right one depends on what the work item is about. When `.plane.yml` defines
 2. Surface the choice in what you propose to the user — never assign a module or
    label silently. In `manual` mode it appears in the fields block; in `mcp` mode
    state it before applying.
-3. In `mcp` mode, assign the module after the work item is created, via
-   `manage_module_work_items` using the module's `id`. If the chosen module has no
-   `id` in `.plane.yml`, resolve it via `list_modules` (or ask) before assigning.
-   Set labels via the `create_work_item` `labels` argument or `manage_work_item_label`
-   using the resolved label id.
+3. In `mcp` mode, assign the module after the work item is created, via `module`
+   with `action: "manage_workitems"`, the module's `id` as `module_id`, and the work
+   item UUID in `add_ids`. If the chosen module has no `id` in `.plane.yml`, resolve
+   it via `module` `list` (or ask) before assigning. Set labels via the `labels`
+   argument on the `workitem` `create` call, or afterwards via `workitem`
+   `manage_label` with the resolved label id in `add_label_id`.
 
 This does not loosen the guardrail in "Default Field Values": modules and labels
 are still set only when they come from `.plane.yml` or the user, never invented.
@@ -276,32 +277,32 @@ are still set only when they come from `.plane.yml` or the user, never invented.
 ### Estimate points
 
 Plane stores each estimate as a UUID-keyed entry in a project-level "estimate set", and
-`create_work_item` / `update_work_item` take that UUID via `estimate_point` (the integer `point`
-field is silently ignored for display, so never rely on it). Cache the label-to-UUID pairs in
+`workitem` `create` / `update` take that UUID via `estimate_point` (the integer `point` field
+is silently ignored for display, so never rely on it). Cache the label-to-UUID pairs in
 `.plane.yml` under `estimate_points` so assignments don't re-query every time.
 
 Discover or refresh the set for a project with two MCP calls:
 
-1. `get_project_estimate(project_id)` — returns the active estimate set; its `id` is the
-   `estimate_id`.
-2. `list_project_estimate_points(project_id, estimate_id)` — returns each point as an object with
-   `value` (the display label, e.g. `"1"`, `"2"`, `"5"`) and `id` (the UUID to send as
-   `estimate_point`).
+1. `project_estimate` with `action: "retrieve"` and `project_id` — returns the active estimate
+   set; its `id` is the `estimate_id`.
+2. `project_estimate` with `action: "list_points"`, `project_id`, and `estimate_id` — returns
+   each point as an object with `value` (the display label, e.g. `"1"`, `"2"`, `"5"`) and `id`
+   (the UUID to send as `estimate_point`).
 
 Write the resulting label → UUID pairs into `.plane.yml` under `estimate_points`, preferring the
 annotated `{ id, info }` form (see "Annotated entities"). YAML keys may be unquoted integers.
-`get_project_estimate` returns only the active set, so historical/orphaned points that render the
-same label never enter the map.
+`project_estimate` `retrieve` returns only the active set, so historical/orphaned points that
+render the same label never enter the map.
 
 ## Default Field Values
 
 When creating work items unless the user specifies otherwise and no `.plane.yml` config is
 present:
 
-- **Assignee**: Anurag, resolved via `get_workspace_members` matching `display_name: anurag` or
+- **Assignee**: Anurag, resolved via `member` `list_workspace` matching `display_name: anurag` or
   `email: anurag.devanapally@gmail.com`.
 - **Project**: Plane requires a `project_id` to create a work item. If neither `.plane.yml` nor
-  the user supplied a project, ask which project to use before calling `create_work_item`.
+  the user supplied a project, ask which project to use before calling `workitem` `create`.
 - **Priority**: `low`. Plane accepts `none`, but `low` keeps the work item visible in
   priority-sorted views.
 - **State**: do not pass `state`. Plane will use the project's default first state (typically
@@ -321,18 +322,21 @@ modules and labels" above (infer the best fit, surface it, never assign silently
 Only create links or relations when the user explicitly requests them or references a dependency
 in the conversation.
 
-**External URL links** (GitHub PRs, docs, dashboards, etc.): use `create_work_item_link` with the
-work item UUID and the URL. Plane shows these in the work item's "Links" sidebar.
+**External URL links** (GitHub PRs, docs, dashboards, etc.): use `workitem_link` with
+`action: "create"`, `project_id`, `workitem_id`, and `url`. Plane shows these in the work item's
+"Links" sidebar.
 
-**Relations to other work items**: use `create_work_item_relation` with `relation_type` set to
-one of:
+**Relations to other work items**: use `workitem_relation` with `action: "create"`, `project_id`,
+`workitem_id`, and `workitem_ids`. That last argument is a list of work item UUIDs, not
+identifiers like `DX-22` - resolve identifiers via `workitem` `retrieve_by_identifier` first.
 
-- `blocking` - this work item blocks the listed ones.
-- `blocked_by` - this work item is blocked by the listed ones.
-- `relates_to` - symmetric.
-- `duplicate` - this work item is a duplicate of the listed ones.
-- `start_before` / `start_after` / `finish_before` / `finish_after` - scheduling relations,
-  rarely used.
+Two kinds of relation, and they take different arguments:
 
-The `issues` argument is a list of work item UUIDs (not identifiers like `DX-22`). Resolve
-identifiers via `retrieve_work_item_by_identifier` first if needed.
+- **Dependencies** go in `relation_type`: `blocking`, `blocked_by`, `start_before`, `start_after`,
+  `finish_before`, `finish_after`. The scheduling four are rarely used.
+- **Everything else** - symmetric "relates to", "duplicate", and any workspace-defined relation -
+  is a custom definition, not a `relation_type` value. Call `list_definitions` first and match the
+  user's wording to an entry, then pass its id as `relation_definition_id` and the matched
+  `outward` or `inward` label as `relation_definition_label`; the label is what sets direction.
+  Custom definitions are a paid Plane feature, so `list_definitions` answering HTTP 402 means the
+  workspace can only express dependencies.

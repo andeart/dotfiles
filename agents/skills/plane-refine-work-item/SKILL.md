@@ -7,7 +7,7 @@ description: >
   in our style", "make this work item conform", "fix up DX-22", "clean up this Plane work item",
   or points at a Plane work item identifier or URL and asks to improve its wording or structure.
   Do NOT trigger for creating new work items (use plane-create-work-item). Use alongside the
-  Plane MCP tools (`retrieve_work_item_by_identifier`, `update_work_item`).
+  Plane MCP tools (`workitem` with its `retrieve_by_identifier` and `update` actions).
 ---
 
 # Plane Refine Work Item
@@ -37,7 +37,7 @@ that's already present.
 
 `.plane.yml` defaults are a *creation* concept and must not override an existing work item's
 fields. If the user explicitly asks to also adjust a field (e.g. "and bump priority to High"),
-handle that as a separate `update_work_item` call after the content rewrite is confirmed.
+handle that as a separate `workitem` `update` call after the content rewrite is confirmed.
 
 ### Reference context from `.plane.yml`
 
@@ -58,12 +58,13 @@ edits just `name`, `description_html`, and `description_stripped`.
 
 ## MCP call flow
 
-1. **Fetch the current work item** via `retrieve_work_item_by_identifier` using the project
-   identifier and sequence number from the user-provided reference (e.g. `DX-22` →
-   `project_identifier: "DX"`, `issue_identifier: 22`). Pass `expand: "assignees,labels,state"`
-   so you can see surrounding context. The response includes `description_html` (the current
-   HTML body) and `description_stripped`. Note whether the work item already has an
-   `estimate_point` set - a null/absent value is the trigger for the estimate-backfill step (5).
+1. **Fetch the current work item** via `workitem` with `action: "retrieve_by_identifier"`,
+   passing the user-provided reference whole as `workitem_identifier` (e.g. `DX-22`). The tool
+   takes the full identifier, not the prefix and number as separate arguments. Pass
+   `expand: "assignees,labels,state"` so you can see surrounding context. The response includes
+   `description_html` (the current HTML body) and `description_stripped`. Note whether the work
+   item already has an `estimate_point` set - a null/absent value is the trigger for the
+   estimate-backfill step (5).
    Also read `.plane.yml` (repo root, or `tmp/.plane.yml`) if present, and load
    any `guidance` and entity `info` as context per "Reference context from
    `.plane.yml`" above before diagnosing or rewriting.
@@ -87,8 +88,9 @@ edits just `name`, `description_html`, and `description_stripped`.
    the compact single-line HTML is the wire format, not the preview format. Wait for explicit
    confirmation. Refining is destructive to existing prose, so never edit silently. If the user
    wants tweaks, iterate in chat first.
-4. **Apply the edit** via `update_work_item` with the work item's UUID (from the retrieve call's
-   `id` field) and its `project_id`. Pass only `name`, `description_html`, and
+4. **Apply the edit** via `workitem` with `action: "update"`, `workitem_id` set to the work
+   item's UUID (from the retrieve call's `id` field) and `project_id` set to its project. The
+   parameter is `workitem_id`, not `work_item_id`. Pass only `name`, `description_html`, and
    `description_stripped` unless the user requested other field changes (or an estimate is being
    backfilled per step 5).
 5. **Backfill the estimate if it's missing.** Only when the fetched work item had no
@@ -100,9 +102,9 @@ edits just `name`, `description_html`, and `description_stripped`.
    (offer to discover and fill the map; on a value absent from the set, re-discover from the live
    project, and if still absent, stop and alert the user rather than snapping). The estimate-point
    discovery procedure itself lives in the `plane-create-work-item` skill's "Estimate points"
-   section. Send the resolved `estimate_point` on the same `update_work_item` call as the content
-   edit (step 4), or as a follow-up call if the content edit was already applied. If the work item
-   already had an estimate, skip this step entirely - never overwrite it.
+   section. Send the resolved `estimate_point` on the same `workitem` `update` call as the
+   content edit (step 4), or as a follow-up call if the content edit was already applied. If the
+   work item already had an estimate, skip this step entirely - never overwrite it.
 
 ## Already well-formed
 
@@ -117,6 +119,7 @@ Even when the prose needs no rewrite, still check for a missing estimate and off
 ## Manual mode
 
 If the work item's repo has `.plane.yml` with `mode: manual`, or if the user asks for manual
-output, do not call `update_work_item`. Instead, present the rewritten title and description in
-the same markdown format described in the `plane-create-work-item` skill's "Manual mode output
-format" section, so the user can paste the refined version into Plane themselves.
+output, do not call `workitem` with `action: "update"`. Instead, present the rewritten title and
+description in the same markdown format described in the `plane-create-work-item` skill's
+"Manual mode output format" section, so the user can paste the refined version into Plane
+themselves.

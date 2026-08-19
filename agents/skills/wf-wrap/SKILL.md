@@ -120,12 +120,11 @@ This runs **before** anything destructive, so a Plane failure leaves both the wo
 
 Skip this step entirely if `<PLANE_ID>` is `none` (Step 3 already set `<PLANE_OUTCOME>` to `not-inferred`). Otherwise:
 
-1. Parse `<PLANE_ID>` into `project_identifier` (the alpha prefix) and `issue_identifier` (the integer suffix).
-2. Call the Plane MCP tool `retrieve_work_item_by_identifier` with `project_identifier` and `issue_identifier`. If it returns 404 (or any not-found error), set `<PLANE_OUTCOME>` to `not-found` and skip the remaining sub-steps. The inferred `<PLANE_ID>` value is preserved for the report. This is not a fatal error.
-3. From the response, save the work item's `id` field as the work item UUID, the `project` field as the project UUID, and the `state` field as the current state UUID.
-4. Call `list_states` with `project_id` set to the project UUID. Collect every state whose `group` is `"completed"`. Pick the one named `"Done"` if it exists, otherwise the first. If the project has no `completed` state at all, set `<PLANE_OUTCOME>` to `no-completed-state` and skip the remaining sub-steps.
-5. If the current state UUID is already one of those `completed` states, set `<PLANE_OUTCOME>` to `already-done` and skip the update. Compare against the whole group, not just the state picked in sub-step 4 - a project can complete work items into more than one state, and rewriting one of those to "Done" would erase that distinction.
-6. Call `update_work_item` with `project_id` set to the project UUID, `work_item_id` set to the work item UUID, and `state` set to the completed state's UUID. Do not pass any other fields. On success, set `<PLANE_OUTCOME>` to `updated`.
+1. Call the Plane MCP tool `workitem` with `action: "retrieve_by_identifier"` and `workitem_identifier` set to `<PLANE_ID>` whole - the tool takes `ZZZ-0`, not the prefix and number as separate arguments. If it returns 404 (or any not-found error), set `<PLANE_OUTCOME>` to `not-found` and skip the remaining sub-steps. The inferred `<PLANE_ID>` value is preserved for the report. This is not a fatal error.
+2. From the response, save the work item's `id` field as the work item UUID, the `project` field as the project UUID, and the `state` field as the current state UUID.
+3. Call `state` with `action: "list"` and `project_id` set to the project UUID. Collect every state whose `group` is `"completed"`. Pick the one named `"Done"` if it exists, otherwise the first. If the project has no `completed` state at all, set `<PLANE_OUTCOME>` to `no-completed-state` and skip the remaining sub-steps.
+4. If the current state UUID is already one of those `completed` states, set `<PLANE_OUTCOME>` to `already-done` and skip the update. Compare against the whole group, not just the state picked in sub-step 3 - a project can complete work items into more than one state, and rewriting one of those to "Done" would erase that distinction.
+5. Call `workitem` with `action: "update"`, `project_id` set to the project UUID, `workitem_id` set to the work item UUID, and `state` set to the completed state's UUID. The parameter is `workitem_id`, not `work_item_id`. Do not pass any other fields. On success, set `<PLANE_OUTCOME>` to `updated`.
 
 If any Plane MCP call returns a non-404 error (network, auth, server), stop and report. Nothing has been torn down yet - fix Plane (e.g. set the state in the UI), then re-run.
 
