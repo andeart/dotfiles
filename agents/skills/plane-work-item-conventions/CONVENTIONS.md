@@ -9,13 +9,13 @@ See the [Examples](#examples) section at the bottom for a worked example with al
 
 ## Description format
 
-Plane stores work item descriptions as HTML in the `description_html` field. The Plane MCP tools
-(`create_work_item`, `update_work_item`) accept HTML directly and Plane's Tiptap-based editor
+Plane stores work item descriptions as HTML in the `description_html` field. The `workitem`
+MCP tool's `create` and `update` actions accept HTML directly and Plane's Tiptap-based editor
 normalizes it on save: it adds its own Tailwind classes (`editor-paragraph-block`, `list-disc
 pl-7 space-y-(--list-spacing-y) tight`, etc.) and a fresh `data-id` to every block. Send the
 minimal markup below and let Plane normalize.
 
-Verified markup (round-tripped through `retrieve_work_item_by_identifier`):
+Verified markup (round-tripped through `workitem` `retrieve_by_identifier`):
 
 - `<p>...</p>` for paragraphs.
 - `<h1>...</h1>` through `<h6>...</h6>` for headings. Plane preserves the heading level and adds
@@ -66,7 +66,7 @@ between sections. Specifically:
 - No newlines or indentation between `<ul>` and its first `<li>`, or between sibling `<li>`s.
 - No newlines between sections of any kind.
 
-This applies to both `create_work_item` and `update_work_item` calls. The `description_html`
+This applies to both the `create` and `update` actions. The `description_html`
 examples below are intentionally written on a single line - copy that shape, don't
 pretty-print.
 
@@ -75,8 +75,8 @@ pretty-print.
 Two distinct surfaces:
 
 - **Wire format (what Plane receives):** the single-line, no-whitespace HTML described in the
-  Description format section above. This is what `description_html` carries on
-  `create_work_item` / `update_work_item`.
+  Description format section above. This is what `description_html` carries on the `workitem`
+  tool's `create` / `update` actions.
 - **Chat preview (what the user reviews before approval):** human-readable rendered markdown -
   the proposed title on its own line, then `### Impact`, `### Notes`, `### Acceptance criteria`
   headings, plain bullets for Impact/Notes, and `- [ ]` items for acceptance criteria. Do not
