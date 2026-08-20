@@ -43,7 +43,7 @@ Supported keys:
 | Key | Description | Example |
 | --- | ----------- | ------- |
 | `mode` | `mcp` (default) or `manual` | `manual` |
-| `workspace` | Optional. Plane workspace slug (the part after `app.plane.so/` in URLs), handy for constructing work-item links. The MCP tools infer the workspace from the API token, so it isn't required for creation. | `byanu` |
+| `workspace` | Plane workspace slug (the part after `app.plane.so/` in URLs). Used to link the identifier in the report described in `CONVENTIONS.md`'s "Reporting after the write"; without it the report prints a bare identifier. The MCP tools infer the workspace from the API token, so it isn't required for creation itself. | `acme` |
 | `project` | Plane project name or identifier (the prefix shown in work-item IDs, e.g. `DX` for `DX-22`). Resolved via `project` `list` to a project UUID. | `DX` |
 | `assignee` | Plane display name or email (resolved via `member` `list_workspace` to a user UUID) | `anurag` |
 | `state` | Initial state name from the project's configured states | `Todo` |
@@ -252,6 +252,8 @@ For non-trivial work item creation, the skill composes several Plane MCP calls i
    - `estimate_point`: the resolved estimate-point UUID, if specified.
 6. **Add external links and relations**, if the user explicitly asked for them - see
    "Linking and relations" below.
+7. **Report what landed** in the block described in `CONVENTIONS.md`'s "Reporting after the
+   write". Build it from the values resolved above rather than re-reading the work item.
 
 ### Applying modules and labels
 
