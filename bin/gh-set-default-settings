@@ -7,8 +7,8 @@ Usage: gh-set-default-settings [--dry-run] <repo>
 
 Apply a curated set of branch rulesets and repo-level settings to a GitHub
 repository via the gh CLI. Each ruleset is confirmed individually, the repo
-settings are confirmed as a group, and each Dependabot setting is confirmed on
-its own; every prompt defaults to No.
+settings are confirmed as a group, and each Dependabot setting and the Plane
+autolink are confirmed on their own; every prompt defaults to No.
 
 <repo> may be any of:
   git@github.com:owner/repo.git
@@ -20,6 +20,11 @@ Rulesets are idempotent: a ruleset whose name already exists is updated in place
 (PUT); otherwise it is created (POST). Repo settings are set with PATCH and are
 idempotent by nature. Dependabot settings already enabled are reported and left
 alone rather than prompted for.
+
+The Plane autolink is offered only when the current directory is a checkout of
+<repo> and its .plane.yml supplies both `project` and `workspace`. It makes a
+bare identifier in a commit message (DX-49) link to the work item. GitHub does
+not apply autolinks to pull request or issue titles.
 
 Requires: gh (authenticated), jq.
 
@@ -590,6 +595,189 @@ run_repo_settings_section() {
 }
 
 # ---------------------------------------------------------------------------
+# Plane autolink
+#
+# Turns a bare work-item identifier in a commit message (DX-49) into a link to
+# the work item in Plane. GitHub applies autolinks to commit messages, PR and
+# issue bodies, and release descriptions - never to PR or issue titles.
+#
+# Both halves come from .plane.yml, the config the Plane skills already read:
+# `project` supplies the key prefix, `workspace` the path segment. The file is
+# read from the local checkout only when its origin matches the target repo, so
+# running this from one repo cannot stamp another repo's identifiers.
+# ---------------------------------------------------------------------------
+
+# plane_config_path: print the path to the .plane.yml governing the target repo,
+# or nothing. Root-level wins over tmp/, matching the Plane skills' discovery.
+plane_config_path() {
+  local toplevel origin
+  toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
+  [[ -n "$toplevel" ]] || return 0
+
+  origin="$(git remote get-url origin 2>/dev/null)" || return 0
+  [[ "$(parse_repo "$origin" 2>/dev/null)" == "$OWNER_REPO" ]] || return 0
+
+  if [[ -f "${toplevel}/.plane.yml" ]]; then
+    printf '%s\n' "${toplevel}/.plane.yml"
+  elif [[ -f "${toplevel}/tmp/.plane.yml" ]]; then
+    printf '%s\n' "${toplevel}/tmp/.plane.yml"
+  fi
+}
+
+# plane_config_value <file> <key>: print a top-level scalar from a .plane.yml.
+# Deliberately not a YAML parser. Only an unindented `key: value` line matches,
+# so a commented-out key and a nested key of the same name both read as absent -
+# which is the answer that makes the caller skip rather than guess.
+plane_config_value() {
+  local file="$1" key="$2"
+  awk -v key="$key" '
+    index($0, key ":") == 1 {
+      sub("^" key "[[:space:]]*:[[:space:]]*", "")
+      sub(/[[:space:]]*#.*$/, "")
+      gsub(/^["\047]+|["\047]+$/, "")
+      sub(/[[:space:]]+$/, "")
+      print
+      exit
+    }
+  ' "$file"
+}
+
+# autolink_desired: print "key_prefix|url_template", or "!reason" when the Plane
+# config cannot supply both halves. The reason rides on the same line because
+# the caller reads this through a command substitution, where a global set here
+# would die with the subshell.
+autolink_desired() {
+  local file project workspace prefix
+
+  file="$(plane_config_path)"
+  if [[ -z "$file" ]]; then
+    printf '!no .plane.yml for this repo in the current directory\n'
+    return 0
+  fi
+
+  project="$(plane_config_value "$file" project)"
+  workspace="$(plane_config_value "$file" workspace)"
+
+  if [[ -z "$project" ]]; then
+    printf '!%s sets no project\n' "$file"
+    return 0
+  fi
+  # The prefix has to be the identifier Plane stamps on work items (the DX in
+  # DX-49), not a display name. A name would build an autolink that matches
+  # nothing anyone ever writes, which reads as configured but is inert.
+  if [[ ! "$project" =~ ^[A-Za-z][A-Za-z0-9]*$ ]]; then
+    printf '!project "%s" is a name, not a Plane identifier\n' "$project"
+    return 0
+  fi
+  if [[ -z "$workspace" ]]; then
+    printf '!%s sets no workspace\n' "$file"
+    return 0
+  fi
+
+  prefix="$(printf '%s' "$project" | tr '[:lower:]' '[:upper:]')-"
+  printf '%s|https://app.plane.so/%s/browse/%s<num>/\n' "$prefix" "$workspace" "$prefix"
+}
+
+# autolink_lookup <key_prefix> <field>: print that field of the autolink holding
+# the prefix, or nothing when the repo has no such autolink.
+autolink_lookup() {
+  local prefix="$1" field="$2"
+  gh api "/repos/${OWNER_REPO}/autolinks" 2>/dev/null \
+    | jq -r --arg p "$prefix" --arg f "$field" \
+      'map(select(.key_prefix == $p)) | .[0][$f] // empty' 2>/dev/null || true
+}
+
+# autolink_state <key_prefix> <url_template>: "match", "absent", or
+# "mismatch <current-template>".
+autolink_state() {
+  local prefix="$1" want="$2" have
+  have="$(autolink_lookup "$prefix" url_template)"
+  if [[ -z "$have" ]]; then
+    echo "absent"
+  elif [[ "$have" == "$want" ]]; then
+    echo "match"
+  else
+    echo "mismatch ${have}"
+  fi
+}
+
+# apply_autolink <key_prefix> <url_template> [existing_id]: create the autolink,
+# deleting the prefix's current entry first when one is passed. GitHub has no
+# update endpoint for autolinks, so replacing one is delete-then-create.
+#
+# is_alphanumeric is false because a Plane identifier's suffix is always an
+# integer; the API defaults it to true, which would also match DX-49a.
+apply_autolink() {
+  local prefix="$1" template="$2" id="${3:-}"
+
+  if [[ -n "$id" ]]; then
+    gh api --method DELETE "/repos/${OWNER_REPO}/autolinks/${id}" >/dev/null \
+      || die "failed to remove the existing ${prefix} autolink on ${OWNER_REPO} (need admin access)."
+  fi
+
+  gh api --method POST "/repos/${OWNER_REPO}/autolinks" \
+    -f "key_prefix=${prefix}" \
+    -f "url_template=${template}" \
+    -F is_alphanumeric=false >/dev/null \
+    || die "failed to create the ${prefix} autolink on ${OWNER_REPO} (need admin access)."
+}
+
+run_autolink_section() {
+  echo
+  echo "Plane autolink:"
+  local desired prefix template state id
+
+  desired="$(autolink_desired)"
+  if [[ "$desired" == '!'* ]]; then
+    echo "  skipped (${desired#!})."
+    return 0
+  fi
+
+  prefix="${desired%%|*}"
+  template="${desired#*|}"
+  state="$(autolink_state "$prefix" "$template")"
+
+  if [[ -n "$DRY_RUN" ]]; then
+    case "$state" in
+      match)     printf '  %-39s configured (no change)\n' "${prefix}" ;;
+      absent)    printf '  %-39s absent -> %s (would change)\n' "${prefix}" "$template" ;;
+      mismatch*) printf '  %-39s %s -> %s (would replace)\n' "${prefix}" "${state#mismatch }" "$template" ;;
+    esac
+    return 0
+  fi
+
+  case "$state" in
+    match)
+      printf '  %-31s already configured\n' "${prefix}"
+      return 0
+      ;;
+    mismatch*)
+      echo "  ${prefix} currently points at ${state#mismatch }"
+      if confirm "replacing the ${prefix} autolink with ${template}"; then
+        id="$(autolink_lookup "$prefix" id)"
+        apply_autolink "$prefix" "$template" "$id"
+        echo "  replaced the ${prefix} autolink."
+      else
+        echo "  skipped."
+        return 0
+      fi
+      ;;
+    absent)
+      echo "  ${prefix} -> ${template}"
+      if confirm "the ${prefix} autolink"; then
+        apply_autolink "$prefix" "$template"
+        echo "  created the ${prefix} autolink."
+      else
+        echo "  skipped."
+        return 0
+      fi
+      ;;
+  esac
+
+  echo 'Note: autolinks render in commit messages, PR bodies and release descriptions - not in PR or issue titles.'
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -623,6 +811,8 @@ main() {
   run_repo_settings_section
 
   run_dependabot_section
+
+  run_autolink_section
 
   echo "Done."
 }

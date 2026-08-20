@@ -85,6 +85,42 @@ Two distinct surfaces:
 Manual mode is the exception: in manual mode the user copy-pastes the body into Plane, so the
 fenced HTML block is the correct preview (see the create skill's "Manual mode output format").
 
+## Reporting after the write
+
+Once a `create` or `update` lands, print this block and nothing else. No prose summary, no
+restatement of the description, no list of what changed - the user approved the content at the
+preview step, and this only confirms what Plane now holds.
+
+```text
+Issue: [ZZ-123](https://app.plane.so/<workspace>/browse/ZZ-123/)
+Assignee: anuragd
+State: Todo
+Priority: low
+Estimate: 3
+Cycle: ship
+Module: client
+Labels: tech-debt
+```
+
+One field per line, in that order. A field with no value gets a dash - never an omitted line, and
+never the word "none":
+
+```text
+Cycle: -
+```
+
+Compose the block from what this run already holds: the values it sent, or the ones the retrieve
+call returned. Do not re-fetch the work item to render it. A read-back costs a call and can only
+ever disagree with what was just written, which turns a confirmation into a second source of
+truth.
+
+`Issue:` links the identifier when `.plane.yml` sets `workspace`, and prints the bare identifier
+when it does not. Never fill the slug in from a guess: a link that resolves nowhere is worse than
+an identifier that was never a link.
+
+Manual mode has nothing to report, because nothing was written. The fields block that mode already
+prints is its whole output.
+
 ## Work Item Description Structure
 
 Every work item description uses up to three sections in this fixed order. Sections are separated

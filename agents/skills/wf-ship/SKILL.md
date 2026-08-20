@@ -184,16 +184,23 @@ If Step 1 found nothing new to push, say so above the PR URL. A run that only ch
 
 Use `gh pr create` with a title, a body, and `--assignee @me`. Do NOT use `--fill`.
 
-**Title:** Write in simple present imperative tense. The title should complete the sentence "This PR will..." Keep it under 70 characters. No conventional commit prefixes.
+**Title:** Lead with the work item identifier and a colon when one is known, then the subject. The identifier is whatever "Recording the work item" resolves - there is one per ship and it is decided there. When it resolves nothing, the title starts at the verb; no placeholder, and no bare colon.
 
-Good: `Add dark mode support to settings page`
+The identifier leads rather than trails because a subject that runs long is truncated from the right, in `git log --oneline` and in GitHub's commit list alike. A trailing identifier is the first thing to disappear, and it takes the `(#123)` with it.
+
+Write the subject in simple present imperative tense; it should complete the sentence "This PR will..." Keep the subject under 70 characters - the identifier does not count against that. No conventional commit prefixes: the identifier names one work item rather than classifying the change, and carrying it does not license a `feat:` alongside.
+
+Good: `ZZZ-0: Add dark mode support to settings page`
+Good: `Add dark mode support to settings page` (no work item known)
 Bad: `feat: add dark mode support` (prefix)
+Bad: `ZZZ-0: feat: add dark mode support` (an identifier is not a licence for a type prefix)
+Bad: `Add dark mode support to settings page (ZZZ-0)` (identifier leads, never trails)
 Bad: `Added dark mode` (past tense)
 
 **Body:** Use this structure:
 
 ```markdown
-Issue: [<ID>](https://app.plane.so/byanu/browse/<ID>/)
+Issue: [<ID>](https://app.plane.so/<workspace>/browse/<ID>/)
 
 ## Summary
 <1-3 bullet points describing what changed and why>
@@ -212,7 +219,7 @@ Assignees need push access on the repo, so this fails on repos you contribute to
 
 ### Recording the work item
 
-`Issue: [<ID>](https://app.plane.so/byanu/browse/<ID>/)` goes on the first line of the body, above `## Summary`. Link the identifier to its Plane work item - `byanu` is the only workspace, so hardcode it, and keep the trailing slash. Plane calls these work items, but the line stays `Issue:`. `/wf-wrap` reads it to decide which work item to mark Done once this merges, so a wrong identifier closes someone else's work.
+`Issue: [<ID>](https://app.plane.so/<workspace>/browse/<ID>/)` goes on the first line of the body, above `## Summary`. Link the identifier to its Plane work item, and keep the trailing slash. `<workspace>` comes from "Resolving the workspace" below - never hardcode a slug. Plane calls these work items, but the line stays `Issue:`. `/wf-wrap` reads it to decide which work item to mark Done once this merges, so a wrong identifier closes someone else's work.
 
 Whatever this section resolves is also the work item that "Linking the PR to Plane" attaches the PR to. There is one identifier per ship and it is decided here.
 
@@ -223,11 +230,29 @@ Include the line only when one of these holds:
 
 Otherwise omit it entirely - no placeholder, no `Issue: none`. Do not scan the conversation for identifier-shaped strings. They turn up in discussion, in skill examples, and in tool output for reasons that have nothing to do with this change, and nothing distinguishes those from a real assignment.
 
+### Resolving the workspace
+
+Only when the `Issue:` line is going in. No identifier means no link, and nothing to resolve.
+
+The workspace is the slug in `app.plane.so/<workspace>/...`. Read it from the `workspace` key in `.plane.yml` - repo root first, then `tmp/.plane.yml`, and the root file wins if both exist. This is the same config the Plane skills read; `plane-create-work-item` documents the full key set.
+
+If the key is set, use it. If it is missing, empty, or still commented out, ask for it in one line:
+
+> No Plane workspace is configured. What's the workspace slug - the part after `app.plane.so/`?
+
+With the answer in hand:
+
+- **A `.plane.yml` exists** - offer to store the slug in it, and write only on a yes. Uncomment the `workspace:` line if the file carries one commented out; otherwise append `workspace: <slug>`.
+- **No `.plane.yml` exists** - offer to create one in the repo root holding just that key. `plane-create-work-item` appends the rest the next time it runs.
+- **The user declines the offer** - use the slug for this ship and move on. Do not ask twice in one run.
+
+If the user declines to name a slug at all, write the line bare - `Issue: <ID>`, no markdown link. `/wf-wrap` matches that form too, so the wrap still finds the work item and only the convenience link is lost.
+
 Use a heredoc to pass the body:
 
 ```bash
-gh pr create --assignee @me --title "the title" --body "$(cat <<'EOF'
-Issue: [ZZZ-0](https://app.plane.so/byanu/browse/ZZZ-0/)
+gh pr create --assignee @me --title "ZZZ-0: the title" --body "$(cat <<'EOF'
+Issue: [ZZZ-0](https://app.plane.so/<workspace>/browse/ZZZ-0/)
 
 ## Summary
 - bullet points here

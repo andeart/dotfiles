@@ -739,3 +739,346 @@ Content-Type: application/json
   [[ "$output" == *"enabled Dependabot security updates."* ]]
   [[ "$output" == *"malware alerts are npm-only"* ]]
 }
+
+# ─── plane_config_value (pure) ─────────────────────────────────────────────
+
+# plane_yml <lines...>: write a .plane.yml fixture and print its path.
+plane_yml() {
+  local file="$BATS_TEST_TMPDIR/plane-$$.yml"
+  printf '%s\n' "$@" > "$file"
+  printf '%s\n' "$file"
+}
+
+@test "plane_config_value reads an unquoted scalar" {
+  call plane_config_value "$(plane_yml 'project: DX')" project
+  [ "$status" -eq 0 ]
+  [ "$output" = "DX" ]
+}
+
+@test "plane_config_value strips surrounding quotes of either kind" {
+  call plane_config_value "$(plane_yml 'project: "DX"' "workspace: 'acme'")" workspace
+  [ "$status" -eq 0 ]
+  [ "$output" = "acme" ]
+}
+
+@test "plane_config_value strips a trailing inline comment" {
+  call plane_config_value "$(plane_yml 'workspace: acme  # the only one')" workspace
+  [ "$status" -eq 0 ]
+  [ "$output" = "acme" ]
+}
+
+@test "plane_config_value reads a commented-out key as absent" {
+  call plane_config_value "$(plane_yml 'project: DX' '# workspace: acme')" workspace
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "plane_config_value ignores an indented key of the same name" {
+  # `project` nested under another key is not a repo-level default, and reading
+  # it as one would build an autolink for the wrong prefix.
+  call plane_config_value "$(plane_yml 'modules:' '  project: NESTED')" project
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+# ─── plane_config_path (needs a checkout) ──────────────────────────────────
+
+# checkout_with_origin <origin-url> [plane.yml lines...]: build a temp repo,
+# cd into it, and print its path.
+checkout_with_origin() {
+  local origin="$1"; shift
+  local dir="$BATS_TEST_TMPDIR/checkout"
+  mkdir -p "$dir"
+  git -C "$dir" init --quiet
+  git -C "$dir" remote add origin "$origin"
+  [[ $# -eq 0 ]] || printf '%s\n' "$@" > "$dir/.plane.yml"
+  printf '%s\n' "$dir"
+}
+
+@test "plane_config_path finds the root .plane.yml when the origin matches" {
+  local dir; dir="$(checkout_with_origin 'git@github.com:owner/repo.git' 'project: DX')"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    cd "$2" || exit 1
+    plane_config_path
+  ' _ "$BIN" "$dir"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/.plane.yml" ]]
+}
+
+@test "plane_config_path finds nothing when the checkout is a different repo" {
+  # The guard that stops a run from one repo stamping another repo's prefix.
+  local dir; dir="$(checkout_with_origin 'git@github.com:owner/repo.git' 'project: DX')"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=someone/else
+    cd "$2" || exit 1
+    plane_config_path
+  ' _ "$BIN" "$dir"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "plane_config_path prefers the root .plane.yml over tmp/" {
+  local dir; dir="$(checkout_with_origin 'git@github.com:owner/repo.git' 'project: DX')"
+  mkdir -p "$dir/tmp"
+  printf 'project: ZZ\n' > "$dir/tmp/.plane.yml"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    cd "$2" || exit 1
+    plane_config_path
+  ' _ "$BIN" "$dir"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"/tmp/.plane.yml" ]]
+}
+
+@test "plane_config_path falls back to tmp/.plane.yml" {
+  local dir; dir="$(checkout_with_origin 'git@github.com:owner/repo.git')"
+  mkdir -p "$dir/tmp"
+  printf 'project: DX\n' > "$dir/tmp/.plane.yml"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    cd "$2" || exit 1
+    plane_config_path
+  ' _ "$BIN" "$dir"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/tmp/.plane.yml" ]]
+}
+
+# ─── autolink_desired, with plane_config_path stubbed ──────────────────────
+
+# desired_from <plane.yml lines...>: run autolink_desired against a fixture.
+desired_from() {
+  export STUB_CONFIG; STUB_CONFIG="$(plane_yml "$@")"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    plane_config_path() { printf "%s\n" "$STUB_CONFIG"; }
+    autolink_desired
+  ' _ "$BIN"
+}
+
+@test "autolink_desired builds the prefix and template from project and workspace" {
+  desired_from 'project: DX' 'workspace: acme'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'DX-|https://app.plane.so/acme/browse/DX-<num>/' ]
+}
+
+@test "autolink_desired uppercases a lowercase project identifier" {
+  desired_from 'project: dx' 'workspace: acme'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'DX-|https://app.plane.so/acme/browse/DX-<num>/' ]
+}
+
+@test "autolink_desired refuses a project that is a display name" {
+  # A name builds an autolink matching nothing anyone writes - configured but inert.
+  desired_from 'project: Developer Experience' 'workspace: acme'
+  [ "$status" -eq 0 ]
+  [[ "$output" == '!project "Developer Experience" is a name'* ]]
+}
+
+@test "autolink_desired reports a missing workspace rather than guessing one" {
+  desired_from 'project: DX' '# workspace: acme'
+  [ "$status" -eq 0 ]
+  [[ "$output" == '!'*"sets no workspace" ]]
+}
+
+@test "autolink_desired reports a missing project" {
+  desired_from 'workspace: acme'
+  [ "$status" -eq 0 ]
+  [[ "$output" == '!'*"sets no project" ]]
+}
+
+@test "autolink_desired reports the absence of a config file" {
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    plane_config_path() { return 0; }
+    autolink_desired
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == '!no .plane.yml'* ]]
+}
+
+# ─── autolink_state, with gh stubbed ───────────────────────────────────────
+
+# stub_autolinks <json array>: run autolink_state against a canned list.
+stub_autolinks() {
+  export STUB_RESPONSE="$1"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { printf "%s\n" "$STUB_RESPONSE"; }
+    autolink_state "DX-" "https://app.plane.so/acme/browse/DX-<num>/"
+  ' _ "$BIN"
+}
+
+@test "autolink_state reports absent when the repo has no autolinks" {
+  stub_autolinks '[]'
+  [ "$status" -eq 0 ]
+  [ "$output" = "absent" ]
+}
+
+@test "autolink_state reports absent when another prefix is configured" {
+  stub_autolinks '[{"id":1,"key_prefix":"JIRA-","url_template":"https://example.com/<num>"}]'
+  [ "$status" -eq 0 ]
+  [ "$output" = "absent" ]
+}
+
+@test "autolink_state reports match on an identical template" {
+  stub_autolinks '[{"id":1,"key_prefix":"DX-","url_template":"https://app.plane.so/acme/browse/DX-<num>/"}]'
+  [ "$status" -eq 0 ]
+  [ "$output" = "match" ]
+}
+
+@test "autolink_state reports mismatch and carries the current template" {
+  stub_autolinks '[{"id":1,"key_prefix":"DX-","url_template":"https://app.plane.so/old/browse/DX-<num>/"}]'
+  [ "$status" -eq 0 ]
+  [ "$output" = "mismatch https://app.plane.so/old/browse/DX-<num>/" ]
+}
+
+# ─── apply_autolink, with gh stubbed ───────────────────────────────────────
+
+@test "apply_autolink posts the prefix, template and a numeric identifier" {
+  # The stub reports on stderr because apply_autolink sends gh's stdout to
+  # /dev/null; there is no response worth reading from either write.
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { printf "%s\n" "$*" >&2; }
+    apply_autolink "DX-" "https://app.plane.so/acme/browse/DX-<num>/"
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--method POST /repos/owner/repo/autolinks"* ]]
+  [[ "$output" == *"key_prefix=DX-"* ]]
+  [[ "$output" == *"url_template=https://app.plane.so/acme/browse/DX-<num>/"* ]]
+  # Plane suffixes are always integers; the API would otherwise default this to
+  # true and also match DX-49a.
+  [[ "$output" == *"is_alphanumeric=false"* ]]
+}
+
+@test "apply_autolink deletes the existing entry before recreating it" {
+  # GitHub has no update endpoint for autolinks, so a replacement is two calls
+  # and the delete has to come first.
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { printf "%s\n" "$*" >&2; }
+    apply_autolink "DX-" "https://app.plane.so/acme/browse/DX-<num>/" 7
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "${lines[0]}" == *"--method DELETE /repos/owner/repo/autolinks/7"* ]]
+  [[ "${lines[1]}" == *"--method POST /repos/owner/repo/autolinks"* ]]
+}
+
+@test "apply_autolink dies when the POST fails" {
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { return 1; }
+    apply_autolink "DX-" "https://app.plane.so/acme/browse/DX-<num>/"
+  ' _ "$BIN"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"failed to create the DX- autolink"* ]]
+  [[ "$output" == *"owner/repo"* ]]
+}
+
+@test "apply_autolink dies when the delete half of a replacement fails" {
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    gh() { return 1; }
+    apply_autolink "DX-" "https://app.plane.so/acme/browse/DX-<num>/" 7
+  ' _ "$BIN"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"failed to remove the existing DX- autolink"* ]]
+}
+
+# ─── run_autolink_section ──────────────────────────────────────────────────
+
+# section_with <desired> <state> [dry-run] [confirm rc]: run the section with
+# both lookups stubbed, so no test depends on a checkout or the network.
+section_with() {
+  export STUB_DESIRED="$1" STUB_STATE="$2" STUB_DRY="${3:-}" STUB_CONFIRM="${4:-1}"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    DRY_RUN="$STUB_DRY"
+    autolink_desired() { printf "%s\n" "$STUB_DESIRED"; }
+    autolink_state() { printf "%s\n" "$STUB_STATE"; }
+    autolink_lookup() { printf "7\n"; }
+    confirm() { return "$STUB_CONFIRM"; }
+    apply_autolink() { printf "APPLIED %s\n" "$*"; }
+    run_autolink_section
+  ' _ "$BIN"
+}
+
+@test "run_autolink_section reports the skip reason it was given" {
+  section_with '!/repo/.plane.yml sets no workspace' absent
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"skipped (/repo/.plane.yml sets no workspace)"* ]]
+  [[ "$output" != *"APPLIED"* ]]
+}
+
+@test "run_autolink_section dry run shows the create without making it" {
+  section_with 'DX-|https://app.plane.so/acme/browse/DX-<num>/' absent 1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"would change"* ]]
+  [[ "$output" != *"APPLIED"* ]]
+}
+
+@test "run_autolink_section dry run reports no change on a match" {
+  section_with 'DX-|https://app.plane.so/acme/browse/DX-<num>/' match 1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no change"* ]]
+  [[ "$output" != *"APPLIED"* ]]
+}
+
+@test "run_autolink_section dry run flags a replacement" {
+  section_with 'DX-|https://app.plane.so/acme/browse/DX-<num>/' 'mismatch https://old/<num>' 1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"would replace"* ]]
+  [[ "$output" != *"APPLIED"* ]]
+}
+
+@test "run_autolink_section leaves a matching autolink alone without prompting" {
+  section_with 'DX-|https://app.plane.so/acme/browse/DX-<num>/' match
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already configured"* ]]
+  [[ "$output" != *"APPLIED"* ]]
+}
+
+@test "run_autolink_section creates a confirmed autolink" {
+  section_with 'DX-|https://app.plane.so/acme/browse/DX-<num>/' absent '' 0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"APPLIED DX- https://app.plane.so/acme/browse/DX-<num>/"* ]]
+  [[ "$output" == *"created the DX- autolink"* ]]
+}
+
+@test "run_autolink_section writes nothing when the confirmation is declined" {
+  section_with 'DX-|https://app.plane.so/acme/browse/DX-<num>/' absent '' 1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"skipped."* ]]
+  [[ "$output" != *"APPLIED"* ]]
+}
+
+@test "run_autolink_section passes the existing id when replacing" {
+  section_with 'DX-|https://app.plane.so/acme/browse/DX-<num>/' 'mismatch https://old/<num>' '' 0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"currently points at https://old/<num>"* ]]
+  [[ "$output" == *"APPLIED DX- https://app.plane.so/acme/browse/DX-<num>/ 7"* ]]
+}
+
+@test "run_autolink_section notes that titles are not autolinked" {
+  # The one caveat worth surfacing at the point the autolink is created.
+  section_with 'DX-|https://app.plane.so/acme/browse/DX-<num>/' absent '' 0
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"not in PR or issue titles"* ]]
+}
+
+@test "run_autolink_section keeps the titles note off a declined run" {
+  section_with 'DX-|https://app.plane.so/acme/browse/DX-<num>/' absent '' 1
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"not in PR or issue titles"* ]]
+}

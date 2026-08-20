@@ -105,6 +105,9 @@ edits just `name`, `description_html`, and `description_stripped`.
    section. Send the resolved `estimate_point` on the same `workitem` `update` call as the
    content edit (step 4), or as a follow-up call if the content edit was already applied. If the
    work item already had an estimate, skip this step entirely - never overwrite it.
+6. **Report what landed** in the block described in `CONVENTIONS.md`'s "Reporting after the
+   write". Every field in it either came back on step 1's retrieve or was set by this run, so
+   nothing here needs a second fetch.
 
 ## Already well-formed
 

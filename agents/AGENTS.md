@@ -40,6 +40,7 @@
 
 ## GitHub Issues & PRs
 
+- Lead a PR title with its work item identifier and a colon when one is known (`ZZZ-0: Add dark mode support`), then the imperative subject. An identifier names one work item rather than classifying the change, so the "no conventional commit prefixes" rule above does not reach it - and carrying one does not license a `feat:` alongside. Commit subjects stay bare; only the PR title takes the identifier.
 - Write issue and PR descriptions in a human, personable voice. First-person observations over passive/abstract phrasing ("I traced this back to..." not "The root cause was identified as...").
 - Lead with your perspective or lived experience before getting into rationale. Share a take, then support it.
 - Keep technical detail rigorous and well-structured - the tone is friendly, not the standards.
