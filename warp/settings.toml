@@ -77,11 +77,11 @@ override_blur = 1
 [appearance.vertical_tabs]
 show_diff_stats = true
 show_pr_link = true
-compact_subtitle = "branch"
+compact_subtitle = "working_directory"
 primary_info = "command"
-view_mode = "expanded"
+view_mode = "compact"
 enabled = true
-display_granularity = "panes"
+display_granularity = "tabs"
 
 [appearance.icon]
 app_icon = "glass_sky"
