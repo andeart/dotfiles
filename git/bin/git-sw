@@ -41,7 +41,7 @@ while IFS=$'\t' read -r branch author; do
   subject="${commit_info#*	}"
 
   display_lines+=("${i}. ${branch_colored} ${BLUE}${date_part}${RESET} ${subject} ${MAGENTA}-${author}${RESET}")
-  ((i++))
+  i=$((i + 1))
 done < <(git for-each-ref --sort=-committerdate --format='%(refname:short)%09%(authorname)' refs/heads/)
 
 if [[ ${#branches[@]} -eq 0 ]]; then
