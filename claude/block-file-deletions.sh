@@ -26,7 +26,7 @@ tool="$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null)" || ex
 cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)" || exit 0
 [[ -n "$cmd" ]] || exit 0
 
-reason="Blocked by the block-file-deletions hook: this command would delete files. Per the deletion rules in AGENTS.md, deletions must be handed to the user - tell them exactly what to remove and let them run it themselves."
+reason="Blocked by the block-file-deletions hook: this command would delete files. Per the deletion rules in AGENTS.md, deletions must be handed to the user - tell them exactly what to remove and print the equivalent \`rm\`/\`rmdir\` command with absolute paths in your reply, so they can run it themselves."
 
 deny() {
   jq -cn --arg r "$reason" \
