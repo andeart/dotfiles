@@ -1,26 +1,21 @@
-# Read automatically from the repo root by every gitleaks tier here - the
-# pre-commit staged scan, the pre-push history scan, CI's full scan. None of
-# them pass --config.
+# gitleaks reads this from the repo root; no tier passes --config.
 [extend]
 useDefault = true
 
-# Chords like "shift+alt+down" clear generic-api-key's entropy threshold. Match
-# them on content, never on a .gitleaksignore fingerprint: a fingerprint pins
-# commit, path, rule and line together, so it goes stale as soon as an edit
-# shifts the line, and a staged scan emits fingerprints with no commit at all
-# that no pinned entry can match.
+# Chords like "shift+alt+down" clear generic-api-key's entropy threshold.
 #
-# condition = "AND" is load-bearing - without it gitleaks ORs the two clauses
-# and paths alone exempts the whole file. regexTarget = "line" likewise: this
-# rule's "match" string drops the leading quote, so a '"key"' pattern aimed at
-# "match" silently never fires.
+# condition = "AND" is load-bearing: without it gitleaks ORs the clauses and
+# paths alone exempts the whole file. regexTarget = "line" likewise - the
+# finding's "match" drops the leading quote, so a '"key"' pattern never fires
+# against it.
 #
-# The character class is the narrow half of the pair. It admits VS Code chord
-# syntax and nothing mixed-case or long, so a real token parked in a "key"
-# field is still reported.
+# Segments cap at 11 characters, under the 12 generic-api-key needs to report
+# anything, so no run inside an exempted line can be a finding on its own. The
+# longest segment in the file is 5 ("shift").
 [[allowlists]]
 description = "VS Code keybinding chords are not secrets"
 condition = "AND"
+targetRules = ["generic-api-key"]
 paths = ['''^vscode/keybindings\.json$''']
 regexTarget = "line"
-regexes = ['''^\s*"key"\s*:\s*"[a-z0-9 +_\-\[\]\\/;'`,.=]{1,40}"\s*,?\s*$''']
+regexes = ['''^\s*"key"\s*:\s*"[a-z0-9\[\]\\/;'`,.=_-]{1,11}(?:[ +][a-z0-9\[\]\\/;'`,.=_-]{1,11})*"\s*,?\s*$''']

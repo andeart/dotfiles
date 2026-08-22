@@ -11,6 +11,10 @@ CHORD='shift+alt+down'
 # Assembled rather than written out, so this file does not trip the scanner it
 # is testing. Long mixed-case literals are what generic-api-key exists to catch.
 TOKEN="hT8fQz3X""mL9vRp2W""bN6kYs4J""dC7gAeU1"
+# The same length in lowercase and digits only. A character class permissive
+# enough to spell chords can wave this through while still excluding mixed
+# case, so the mixed-case token alone does not prove the allowlist is narrow.
+LOWER_TOKEN="a3f9c2e7""b1d84a6f""0c5e93b7""d2148f6a"
 
 # The entry the pinned gitleaks pre-commit hook runs, verbatim. No --config:
 # the point of these tests is that .gitleaks.toml is found on its own.
@@ -37,14 +41,28 @@ probe_repo() {
   git commit -q -m "baseline"
 }
 
-# Insert a keybinding entry at the head of the array.
-insert_entry() {
+# Splice an entry into the head of the keybindings array. "insert" takes the
+# entry's lines as arguments; "move" lifts the entry containing a substring out
+# of its current position first, so its lines land in the diff as additions.
+splice_entry() {
   python3 - "$@" <<'PY'
 import sys
-p, entry = sys.argv[1], sys.argv[2:]
-lines = open(p).read().split('\n')
-idx = next(i for i, l in enumerate(lines) if l.strip().startswith('['))
-open(p, 'w').write('\n'.join(lines[:idx + 1] + entry + lines[idx + 1:]))
+
+path = 'vscode/keybindings.json'
+lines = open(path).read().split('\n')
+mode, args = sys.argv[1], sys.argv[2:]
+
+if mode == 'insert':
+    entry, rest = args, lines
+else:
+    start = next(i for i, l in enumerate(lines) if args[0] in l) - 1
+    end = start
+    while '},' not in lines[end]:
+        end += 1
+    entry, rest = lines[start:end + 1], lines[:start] + lines[end + 1:]
+
+head = next(i for i, l in enumerate(rest) if l.strip().startswith('['))
+open(path, 'w').write('\n'.join(rest[:head + 1] + entry + rest[head + 1:]))
 PY
 }
 
@@ -59,20 +77,7 @@ PY
 
 @test "a rewrite that moves the chord lines does not reintroduce findings" {
   probe_repo
-  # Move the first chord block to the top of the array, so those lines land in
-  # the diff as additions at line numbers nothing has ever pinned.
-  python3 - "$CHORD" <<'PY'
-import sys
-p = 'vscode/keybindings.json'
-lines = open(p).read().split('\n')
-start = next(i for i, l in enumerate(lines) if sys.argv[1] in l) - 1
-end = start
-while '},' not in lines[end]:
-    end += 1
-block, rest = lines[start:end + 1], lines[:start] + lines[end + 1:]
-idx = next(i for i, l in enumerate(rest) if l.strip().startswith('['))
-open(p, 'w').write('\n'.join(rest[:idx + 1] + block + rest[idx + 1:]))
-PY
+  splice_entry move "$CHORD"
   git add vscode/keybindings.json
   # The rewrite has to actually re-add the chord, or the scan proves nothing.
   run git diff --cached
@@ -89,9 +94,14 @@ PY
   # that happened to cover only one chord would fail here.
   python3 -c "
 p = 'vscode/keybindings.json'
-open(p, 'w').write('\n'.join(' ' + l if l else l for l in open(p).read().split('\n')))
+lines = open(p).read().split('\n')
+open(p, 'w').write('\n'.join(' ' + l if l else l for l in lines))
 "
   git add vscode/keybindings.json
+  # Every chord has to land in the diff as an addition, or the scan proves
+  # nothing - an edit that emptied the file instead would still scan clean.
+  run git diff --cached
+  [ "$(grep -c '^+.*"key"' <<< "$output")" -eq "$(grep -c '"key"' "$KEYBINDINGS")" ]
 
   scan_staged
   [ "$status" -eq 0 ]
@@ -102,7 +112,7 @@ open(p, 'w').write('\n'.join(' ' + l if l else l for l in open(p).read().split('
 
 @test "a secret elsewhere in the keybindings file is still reported" {
   probe_repo
-  insert_entry vscode/keybindings.json \
+  splice_entry insert \
     '    {' \
     '        "key": "ctrl+k q",' \
     '        "command": "extension.run",' \
@@ -117,9 +127,23 @@ open(p, 'w').write('\n'.join(' ' + l if l else l for l in open(p).read().split('
 
 @test "a token parked in a key field is still reported" {
   probe_repo
-  insert_entry vscode/keybindings.json \
+  splice_entry insert \
     '    {' \
     "        \"key\": \"$TOKEN\"," \
+    '        "command": "extension.run"' \
+    '    },'
+  git add vscode/keybindings.json
+
+  scan_staged
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"generic-api-key"* ]]
+}
+
+@test "a lowercase token parked in a key field is still reported" {
+  probe_repo
+  splice_entry insert \
+    '    {' \
+    "        \"key\": \"$LOWER_TOKEN\"," \
     '        "command": "extension.run"' \
     '    },'
   git add vscode/keybindings.json
@@ -140,10 +164,19 @@ open(p, 'w').write('\n'.join(' ' + l if l else l for l in open(p).read().split('
   [[ "$output" == *"other/keybindings.json"* ]]
 }
 
-# ─── no going back to fingerprints ─────────────────────────────────────────
+# ─── the exemption is scoped to the one rule it exists for ─────────────────
 
-@test "no commit-pinned fingerprints are left in the repo" {
-  # The file may be gone entirely; what matters is that nothing pins a commit.
-  run grep -c "vscode/keybindings.json" "$DOTFILES_ROOT/.gitleaksignore"
+@test "targetRules scoping is honoured by the pinned gitleaks" {
+  probe_repo
+  # Repoint the exemption at a different real rule. The chords must come back:
+  # a gitleaks that ignored targetRules would still report nothing, and the
+  # scoping in .gitleaks.toml would be doing nothing while looking like it was.
+  python3 -c "
+p = '.gitleaks.toml'
+config = open(p).read()
+open(p, 'w').write(config.replace('\"generic-api-key\"', '\"gitlab-pat\"'))
+"
+  scan_history
   [ "$status" -ne 0 ]
+  [[ "$output" == *"generic-api-key"* ]]
 }
