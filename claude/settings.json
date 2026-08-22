@@ -24,6 +24,7 @@
       "Bash(git config --get init.defaultBranch)",
       "Bash(git config --global --list)",
       "Bash(git config --show-origin --get *)",
+      "Bash(git diff:*)",
       "Bash(git fetch:*)",
       "Bash(git help --man *)",
       "Bash(git log:*)",
