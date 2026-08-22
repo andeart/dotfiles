@@ -11,6 +11,10 @@ KEYBINDINGS="$DOTFILES_ROOT/vscode/keybindings.json"
 # and so the only value .gitleaks.toml exempts.
 CHORD='shift+alt+down'
 
+# A chord the exemption does not name, whose entropy matches CHORD's exactly.
+# The allowlist names one value rather than a shape, so this still has to fire.
+UNNAMED_CHORD='shift+cmd+down'
+
 # Assembled rather than written out, so this file does not trip the scanner it
 # is testing. Long mixed-case literals are what generic-api-key exists to catch.
 TOKEN="hT8fQz3X""mL9vRp2W""bN6kYs4J""dC7gAeU1"
@@ -66,8 +70,9 @@ PY
 }
 
 # Stage $1 as a keybinding's "key" value and assert generic-api-key still
-# reports it. The surrounding entry is otherwise a plausible binding, so a
-# finding can only come from the value itself.
+# reports it. --staged scans the diff rather than the file, so the spliced
+# value is the only one in range - the real chords below it cannot supply the
+# finding.
 assert_key_value_reported() {
   probe_repo
   splice_entry \
@@ -95,11 +100,11 @@ assert_key_value_reported() {
   probe_repo
   # Reindent the whole file so every chord lands in one staged diff. An
   # exemption that happened to cover only one chord would fail here.
-  python3 -c "
-p = 'vscode/keybindings.json'
-lines = open(p).read().split('\n')
-open(p, 'w').write('\n'.join(' ' + l if l else l for l in lines))
-"
+  python3 - <<'PY'
+path = 'vscode/keybindings.json'
+lines = open(path).read().split('\n')
+open(path, 'w').write('\n'.join(' ' + l if l else l for l in lines))
+PY
   git add vscode/keybindings.json
   # Every chord has to land in the diff as an addition, or the scan proves
   # nothing - an edit that emptied the file instead would still scan clean.
@@ -117,11 +122,11 @@ open(p, 'w').write('\n'.join(' ' + l if l else l for l in lines))
   # to be the chord .gitleaks.toml names: another value here means the
   # exemption is too narrow, and no findings at all mean it is dead config
   # kept alive by nothing.
-  python3 -c "
-p = '.gitleaks.toml'
-config = open(p).read()
-open(p, 'w').write(config.split('[[allowlists]]')[0])
-"
+  python3 - <<'PY'
+path = '.gitleaks.toml'
+config = open(path).read()
+open(path, 'w').write(config.split('[[allowlists]]')[0])
+PY
   # Unredacted, so the assertion can compare the values themselves. The probe
   # repo holds only chords, so there is nothing here to leak into test output.
   run gitleaks git --verbose --no-banner --no-color
@@ -158,6 +163,14 @@ open(p, 'w').write(config.split('[[allowlists]]')[0])
   assert_key_value_reported "$SPLIT_TOKEN"
 }
 
+# ─── the exemption is scoped to what it names ──────────────────────────────
+
+# Without this the suite passes just as well against a pattern that exempts
+# every chord in the file, which is what it was narrowed away from.
+@test "a chord the allowlist does not name is still reported" {
+  assert_key_value_reported "$UNNAMED_CHORD"
+}
+
 @test "the allowlist does not reach a chord in another file" {
   probe_repo
   mkdir -p other
@@ -169,18 +182,19 @@ open(p, 'w').write(config.split('[[allowlists]]')[0])
   [[ "$output" == *"other/keybindings.json"* ]]
 }
 
-# ─── the exemption is scoped to the one rule it exists for ─────────────────
-
-@test "targetRules scoping is honoured by the pinned gitleaks" {
+@test "targetRules scoping is honoured by the gitleaks in use" {
   probe_repo
   # Repoint the exemption at a different real rule. The chords must come back:
   # a gitleaks that ignored targetRules would still report nothing, and the
   # scoping in .gitleaks.toml would be doing nothing while looking like it was.
-  python3 -c "
-p = '.gitleaks.toml'
-config = open(p).read()
-open(p, 'w').write(config.replace('\"generic-api-key\"', '\"gitlab-pat\"'))
-"
+  # This runs against whatever gitleaks is on PATH, which is the binary the
+  # pre-push tier uses. Unknown config keys are dropped rather than rejected,
+  # so a version without targetRules would widen the allowlist silently.
+  python3 - <<'PY'
+path = '.gitleaks.toml'
+config = open(path).read()
+open(path, 'w').write(config.replace('"generic-api-key"', '"gitlab-pat"'))
+PY
   scan_history
   [ "$status" -ne 0 ]
   [[ "$output" == *"generic-api-key"* ]]

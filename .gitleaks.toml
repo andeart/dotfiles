@@ -2,11 +2,10 @@
 [extend]
 useDefault = true
 
-# "shift+alt+down" is the only chord in the file whose entropy clears
-# generic-api-key's 3.5 threshold; the next-closest sits at 3.25. Exempt the
-# value itself rather than the lines that hold it - a chord-shaped character
-# class would also admit a real secret, since "+" sits inside the rule's base64
-# class and joins runs instead of ending them.
+# generic-api-key flags "shift+alt+down" in vscode/keybindings.json: it clears
+# the rule's 3.5 entropy floor at 3.522 and no default stopword reaches it. Both
+# gates have to hold, so entropy alone does not predict which chord trips next -
+# expect to add a line here whenever a scan names one.
 #
 # condition = "AND" is load-bearing: ORed, `paths` alone exempts the whole file.
 [[allowlists]]
