@@ -17,9 +17,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          # Full history for the secret scan below, so gitleaks attributes
-          # findings to their original commits - which is what the commit-pinned
-          # entries in .gitleaksignore are matched against.
+          # The secret scan below walks every commit; a shallow clone would
+          # leave it with only the tip to reach.
           fetch-depth: 0
 
       - name: Set up Python
