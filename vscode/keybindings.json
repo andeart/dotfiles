@@ -15,16 +15,6 @@
         "command": "terminal.focus"
     },
     {
-        "key": "cmd+]",
-        "command": "-markdown.extension.onIndentLines",
-        "when": "editorTextFocus && !suggestWidgetVisible && editorLangId =~ /^markdown$|^rmd$|^quarto$/"
-    },
-    {
-        "key": "cmd+[",
-        "command": "-markdown.extension.onOutdentLines",
-        "when": "editorTextFocus && !suggestWidgetVisible && editorLangId =~ /^markdown$|^rmd$|^quarto$/"
-    },
-    {
         "key": "ctrl+r",
         "command": "-workbench.action.tasks.reRunTask",
         "when": "taskCommandsRegistered && !terminalFocus"
@@ -77,26 +67,6 @@
         "key": "alt+up",
         "command": "-editor.action.moveLinesUpAction",
         "when": "editorTextFocus && !editorReadonly"
-    },
-    {
-        "key": "shift+alt+up",
-        "command": "-markdown.extension.onCopyLineUp",
-        "when": "editorTextFocus && !editorReadonly && !suggestWidgetVisible && editorLangId =~ /^markdown$|^rmd$|^quarto$/"
-    },
-    {
-        "key": "alt+up",
-        "command": "-markdown.extension.onMoveLineUp",
-        "when": "editorTextFocus && !editorReadonly && !suggestWidgetVisible && editorLangId =~ /^markdown$|^rmd$|^quarto$/"
-    },
-    {
-        "key": "shift+alt+down",
-        "command": "-markdown.extension.onCopyLineDown",
-        "when": "editorTextFocus && !editorReadonly && !suggestWidgetVisible && editorLangId =~ /^markdown$|^rmd$|^quarto$/"
-    },
-    {
-        "key": "alt+down",
-        "command": "-markdown.extension.onMoveLineDown",
-        "when": "editorTextFocus && !editorReadonly && !suggestWidgetVisible && editorLangId =~ /^markdown$|^rmd$|^quarto$/"
     },
     {
         "key": "shift+alt+down",

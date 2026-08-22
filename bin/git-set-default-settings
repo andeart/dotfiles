@@ -17,7 +17,10 @@ Settings:
   gitleaks secret scanning   Two pre-commit hooks: the published gitleaks hook
                              scans the staged diff on every commit, and a
                              gitleaks-history hook scans the commits a push
-                             introduces.
+                             introduces. To silence a false positive, omit the
+                             leading commit SHA from the .gitleaksignore
+                             fingerprint - the form gitleaks prints from a
+                             history scan never matches the staged tier.
   Dependabot pre-commit      Declares the pre-commit ecosystem in
                              .github/dependabot.yml so the pinned hook above
                              keeps getting version bumps.

@@ -29,6 +29,7 @@ Some files have `.local` variants (with `.example` templates) for machine-specif
 dotfiles/
 ├── dotfiles.yml                       # what bootstrap.sh should set up
 ├── bootstrap.sh                       # the installer
+├── .gitleaks.toml                     # gitleaks config, used by pre-commit, pre-push and CI
 ├── .markdownlint.yml                  → markdownlint/markdownlint.yml.symlink (in-repo .yml needed by pre-commit)
 ├── .yamllint.yml                      # yamllint config, used by pre-commit and CI
 ├── .github/
