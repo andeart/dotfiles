@@ -1,8 +1,8 @@
 ## CRITICAL
 
 - Never force push under any circumstances, even if asked.
-- Never run `rm -rf` under any circumstances. If a destructive removal is needed, prompt the user to run it themselves.
-- Never delete a file yourself, including with `git rm`. When a file needs to be deleted, give the user a clear, specific deletion request naming exactly what to remove, and let them carry it out.
+- Never run `rm -rf` under any circumstances. If a destructive removal is needed, print the exact `rm`/`rmdir` command with absolute paths in your reply and ask the user to run it themselves.
+- Never delete a file yourself, including with `git rm`. When a file needs to be deleted, give the user a clear, specific deletion request naming exactly what to remove, and print the exact `rm`/`rmdir` command with absolute paths so they can run it directly.
 - Never merge a PR without explicitly asking the user for confirmation first.
 - Never pass permission-bypass flags (such as `--dangerously-skip-permissions`) to spawned `claude` or other agent processes. The spawned process inherits the flag and runs without permission checks, so bypassing permissions on it grants a fresh agent unrestricted access without the user's consent. If a programmatic spawn is genuinely necessary, use a narrow `--allowedTools` allowlist and clearly notify the user of every tool being granted before spawning; otherwise, hand the command to the user to run themselves.
 - Never update a .gitignore file without explicitly asking the user for confirmation first.
