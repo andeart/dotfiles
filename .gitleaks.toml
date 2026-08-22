@@ -5,7 +5,7 @@ useDefault = true
 # generic-api-key flags "shift+alt+down" in vscode/keybindings.json: it clears
 # the rule's 3.5 entropy floor at 3.522 and no default stopword reaches it. Both
 # gates have to hold, so entropy alone does not predict which chord trips next -
-# expect to add a line here whenever a scan names one.
+# expect to add one here, and to the list in tests/gitleaks-allowlist.bats.
 #
 # condition = "AND" is load-bearing: ORed, `paths` alone exempts the whole file.
 [[allowlists]]

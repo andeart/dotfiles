@@ -7,16 +7,20 @@ bats_require_minimum_version 1.5.0
 CONFIG="$DOTFILES_ROOT/.gitleaks.toml"
 KEYBINDINGS="$DOTFILES_ROOT/vscode/keybindings.json"
 
-# The one chord in the file whose entropy clears generic-api-key's threshold,
-# and so the only value .gitleaks.toml exempts.
-CHORD='shift+alt+down'
+# Nothing here may trip this file's own scan - the allowlist is path-scoped to
+# vscode/keybindings.json and does not reach tests/. Chords survive by keeping
+# generic-api-key's keywords out of their constant names - UNNAMED_KEY would fire
+# where UNNAMED_CHORD does not - and tokens by being assembled, not written out.
 
-# A chord the exemption does not name, whose entropy matches CHORD's exactly.
-# The allowlist names one value rather than a shape, so this still has to fire.
+# The chords .gitleaks.toml exempts, one per line, sorted. Adding one to the
+# config means adding it here too.
+EXEMPTED_CHORDS='shift+alt+down'
+
+# A chord the exemption does not name, whose entropy is identical to the exempted
+# one's. The allowlist names values rather than a shape, so this still has to fire.
 UNNAMED_CHORD='shift+cmd+down'
 
-# Assembled rather than written out, so this file does not trip the scanner it
-# is testing. Long mixed-case literals are what generic-api-key exists to catch.
+# Long mixed-case literals are what generic-api-key exists to catch.
 TOKEN="hT8fQz3X""mL9vRp2W""bN6kYs4J""dC7gAeU1"
 # The same length in lowercase and digits only. A character class permissive
 # enough to spell chords can wave this through while still excluding mixed
@@ -49,7 +53,7 @@ probe_repo() {
   mkdir -p "$probe/vscode"
   cp "$CONFIG" "$probe/.gitleaks.toml"
   cp "$KEYBINDINGS" "$probe/vscode/keybindings.json"
-  cd "$probe"
+  cd "$probe" || return 1
   git init -q .
   git add -A
   git commit -q -m "baseline"
@@ -69,10 +73,9 @@ open(path, 'w').write('\n'.join(lines[:head + 1] + entry + lines[head + 1:]))
 PY
 }
 
-# Stage $1 as a keybinding's "key" value and assert generic-api-key still
-# reports it. --staged scans the diff rather than the file, so the spliced
-# value is the only one in range - the real chords below it cannot supply the
-# finding.
+# Stage $1 as a keybinding's "key" value and assert generic-api-key reports that
+# exact value. scan_staged minus --redact, so the assertion can name what fired -
+# the probe repo holds only chords and the fabricated constants above.
 assert_key_value_reported() {
   probe_repo
   splice_entry \
@@ -82,9 +85,9 @@ assert_key_value_reported() {
     '    },'
   git add vscode/keybindings.json
 
-  scan_staged
+  run gitleaks git --pre-commit --staged --verbose --no-banner --no-color
   [ "$status" -ne 0 ]
-  [[ "$output" == *"generic-api-key"* ]]
+  [ "$(grep '^Secret:' <<< "$output" | awk '{print $2}' | sort -u)" = "$1" ]
 }
 
 # ─── the chords stay suppressed ────────────────────────────────────────────
@@ -131,7 +134,7 @@ PY
   # repo holds only chords, so there is nothing here to leak into test output.
   run gitleaks git --verbose --no-banner --no-color
   [ "$status" -ne 0 ]
-  [ "$(grep '^Secret:' <<< "$output" | awk '{print $2}' | sort -u)" = "$CHORD" ]
+  [ "$(grep '^Secret:' <<< "$output" | awk '{print $2}' | sort -u)" = "$EXEMPTED_CHORDS" ]
 }
 
 # ─── real secrets still get through ────────────────────────────────────────
