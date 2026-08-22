@@ -17,4 +17,3 @@ naumovs.color-highlight
 redhat.vscode-xml
 redhat.vscode-yaml
 streetsidesoftware.code-spell-checker
-yzhang.markdown-all-in-one
