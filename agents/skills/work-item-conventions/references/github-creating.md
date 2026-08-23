@@ -20,9 +20,10 @@ The create-side half of `github.md`, split out so a refine run never loads it. R
      --type "$TYPE"
    ```
 
-   Quote every value, per `github.md`'s "Wire format". Repeat `--label` per label. Omit any flag
-   whose value is unset rather than passing an empty string. `gh issue create` prints the new
-   issue's URL on stdout; the number is its last path segment.
+   Bind every value to a variable and quote it, per `github.md`'s "Wire format" - never write a
+   config value into the command text. Repeat `--label` per label. Omit any flag whose value is
+   unset rather than passing an empty string. The title rides on `--title`, not in the body.
+   `gh issue create` prints the new issue's URL on stdout; the number is its last path segment.
 3. **Add relations** only if the user asked - see "Relations".
 4. **Report** from the values just sent plus the returned URL.
 

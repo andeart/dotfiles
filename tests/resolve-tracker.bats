@@ -120,6 +120,24 @@ resolve() {
   [[ "$stderr" == *"unknown tracker: linear"* ]]
 }
 
+# The tracker list is checked one entry at a time. Matching against the joined
+# list resolves any adjacent run of it, and this path has no second check behind
+# it - it returned 0 naming "plane github", which is a reference file that does
+# not exist. "File this in Plane and GitHub" is how a two-word value gets here.
+@test "a multi-word tracker naming two real trackers exits 2" {
+  run --separate-stderr bash "$RESOLVE" --tracker "plane github"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"unknown tracker: plane github"* ]]
+  [ -z "$output" ]
+}
+
+@test "a multi-word tracker is rejected wherever it sits in the list" {
+  run --separate-stderr bash "$RESOLVE" --tracker "jira gitlab"
+  [ "$status" -eq 2 ]
+  run --separate-stderr bash "$RESOLVE" --tracker "plane github jira gitlab"
+  [ "$status" -eq 2 ]
+}
+
 # ─── branch 2: exactly one config ──────────────────────────────────────────
 
 @test "exactly one config resolves that tracker without prompting" {
@@ -217,13 +235,11 @@ resolve() {
   [[ "$stderr" == *"disagree on default_tracker"* ]]
 }
 
-# A value carrying metacharacters is still just a value. Two mechanisms have to
-# hold for that: is_known_tracker matches with a quoted `case` pattern, which
-# globs unless the expansion is quoted, and the candidate match uses `grep -qxF`,
-# which would read the value as a regex without the -F. So both a glob and a
-# regex fixture belong here - either one alone leaves the other mechanism
-# unpinned. Unguarded, the run would exit 0 naming a tracker with no reference
-# file behind it.
+# A value carrying metacharacters is still just a value, and two independent
+# mechanisms have to hold for that: is_known_tracker compares strings, and the
+# candidate match uses `grep -qxF`, which would read the value as a regex without
+# the -F. Either one alone leaves the other unpinned, so both a glob and a regex
+# fixture belong here.
 @test "a default_tracker that glob-matches a candidate is not treated as a pattern" {
   local root; root="$(repo multi-glob-default)"
   config "$root" plane "default_tracker: pla*"
@@ -264,10 +280,6 @@ resolve() {
   [[ "$stderr" == *"is not a tracker"* ]]
 }
 
-# `#` opens a YAML comment at the start of a value or after whitespace, and
-# nowhere else. Trimming it anywhere would repair `plane#x` into a name that
-# resolves, which is the same hiding-the-typo failure the interior-whitespace
-# and interior-quote cases guard against.
 @test "a default_tracker with an interior hash asks rather than resolving" {
   local root; root="$(repo multi-interior-hash)"
   config "$root" plane "default_tracker: plane#x"
@@ -345,8 +357,6 @@ resolve() {
   [ -z "$output" ]
 }
 
-# Interior whitespace is left in place so the value stays malformed and gets
-# rejected downstream, rather than being repaired into a name that resolves.
 @test "declared_default trims surrounding whitespace but keeps interior" {
   local root; root="$(repo dd-interior)"
   config "$root" plane "default_tracker:   git hub   "
@@ -354,9 +364,6 @@ resolve() {
   [ "$output" = "git hub" ]
 }
 
-# Interior quotes go the same way interior whitespace does: left alone, so the
-# value stays malformed and is rejected downstream instead of being repaired
-# into a name that resolves.
 @test "declared_default strips surrounding quotes but keeps interior ones" {
   local root; root="$(repo dd-inner-quotes)"
   config "$root" plane 'default_tracker: gi"th"ub'
@@ -364,8 +371,6 @@ resolve() {
   [ "$output" = 'gi"th"ub' ]
 }
 
-# Whitespace has to come off before the quote run, or `"github"   ` is trimmed
-# to `github"` - a quote the value never meant to carry.
 @test "declared_default strips a quoted value padded with trailing whitespace" {
   local root; root="$(repo dd-quoted-padded)"
   config "$root" plane 'default_tracker: "github"   '
@@ -437,28 +442,29 @@ resolve() {
   done
 }
 
-# file-work-item reads `<tracker>-creating.md` alongside the main reference for
-# every tracker it names as implemented, so one has to sit beside each reference
-# that is not a skeleton, or that instruction sends a run at a file that isn't
-# there. The converse matters too: a create-side half beside a skeleton is a
-# tracker that is implemented and says otherwise.
-@test "a create-side reference sits beside every reference that is not a skeleton" {
+# Each skill reads its own half alongside the main reference, so both halves have
+# to sit beside every reference that is not a skeleton, or that instruction sends
+# a run at a file that isn't there. The converse matters too: a half beside a
+# skeleton is a tracker that is implemented and says otherwise.
+@test "both split halves sit beside every reference that is not a skeleton" {
   call known_trackers
-  local t main creating
+  local t main half skeleton
   for t in $output; do
     main="$REFERENCES/$t.md"
-    creating="$REFERENCES/$t-creating.md"
-    if grep -q '^\*\*This reference is a skeleton' "$main"; then
-      [ ! -e "$creating" ] || {
-        echo "$t.md is a skeleton but $t-creating.md exists beside it" >&2
-        return 1
-      }
-    else
-      [ -f "$creating" ] || {
-        echo "$t.md is implemented but $t-creating.md is missing" >&2
-        return 1
-      }
-    fi
+    grep -q '^\*\*This reference is a skeleton' "$main" && skeleton=1 || skeleton=""
+    for half in creating refining; do
+      if [ -n "$skeleton" ]; then
+        [ ! -e "$REFERENCES/$t-$half.md" ] || {
+          echo "$t.md is a skeleton but $t-$half.md exists beside it" >&2
+          return 1
+        }
+      else
+        [ -f "$REFERENCES/$t-$half.md" ] || {
+          echo "$t.md is implemented but $t-$half.md is missing" >&2
+          return 1
+        }
+      fi
+    done
   done
 }
 
@@ -529,10 +535,8 @@ manifest() {
   done
 }
 
-# The script header promises it only ever reads, and that promise is what would
-# justify a permission-allowlist entry if one is ever added. Every branch runs here,
-# including the ones that exit non-zero - an error path is where a stray write
-# is likeliest and least noticed.
+# Every branch runs here, including the ones that exit non-zero - an error path is
+# where a stray write is likeliest and least noticed.
 @test "resolving never writes to the tree it reads" {
   local root; root="$(repo read-only)"
   mkdir -p "$root/single/tmp" "$root/multi" "$root/bare"

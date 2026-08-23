@@ -70,10 +70,11 @@
       "Read(~/.agents/AGENTS.md)",
       "Read(~/.agents/skills/work-item-conventions/CONVENTIONS.md)",
       "Read(~/.agents/skills/work-item-conventions/references/github-creating.md)",
+      "Read(~/.agents/skills/work-item-conventions/references/github-refining.md)",
       "Read(~/.agents/skills/work-item-conventions/references/github.md)",
       "Read(~/.agents/skills/work-item-conventions/references/plane-creating.md)",
+      "Read(~/.agents/skills/work-item-conventions/references/plane-refining.md)",
       "Read(~/.agents/skills/work-item-conventions/references/plane.md)",
-      "Read(~/.agents/skills/work-item-conventions/RESOLUTION.md)",
       "Read(~/.claude/**)",
       "Skill(update-config)",
       "WebSearch"

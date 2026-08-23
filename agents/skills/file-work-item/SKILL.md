@@ -21,7 +21,7 @@ Everything this skill reads is under `~/.agents/skills/work-item-conventions/`:
 | File | What it holds |
 | ---- | ------------- |
 | `CONVENTIONS.md` | Title, description structure, acceptance criteria style, the estimate rule |
-| `references/<tracker>.md` | Config keys, wire format, report block, refine flow for one tracker |
+| `references/<tracker>.md` | Config keys, wire format, estimates, report block - the half both flows share |
 | `references/<tracker>-creating.md` | That tracker's create flow, entity assignment, relations, field defaults |
 | `RESOLUTION.md` | Where a repo's config lives and what `default_tracker` does - rarely needed |
 
@@ -48,7 +48,7 @@ Handle the exit codes:
   asked for a tracker this repo has no mechanics for, which is a real answer, not a reason to fall
   back to detection.
 
-## Step 2: Read the conventions and the resolved tracker's reference
+## Step 2: Read the conventions and the two reference files
 
 **Implemented references: `github`, `plane`.** Any other resolved tracker is recognised but has no
 mechanics behind it. Stop and say so, without opening its reference - a skeleton's entire content is
@@ -56,12 +56,11 @@ that refusal, so reading it to learn that it says stop costs a round trip and a 
 the run touches. Do not improvise the mechanics from another tracker's reference.
 
 Read `CONVENTIONS.md`, `references/<resolved>.md`, and `references/<resolved>-creating.md` in one
-batch - each read split off costs its own round trip. Filing needs all three; the split between the
-last two exists so refining can skip the create-side half.
+batch - each read split off costs its own round trip.
 
-**Only the resolved tracker's two references.** The others describe trackers this run is not filing
-into; loading them spends context on mechanics that cannot apply, and invites one tracker's field
-names into another's call.
+**Those three and nothing else.** Not `references/<resolved>-refining.md`, which is fetch-and-update
+mechanics this run cannot act on, and not another tracker's reference - that spends context on
+mechanics that cannot apply, and invites one tracker's field names into another's call.
 
 ## Step 3: Read the repo config
 
@@ -85,9 +84,9 @@ Offer to create `.workitems.<tracker>.yml` before proceeding, and ask before wri
 
 **Ask where it goes, don't assume the root.** The file carries an assignee, project identifiers,
 and whatever `guidance` prose the user dictates. Resolution reads the repo root first and `tmp/`
-second, and `tmp/` is there for public repos where none of that belongs in the committed tree.
-Check with `gh repo view --json visibility` when it isn't obvious, and offer `tmp/` whenever that
-comes back `PUBLIC`.
+second, and `tmp/` is there for a config the user would rather not publish. Check with
+`gh repo view --json visibility` when it isn't obvious, and offer `tmp/` whenever that comes back
+`PUBLIC` - an offer, not a rule. A config with nothing sensitive in it belongs at the root.
 
 **`tmp/` only keeps the file out of the tree if the repo ignores it.** Confirm with
 `git check-ignore -q tmp/` before offering that location. If it comes back unignored, say so, and

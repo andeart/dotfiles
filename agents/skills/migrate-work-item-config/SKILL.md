@@ -124,13 +124,15 @@ Manual step: none
 
 ## Retiring this skill
 
-This exists to carry existing clones across a one-time rename, not to be a permanent part of the
-toolkit. Every repo that files work items needs it exactly once.
+This carries existing clones across a one-time rename. Retire it once every meaningful clone has
+been through Step 4 and reports `Resolves:` - retiring earlier leaves a repo whose config silently
+stops being read.
 
-Retire it once every meaningful clone has been through Step 4 and reports `Resolves:`. At that
-point remove this skill directory - a migration path with nothing left to migrate is just another
-file to keep current. The README structure tree wildcards `agents/skills/*`, so nothing needs
-removing there.
+The legacy filename is handled in four places, and all four go at the same time:
 
-Until then, leave it in place. The cost of keeping it is one skill description; the cost of
-retiring it early is a repo whose config silently stops being read.
+- This skill directory. The README structure tree wildcards `agents/skills/*`, so nothing needs
+  removing there.
+- The paragraph in `wf-ship`'s Plane-link step saying a `.plane.yml` is deliberately not read.
+- `plane_config_path`'s `basename` parameter and the `predates` skip reason in
+  `bin/gh-set-default-settings`.
+- The two `tests/gh-set-default-settings.bats` cases pinning that parameter and that message.

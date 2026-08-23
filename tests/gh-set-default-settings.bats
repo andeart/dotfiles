@@ -911,6 +911,24 @@ desired_from() {
   [[ "$output" == '!'*"sets no workspace" ]]
 }
 
+# The slug goes into the template this sends to the API, so it gets the same
+# shape check the prefix does rather than reaching gh as whatever was typed.
+@test "autolink_desired refuses a workspace that is not a slug" {
+  desired_from 'project: DX' 'workspace: my space'
+  [ "$status" -eq 0 ]
+  [[ "$output" == '!workspace "my space" is not a Plane workspace slug' ]]
+
+  desired_from 'project: DX' 'workspace: acme/evil'
+  [ "$status" -eq 0 ]
+  [[ "$output" == '!workspace "acme/evil"'* ]]
+}
+
+@test "autolink_desired accepts a hyphenated workspace slug" {
+  desired_from 'project: DX' 'workspace: acme-corp'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'DX-|https://app.plane.so/acme-corp/browse/DX-<num>/' ]
+}
+
 @test "autolink_desired reports a missing project" {
   desired_from 'workspace: acme'
   [ "$status" -eq 0 ]

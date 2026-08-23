@@ -14,21 +14,16 @@
 #       none), stderr says why they could not be narrowed to one.
 #   2   usage error.
 #
-# This is a script rather than instructions in a SKILL.md because the four
-# branches below are the part that can regress silently, and only a script can
-# be pinned by a test.
-#
-# It stats and reads .workitems.<tracker>.yml and nothing else: no writes, no
-# network, no subprocess it did not spawn itself. That is the property that would
-# justify a permission-allowlist entry if one is ever added off a real denial, so
-# keep it true either way. tests/resolve-tracker.bats pins it.
+# Stats and reads .workitems.<tracker>.yml and nothing else: no writes, no
+# network, no subprocess it did not spawn itself. tests/resolve-tracker.bats
+# pins that, and RESOLUTION.md says why it matters.
 
 set -euo pipefail
 
 # Every tracker with a reference file under ../references/. A name absent here
 # is a typo rather than a tracker, and resolving it would send the caller
 # looking for mechanics that do not exist.
-KNOWN_TRACKERS='plane github jira gitlab'
+KNOWN_TRACKERS=(plane github jira gitlab)
 
 # Distinct from 1 so a caller can tell "ask the user" apart from the script
 # itself failing.
@@ -45,19 +40,26 @@ usage() {
 
 # known_trackers: print every tracker this script can resolve to.
 known_trackers() {
-  printf '%s\n' $KNOWN_TRACKERS
+  printf '%s\n' "${KNOWN_TRACKERS[@]}"
 }
 
+# is_known_tracker <name>: exact match, one entry at a time. Testing against the
+# joined list resolves any adjacent run of it - `plane github` matched, and sent
+# the caller at a reference file that does not exist.
 is_known_tracker() {
-  case " $KNOWN_TRACKERS " in
-    *" $1 "*) return 0 ;;
-    *) return 1 ;;
-  esac
+  local t
+  for t in "${KNOWN_TRACKERS[@]}"; do
+    if [ "$1" = "$t" ]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
-# count_lines: number of non-empty lines on stdin.
+# count_lines: number of non-empty lines on stdin. grep exits 1 for no matches
+# and 2 for a real error; only the first is an answer of zero.
 count_lines() {
-  grep -c . || true
+  grep -c . || [ $? -eq 1 ]
 }
 
 # config_path_for <root> <tracker>: print the config path for one tracker, or
@@ -75,7 +77,7 @@ config_path_for() {
 # discover_trackers <root>: print every tracker with a config, one per line.
 discover_trackers() {
   local root="$1" t
-  for t in $KNOWN_TRACKERS; do
+  for t in "${KNOWN_TRACKERS[@]}"; do
     if [ -n "$(config_path_for "$root" "$t")" ]; then
       printf '%s\n' "$t"
     fi
@@ -85,26 +87,25 @@ discover_trackers() {
 # declared_default <config>: print the config's top-level default_tracker
 # value, or nothing. Only column 0 counts, so a commented-out or nested key is
 # not a declaration.
+#
+# The body is gh-set-default-settings' plane_config_value with the key fixed;
+# that function's comment carries why nothing interior is scrubbed, and
+# tests/resolve-tracker.bats pins the two together.
 declared_default() {
-  local file="$1" raw
+  local file="$1"
   [ -n "$file" ] && [ -f "$file" ] || return 0
-  raw="$(sed -n 's/^default_tracker:[[:space:]]*//p' "$file" | head -1)"
-  [ -n "$raw" ] || return 0
-  # A comment, then surrounding whitespace, then one surrounding quote run, and
-  # nothing interior. Deleting interior characters would repair `git hub` or
-  # `gi"th"ub` into a name that resolves, hiding the typo instead of failing on
-  # it. `#` only opens a comment where YAML says it does - at the start of the
-  # value or after whitespace - so `plane#x` stays malformed rather than being
-  # trimmed into a name. The sequence matches gh-set-default-settings'
-  # plane_config_value on the same line; tests/resolve-tracker.bats pins the two
-  # together.
-  raw="$(printf '%s' "$raw" | sed \
-    -e 's/^#.*$//' -e 's/[[:space:]]#.*$//' \
-    -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
-    -e 's/^["'"'"']*//' -e 's/["'"'"']*$//' \
-    -e 's/[[:space:]]*$//')"
-  [ -n "$raw" ] || return 0
-  printf '%s\n' "$raw"
+  awk '
+    index($0, "default_tracker:") == 1 {
+      sub(/^default_tracker[[:space:]]*:[[:space:]]*/, "")
+      sub(/^#.*$/, "")
+      sub(/[[:space:]]+#.*$/, "")
+      sub(/[[:space:]]+$/, "")
+      gsub(/^["\047]+|["\047]+$/, "")
+      sub(/[[:space:]]+$/, "")
+      print
+      exit
+    }
+  ' "$file"
 }
 
 # resolve <root> [explicit]: the whole decision. See the exit codes above.
@@ -119,7 +120,7 @@ resolve() {
       printf '%s\n' "$explicit"
       return 0
     fi
-    die "unknown tracker: $explicit (known: $KNOWN_TRACKERS)"
+    die "unknown tracker: $explicit (known: ${KNOWN_TRACKERS[*]})"
   fi
 
   # Only detection needs a tree. Naming a tracker outright answers the question
@@ -177,7 +178,7 @@ resolve() {
   # than at the misspelling in front of them.
   if ! is_known_tracker "$declared"; then
     printf '%s\n' "$candidates"
-    echo "default_tracker names '$declared', which is not a tracker (known: $KNOWN_TRACKERS)" >&2
+    echo "default_tracker names '$declared', which is not a tracker (known: ${KNOWN_TRACKERS[*]})" >&2
     return "$EXIT_ASK"
   fi
 

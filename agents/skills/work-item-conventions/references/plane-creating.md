@@ -3,6 +3,11 @@
 The create-side half of `plane.md`, split out so a refine run never loads it. Read it alongside
 `plane.md`, whose config keys, wire format, and report block both flows share.
 
+## Applying the config
+
+When a key is present, apply it without asking. When one is absent, ask before writing, unless
+"Default field values" below gives a fallback. User-provided values override the config.
+
 ## Creating
 
 1. **Resolve the project.** `project` `list`, matching the config's `project` against each
