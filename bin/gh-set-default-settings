@@ -22,7 +22,7 @@ idempotent by nature. Dependabot settings already enabled are reported and left
 alone rather than prompted for.
 
 The Plane autolink is offered only when the current directory is a checkout of
-<repo> and its .plane.yml supplies both `project` and `workspace`. It makes a
+<repo> and its .workitems.plane.yml supplies both `project` and `workspace`. It makes a
 bare identifier in a commit message (DX-49) link to the work item. GitHub does
 not apply autolinks to pull request or issue titles.
 
@@ -601,14 +601,14 @@ run_repo_settings_section() {
 # the work item in Plane. GitHub applies autolinks to commit messages, PR and
 # issue bodies, and release descriptions - never to PR or issue titles.
 #
-# Both halves come from .plane.yml, the config the Plane skills already read:
+# Both halves come from .workitems.plane.yml, the config the work item skills read:
 # `project` supplies the key prefix, `workspace` the path segment. The file is
 # read from the local checkout only when its origin matches the target repo, so
 # running this from one repo cannot stamp another repo's identifiers.
 # ---------------------------------------------------------------------------
 
-# plane_config_path: print the path to the .plane.yml governing the target repo,
-# or nothing. Root-level wins over tmp/, matching the Plane skills' discovery.
+# plane_config_path: print the path to the .workitems.plane.yml governing the target repo,
+# or nothing. Root-level wins over tmp/, matching the work item skills' discovery.
 plane_config_path() {
   local toplevel origin
   toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
@@ -617,14 +617,14 @@ plane_config_path() {
   origin="$(git remote get-url origin 2>/dev/null)" || return 0
   [[ "$(parse_repo "$origin" 2>/dev/null)" == "$OWNER_REPO" ]] || return 0
 
-  if [[ -f "${toplevel}/.plane.yml" ]]; then
-    printf '%s\n' "${toplevel}/.plane.yml"
-  elif [[ -f "${toplevel}/tmp/.plane.yml" ]]; then
-    printf '%s\n' "${toplevel}/tmp/.plane.yml"
+  if [[ -f "${toplevel}/.workitems.plane.yml" ]]; then
+    printf '%s\n' "${toplevel}/.workitems.plane.yml"
+  elif [[ -f "${toplevel}/tmp/.workitems.plane.yml" ]]; then
+    printf '%s\n' "${toplevel}/tmp/.workitems.plane.yml"
   fi
 }
 
-# plane_config_value <file> <key>: print a top-level scalar from a .plane.yml.
+# plane_config_value <file> <key>: print a top-level scalar from a .workitems.plane.yml.
 # Deliberately not a YAML parser. Only an unindented `key: value` line matches,
 # so a commented-out key and a nested key of the same name both read as absent -
 # which is the answer that makes the caller skip rather than guess.
@@ -651,7 +651,7 @@ autolink_desired() {
 
   file="$(plane_config_path)"
   if [[ -z "$file" ]]; then
-    printf '!no .plane.yml for this repo in the current directory\n'
+    printf '!no .workitems.plane.yml for this repo in the current directory\n'
     return 0
   fi
 

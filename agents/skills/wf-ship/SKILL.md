@@ -234,7 +234,9 @@ Otherwise omit it entirely - no placeholder, no `Issue: none`. Do not scan the c
 
 Only when the `Issue:` line is going in. No identifier means no link, and nothing to resolve.
 
-The workspace is the slug in `app.plane.so/<workspace>/...`. Read it from the `workspace` key in `.plane.yml` - repo root first, then `tmp/.plane.yml`, and the root file wins if both exist. This is the same config the Plane skills read; `plane-create-work-item` documents the full key set.
+The workspace is the slug in `app.plane.so/<workspace>/...`. Read it from the `workspace` key in `.workitems.plane.yml` - repo root first, then `tmp/.workitems.plane.yml`, and the root file wins if both exist. This is the same config the work item skills read; `work-item-conventions/references/plane.md` documents the full key set.
+
+A repo still carrying the old `.plane.yml` name is not read here, deliberately - `migrate-work-item-config` is what converts it. Treat that repo as having no workspace configured and follow the ask below, then mention the migration rather than reaching into the old file.
 
 If the key is set, use it. If it is missing, empty, or still commented out, ask for it in one line:
 
@@ -242,8 +244,8 @@ If the key is set, use it. If it is missing, empty, or still commented out, ask 
 
 With the answer in hand:
 
-- **A `.plane.yml` exists** - offer to store the slug in it, and write only on a yes. Uncomment the `workspace:` line if the file carries one commented out; otherwise append `workspace: <slug>`.
-- **No `.plane.yml` exists** - offer to create one in the repo root holding just that key. `plane-create-work-item` appends the rest the next time it runs.
+- **A `.workitems.plane.yml` exists** - offer to store the slug in it, and write only on a yes. Uncomment the `workspace:` line if the file carries one commented out; otherwise append `workspace: <slug>`.
+- **No `.workitems.plane.yml` exists** - offer to create one in the repo root holding just that key. `file-work-item` appends the rest the next time it runs.
 - **The user declines the offer** - use the slug for this ship and move on. Do not ask twice in one run.
 
 If the user declines to name a slug at all, write the line bare - `Issue: <ID>`, no markdown link. `/wf-wrap` matches that form too, so the wrap still finds the work item and only the convenience link is lost.
