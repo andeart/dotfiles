@@ -58,6 +58,32 @@ resolve() {
   [ "$status" -eq 2 ]
 }
 
+@test "--repo-root with an empty value exits 2" {
+  run bash "$RESOLVE" --repo-root ""
+  [ "$status" -eq 2 ]
+}
+
+# An empty value clears the arity check but not the emptiness one. Without the
+# second check it falls through to detection, which is the single thing naming a
+# tracker is meant to rule out.
+@test "--tracker with an empty value exits 2 rather than falling back to detection" {
+  local root; root="$(repo empty-tracker)"
+  config "$root" plane
+  resolve "$root" --tracker ""
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"--tracker needs a value"* ]]
+  [ "$output" != "plane" ]
+}
+
+# Naming a tracker answers the question without opening a tree, so the answer
+# must not depend on standing in one.
+@test "an explicit tracker resolves even when the repo root does not exist" {
+  run --separate-stderr bash "$RESOLVE" \
+    --repo-root "$BATS_TEST_TMPDIR/absent" --tracker github
+  [ "$status" -eq 0 ]
+  [ "$output" = "github" ]
+}
+
 # ─── branch 1: an explicitly named tracker ─────────────────────────────────
 
 @test "an explicit tracker resolves without consulting repo config" {
@@ -189,6 +215,37 @@ resolve() {
   [[ "$stderr" == *"disagree on default_tracker"* ]]
 }
 
+# grep reads its pattern as a regex, so "p.ane" matches the "plane" candidate.
+# Left unfixed the run exits 0 naming a tracker that has no reference file.
+@test "a default_tracker that regex-matches a candidate is not treated as a pattern" {
+  local root; root="$(repo multi-regex-default)"
+  config "$root" plane "default_tracker: p.ane"
+  config "$root" github
+  resolve "$root"
+  [ "$status" -eq 10 ]
+  [ "$output" != "p.ane" ]
+  [[ "$stderr" == *"is not a tracker"* ]]
+}
+
+@test "a default_tracker of '.*' does not match every candidate" {
+  local root; root="$(repo multi-wildcard-default)"
+  config "$root" plane 'default_tracker: ".*"'
+  config "$root" github
+  resolve "$root"
+  [ "$status" -eq 10 ]
+  [ "$output" != ".*" ]
+  [[ "$stderr" == *"is not a tracker"* ]]
+}
+
+@test "a default_tracker naming something that is not a tracker at all asks" {
+  local root; root="$(repo multi-nonsense-default)"
+  config "$root" plane "default_tracker: linear"
+  config "$root" github
+  resolve "$root"
+  [ "$status" -eq 10 ]
+  [[ "$stderr" == *"is not a tracker"* ]]
+}
+
 @test "a default_tracker naming an unconfigured tracker asks" {
   local root; root="$(repo multi-stale-default)"
   config "$root" plane "default_tracker: gitlab"
@@ -236,6 +293,15 @@ resolve() {
   config "$root" plane "# default_tracker: github"
   call declared_default "$root/.workitems.plane.yml"
   [ -z "$output" ]
+}
+
+# Interior whitespace is left in place so the value stays malformed and gets
+# rejected downstream, rather than being repaired into a name that resolves.
+@test "declared_default trims surrounding whitespace but keeps interior" {
+  local root; root="$(repo dd-interior)"
+  config "$root" plane "default_tracker:   git hub   "
+  call declared_default "$root/.workitems.plane.yml"
+  [ "$output" = "git hub" ]
 }
 
 @test "declared_default ignores a nested key" {

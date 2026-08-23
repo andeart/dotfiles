@@ -4,9 +4,17 @@ Which tracker a work item goes into is decided once, at the top of a run, by
 `scripts/resolve-tracker.sh`. Both `file-work-item` and `refine-work-item` call it before doing
 anything else, and `migrate-work-item-config` uses it to see what a repo already has.
 
+Those three skills are its whole reach. `wf-ship` and `wf-wrap` still speak to Plane directly and
+read `.workitems.plane.yml` by name, so filing and refining are tracker-agnostic while the ship and
+wrap workflows are not.
+
 The decision is a script rather than instructions here because the branches below are the part
 that regresses silently, and only a script can be pinned by a test. `tests/resolve-tracker.bats`
 covers one repo fixture per branch.
+
+**A normal run does not need this file.** Both skills carry the call and the exit-code handling
+inline. Read it when the resolver asks for a human and the reason needs explaining, or when
+changing how resolution works.
 
 ## Config files
 
@@ -32,11 +40,15 @@ key set.
 ## Running the resolver
 
 ```bash
-~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
+bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
   --repo-root <repo> [--tracker <name>]
 ```
 
 Pass `--tracker` only when the user named one. Leave it off otherwise; do not pass a guess.
+
+Invoke it through `bash` rather than executing it directly: the sync that materialises these files
+does not guarantee the executable bit survives, which is the same reason `gh-dependabot-config`
+calls its script that way.
 
 | Exit | Meaning |
 | ---- | ------- |

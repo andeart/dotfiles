@@ -607,9 +607,12 @@ run_repo_settings_section() {
 # running this from one repo cannot stamp another repo's identifiers.
 # ---------------------------------------------------------------------------
 
-# plane_config_path: print the path to the .workitems.plane.yml governing the target repo,
-# or nothing. Root-level wins over tmp/, matching the work item skills' discovery.
+# plane_config_path [basename]: print the path to the config governing the target
+# repo, or nothing. Root-level wins over tmp/, matching the work item skills'
+# discovery. The basename is a parameter only so the caller can also ask for the
+# pre-rename .plane.yml, which this reads for nothing but a better skip reason.
 plane_config_path() {
+  local base="${1:-.workitems.plane.yml}"
   local toplevel origin
   toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
   [[ -n "$toplevel" ]] || return 0
@@ -617,10 +620,10 @@ plane_config_path() {
   origin="$(git remote get-url origin 2>/dev/null)" || return 0
   [[ "$(parse_repo "$origin" 2>/dev/null)" == "$OWNER_REPO" ]] || return 0
 
-  if [[ -f "${toplevel}/.workitems.plane.yml" ]]; then
-    printf '%s\n' "${toplevel}/.workitems.plane.yml"
-  elif [[ -f "${toplevel}/tmp/.workitems.plane.yml" ]]; then
-    printf '%s\n' "${toplevel}/tmp/.workitems.plane.yml"
+  if [[ -f "${toplevel}/${base}" ]]; then
+    printf '%s\n' "${toplevel}/${base}"
+  elif [[ -f "${toplevel}/tmp/${base}" ]]; then
+    printf '%s\n' "${toplevel}/tmp/${base}"
   fi
 }
 
@@ -651,7 +654,14 @@ autolink_desired() {
 
   file="$(plane_config_path)"
   if [[ -z "$file" ]]; then
-    printf '!no .workitems.plane.yml for this repo in the current directory\n'
+    local legacy
+    legacy="$(plane_config_path .plane.yml)"
+    if [[ -n "$legacy" ]]; then
+      printf '!%s predates the .workitems.plane.yml rename - migrate-work-item-config converts it\n' \
+        "$legacy"
+    else
+      printf '!no .workitems.plane.yml for this repo in the current directory\n'
+    fi
     return 0
   fi
 

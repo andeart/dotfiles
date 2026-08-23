@@ -17,6 +17,10 @@
 # This is a script rather than instructions in a SKILL.md because the four
 # branches below are the part that can regress silently, and only a script can
 # be pinned by a test.
+#
+# It stats and reads .workitems.<tracker>.yml and nothing else: no writes, no
+# network, no subprocess it did not spawn itself. That is what makes it safe to
+# sit on a permission allowlist, so keep it true.
 
 set -euo pipefail
 
@@ -88,7 +92,10 @@ declared_default() {
   raw="${raw%%#*}"
   raw="${raw//\"/}"
   raw="${raw//\'/}"
-  raw="$(printf '%s' "$raw" | tr -d '[:space:]')"
+  # Surrounding whitespace only. Deleting interior whitespace would repair
+  # "git hub" into a name that resolves, hiding the typo instead of failing on
+  # it, and would drift from how gh-set-default-settings reads the same file.
+  raw="$(printf '%s' "$raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
   [ -n "$raw" ] || return 0
   printf '%s\n' "$raw"
 }
@@ -107,6 +114,10 @@ resolve() {
     fi
     die "unknown tracker: $explicit (known: $KNOWN_TRACKERS)"
   fi
+
+  # Only detection needs a tree. Naming a tracker outright answers the question
+  # without opening anything, so it should not depend on where it was run.
+  [ -d "$root" ] || die "no such directory: $root"
 
   local candidates count
   candidates="$(discover_trackers "$root")"
@@ -153,9 +164,18 @@ resolve() {
     return "$EXIT_ASK"
   fi
 
+  # Checked before the candidate match because grep would read the value as a
+  # pattern: "p.ane" matches the "plane" candidate, and the run would resolve to
+  # a name with no reference file behind it.
+  if ! is_known_tracker "$declared"; then
+    printf '%s\n' "$candidates"
+    echo "default_tracker names '$declared', which is not a tracker (known: $KNOWN_TRACKERS)" >&2
+    return "$EXIT_ASK"
+  fi
+
   # A default naming a tracker with no config is a stale edit. Honouring it
   # would file into a tracker this repo holds no settings for.
-  if ! printf '%s\n' "$candidates" | grep -qx "$declared"; then
+  if ! printf '%s\n' "$candidates" | grep -qxF "$declared"; then
     printf '%s\n' "$candidates"
     echo "default_tracker names '$declared', which has no config under $root" >&2
     return "$EXIT_ASK"
@@ -169,10 +189,13 @@ main() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --repo-root)
-        [ $# -ge 2 ] || die "--repo-root needs a value"
+        { [ $# -ge 2 ] && [ -n "$2" ]; } || die "--repo-root needs a value"
         repo_root="$2"; shift 2 ;;
       --tracker)
-        [ $# -ge 2 ] || die "--tracker needs a value"
+        # Emptiness matters as much as arity here: an empty value would fall
+        # through to detection, which is the one thing naming a tracker is
+        # supposed to prevent.
+        { [ $# -ge 2 ] && [ -n "$2" ]; } || die "--tracker needs a value"
         explicit="$2"; shift 2 ;;
       -h|--help)
         usage; exit 0 ;;
@@ -181,7 +204,6 @@ main() {
     esac
   done
 
-  [ -d "$repo_root" ] || die "no such directory: $repo_root"
   resolve "$repo_root" "$explicit"
 }
 

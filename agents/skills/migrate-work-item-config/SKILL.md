@@ -102,7 +102,7 @@ apply here as everywhere else.
 The migration is done when the resolver agrees:
 
 ```bash
-~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh --repo-root <repo>
+bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh --repo-root <repo>
 ```
 
 Exit `0` with `plane` on stdout means this repo is migrated. Anything else means it is not - read

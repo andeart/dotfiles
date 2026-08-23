@@ -185,7 +185,8 @@ already markdown, fence it as `markdown`:
 
 ## Example
 
-`CONVENTIONS.md`'s worked body, unchanged - on GitHub the preview form *is* the wire format:
+`CONVENTIONS.md`'s worked body, unchanged - on GitHub the preview form *is* the wire format. The
+title is not part of it; that rides on `--title`.
 
 ```markdown
 ### Impact

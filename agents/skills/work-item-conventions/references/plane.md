@@ -7,6 +7,12 @@ Identifiers look like `DX-22` - a project prefix, a hyphen, a number. Plane's ed
 identifier in a description into a mention chip, so reference other work items that way rather
 than as links.
 
+## What each flow needs
+
+Filing reads all of this. Refining reads all of it except **Creating**, **Modules and labels**,
+**Links and relations**, and **Default field values** - those four are create-side only and are
+about a quarter of this file, none of which a refine run can act on.
+
 ## Config: `.workitems.plane.yml`
 
 | Key | Description | Example |
@@ -177,9 +183,8 @@ Diagnose against `CONVENTIONS.md`, plus these Plane-specific breakages:
 
 ### Reference context from the config
 
-Field *defaults* stay out of scope when refining. But two kinds of config content are reference
-material for writing rather than defaults, and refine should read them: `guidance`, and the `info`
-annotations on `modules` / `labels` / `estimate_points`. They shape the prose only.
+The keys `refine-work-item` reads as writing context rather than as defaults are `guidance` and the
+`info` annotations on `modules`, `labels`, and `estimate_points`.
 
 ## Estimates
 

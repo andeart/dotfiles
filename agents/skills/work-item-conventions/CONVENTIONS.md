@@ -128,8 +128,8 @@ Two distinct surfaces, and they are never the same text:
 
 - **Chat preview (what the user reviews before approval):** human-readable rendered markdown - the
   proposed title on its own line, then `### Impact`, `### Notes`, `### Acceptance criteria`
-  headings, plain bullets for Impact and Notes, and `- [ ]` items for acceptance criteria. This
-  shape is identical on every tracker.
+  headings separated by `---` rules, plain bullets for Impact and Notes, and `- [ ]` items for
+  acceptance criteria. This shape is identical on every tracker.
 - **Wire format (what the tracker receives):** defined by the resolved tracker's reference file.
   Never paste it into chat. The user is reviewing content, not markup, and on trackers whose wire
   format is HTML the markup buries the words.
@@ -180,7 +180,8 @@ A complete work item with all three sections, in the chat-preview form described
 are no Notes, omit that section entirely.
 
 Each reference file renders this same body in its own wire format, so the four are directly
-comparable.
+comparable. The `---` rules are the preview's spelling of the separators required above; a tracker
+whose wire format expresses them differently says so in its own file.
 
 ```markdown
 Automate away-mode when the house is empty
@@ -189,11 +190,15 @@ Automate away-mode when the house is empty
 
 - This will automatically secure and conserve the home when nobody is present so we can walk out without thinking about locking doors, turning off lights, or adjusting the thermostat.
 
+---
+
 ### Notes
 
 - Presence detection should use Wi-Fi presence as the primary method for the first version.
 - A door-lock failure is a meaningful edge case that should surface as an alert rather than fail silently.
 - Inspired by a friend's setup that locks doors, turns off lights, and turns down heat on departure.
+
+---
 
 ### Acceptance criteria
 

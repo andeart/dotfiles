@@ -2,10 +2,12 @@ mode: mcp
 project: DX
 assignee: anurag
 state: todo
+# Slug in app.plane.so/<workspace>/... - builds the work item link in reports
+# and in gh-set-default-settings' autolink. Not needed to write over MCP.
+workspace: byanu
 
 # Optional overrides (uncomment to use):
 # priority:      # urgent | high | medium | low | none
-workspace: byanu
 
 # DX estimate set: Fibonacci points -> estimate_point UUIDs.
 # Assignment rule: round expected hours up to the nearest point (see work-item-conventions).

@@ -47,7 +47,7 @@ A work item identifier is not a tracker. `DX-22` and `PROJ-123` are shaped alike
 nothing at all, so resolve before fetching rather than guessing from what the user typed.
 
 ```bash
-~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
+bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
   --repo-root <repo> [--tracker <name>]
 ```
 
@@ -78,7 +78,8 @@ material for *writing* rather than defaults, and refining should read them:
 - the `info` annotations on labels, modules, and estimate entries - project terminology and
   semantics that help write accurate Notes.
 
-They shape the prose only. Refining still writes just the title and the description.
+The reference file names the exact keys its tracker spells these with. They shape the prose only.
+Refining still writes just the title and the description.
 
 ## Step 4: Diagnose
 

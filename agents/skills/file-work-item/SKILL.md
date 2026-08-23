@@ -30,7 +30,7 @@ Do this first, before composing anything. What gets written depends on which tra
 and so does which config file is worth reading.
 
 ```bash
-~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
+bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
   --repo-root <repo> [--tracker <name>]
 ```
 
@@ -79,14 +79,16 @@ can uncomment what they need:
 
 ```yaml
 # mode:
-# project:
-# assignee:
 # labels:
 #   - name:
 #     info: ""
 # guidance: |
 #   Project-wide context that isn't tied to a single entity.
 ```
+
+Those three are the only keys every reference file shares. Take the rest from the resolved
+tracker's table verbatim and never carry a key name across trackers - `project` is the identifier
+prefix on Plane but a Projects v2 board title on GitHub, which names its repo with `repo` instead.
 
 For list-valued and annotated keys, comment out a shaped example rather than a bare key name.
 
