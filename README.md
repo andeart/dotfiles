@@ -40,6 +40,7 @@ dotfiles/
 │       └── lint-and-test.yml          # runs pre-commit hooks and a full-history secret scan on PRs to main and on push to main
 ├── bin/*                              # utility scripts
 ├── tests/*                            # bats test suites
+├── evals/*                            # skill trigger evals, run by hand (they call the API)
 ├── brew/
 │   └── Brewfile                       # brew bundle
 ├── zsh/

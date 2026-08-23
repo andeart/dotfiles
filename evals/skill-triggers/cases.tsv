@@ -1,0 +1,17 @@
+# id	expected	prompt
+# Anchors - the unambiguous phrasings each description claims outright.
+file-anchor-log-bug	file-work-item	log a bug for the crash on startup
+file-anchor-gh-issue	file-work-item	open a GitHub issue for the flaky test in CI
+refine-anchor-conform	refine-work-item	refine this work item so it matches our conventions
+refine-anchor-fixup-id	refine-work-item	fix up DX-22
+# Near-collisions - same noun, opposite answer. This is what the AC is actually about.
+file-collide-ticket	file-work-item	create a ticket for the migration work
+refine-collide-issue	refine-work-item	clean up this issue
+file-collide-task	file-work-item	write a task for the migration
+refine-collide-task	refine-work-item	tidy up this task
+file-collide-bugreport	file-work-item	sort out a bug report for this crash
+refine-collide-bugreport	refine-work-item	this bug report is a mess, sort it out
+# Distractors - other skills in this repo that share work item vocabulary.
+distractor-migrate-named	migrate-work-item-config	migrate the plane config
+distractor-migrate-fixup	migrate-work-item-config	fix up this repo's work item config
+distractor-wrap	wf-wrap	wrap this up
