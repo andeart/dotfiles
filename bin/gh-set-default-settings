@@ -22,9 +22,9 @@ idempotent by nature. Dependabot settings already enabled are reported and left
 alone rather than prompted for.
 
 The Plane autolink is offered only when the current directory is a checkout of
-<repo> and its .workitems.plane.yml supplies both `project` and `workspace`. It makes a
-bare identifier in a commit message (DX-49) link to the work item. GitHub does
-not apply autolinks to pull request or issue titles.
+<repo> and its .workitems.plane.yml supplies both `project` and `workspace`. It
+makes a bare identifier in a commit message (DX-49) link to the work item.
+GitHub does not apply autolinks to pull request or issue titles.
 
 Requires: gh (authenticated), jq.
 
@@ -607,9 +607,10 @@ run_repo_settings_section() {
 # running this from one repo cannot stamp another repo's identifiers.
 # ---------------------------------------------------------------------------
 
-# plane_config_path: print the path to the .workitems.plane.yml governing the target repo,
-# or nothing. Root-level wins over tmp/, matching the work item skills' discovery.
-plane_config_path() {
+# target_toplevel: the top level of the checkout in the current directory, but
+# only when its origin is the repo being configured. Empty otherwise, which is
+# what stops a run from one repo stamping another repo's identifiers.
+target_toplevel() {
   local toplevel origin
   toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
   [[ -n "$toplevel" ]] || return 0
@@ -617,10 +618,22 @@ plane_config_path() {
   origin="$(git remote get-url origin 2>/dev/null)" || return 0
   [[ "$(parse_repo "$origin" 2>/dev/null)" == "$OWNER_REPO" ]] || return 0
 
-  if [[ -f "${toplevel}/.workitems.plane.yml" ]]; then
-    printf '%s\n' "${toplevel}/.workitems.plane.yml"
-  elif [[ -f "${toplevel}/tmp/.workitems.plane.yml" ]]; then
-    printf '%s\n' "${toplevel}/tmp/.workitems.plane.yml"
+  printf '%s\n' "$toplevel"
+}
+
+# plane_config_path [basename]: print the path to the config governing the target
+# repo, or nothing. Root-level wins over tmp/, matching the work item skills'
+# discovery. The basename is a parameter only so the caller can also ask for the
+# pre-rename .plane.yml, whose presence buys nothing but a better skip reason.
+plane_config_path() {
+  local base="${1:-.workitems.plane.yml}" toplevel
+  toplevel="$(target_toplevel)"
+  [[ -n "$toplevel" ]] || return 0
+
+  if [[ -f "${toplevel}/${base}" ]]; then
+    printf '%s\n' "${toplevel}/${base}"
+  elif [[ -f "${toplevel}/tmp/${base}" ]]; then
+    printf '%s\n' "${toplevel}/tmp/${base}"
   fi
 }
 
@@ -628,12 +641,22 @@ plane_config_path() {
 # Deliberately not a YAML parser. Only an unindented `key: value` line matches,
 # so a commented-out key and a nested key of the same name both read as absent -
 # which is the answer that makes the caller skip rather than guess.
+#
+# Surrounding whitespace comes off before the quotes so `key: "DX"   ` is not
+# left as `DX"`. Nothing interior is touched: a malformed value has to stay
+# malformed so the caller rejects it. That is why `#` only opens a comment where
+# YAML says it does - at the start of the value or after whitespace - leaving
+# `workspace: my#space` malformed instead of silently building a link to `my`.
+# resolve-tracker.sh's declared_default applies the same sequence, and
+# tests/resolve-tracker.bats pins them together.
 plane_config_value() {
   local file="$1" key="$2"
   awk -v key="$key" '
     index($0, key ":") == 1 {
       sub("^" key "[[:space:]]*:[[:space:]]*", "")
-      sub(/[[:space:]]*#.*$/, "")
+      sub(/^#.*$/, "")
+      sub(/[[:space:]]+#.*$/, "")
+      sub(/[[:space:]]+$/, "")
       gsub(/^["\047]+|["\047]+$/, "")
       sub(/[[:space:]]+$/, "")
       print
@@ -651,7 +674,14 @@ autolink_desired() {
 
   file="$(plane_config_path)"
   if [[ -z "$file" ]]; then
-    printf '!no .workitems.plane.yml for this repo in the current directory\n'
+    local legacy
+    legacy="$(plane_config_path .plane.yml)"
+    if [[ -n "$legacy" ]]; then
+      printf '!%s predates the .workitems.plane.yml rename - migrate-work-item-config converts it\n' \
+        "$legacy"
+    else
+      printf '!no .workitems.plane.yml for this repo in the current directory\n'
+    fi
     return 0
   fi
 
@@ -671,6 +701,14 @@ autolink_desired() {
   fi
   if [[ -z "$workspace" ]]; then
     printf '!%s sets no workspace\n' "$file"
+    return 0
+  fi
+  # Both halves land in the template this sends to the API, and both come out of
+  # a file anyone with commit access can edit, so the slug gets the same shape
+  # check the prefix does. A value that cannot appear in a Plane URL would build
+  # an autolink that resolves nowhere.
+  if [[ ! "$workspace" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]]; then
+    printf '!workspace "%s" is not a Plane workspace slug\n' "$workspace"
     return 0
   fi
 

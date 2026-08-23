@@ -807,6 +807,32 @@ checkout_with_origin() {
   [[ "$output" == *"/.workitems.plane.yml" ]]
 }
 
+@test "plane_config_path finds the pre-rename .plane.yml when asked for it" {
+  local dir; dir="$(checkout_with_origin 'git@github.com:owner/repo.git')"
+  printf 'project: DX\n' > "$dir/.plane.yml"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    cd "$2" || exit 1
+    plane_config_path .plane.yml
+  ' _ "$BIN" "$dir"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/.plane.yml" ]]
+}
+
+@test "plane_config_path does not fall back to .plane.yml on its own" {
+  local dir; dir="$(checkout_with_origin 'git@github.com:owner/repo.git')"
+  printf 'project: DX\n' > "$dir/.plane.yml"
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    OWNER_REPO=owner/repo
+    cd "$2" || exit 1
+    plane_config_path
+  ' _ "$BIN" "$dir"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 @test "plane_config_path finds nothing when the checkout is a different repo" {
   # The guard that stops a run from one repo stamping another repo's prefix.
   local dir; dir="$(checkout_with_origin 'git@github.com:owner/repo.git' 'project: DX')"
@@ -885,6 +911,24 @@ desired_from() {
   [[ "$output" == '!'*"sets no workspace" ]]
 }
 
+# The slug goes into the template this sends to the API, so it gets the same
+# shape check the prefix does rather than reaching gh as whatever was typed.
+@test "autolink_desired refuses a workspace that is not a slug" {
+  desired_from 'project: DX' 'workspace: my space'
+  [ "$status" -eq 0 ]
+  [[ "$output" == '!workspace "my space" is not a Plane workspace slug' ]]
+
+  desired_from 'project: DX' 'workspace: acme/evil'
+  [ "$status" -eq 0 ]
+  [[ "$output" == '!workspace "acme/evil"'* ]]
+}
+
+@test "autolink_desired accepts a hyphenated workspace slug" {
+  desired_from 'project: DX' 'workspace: acme-corp'
+  [ "$status" -eq 0 ]
+  [ "$output" = 'DX-|https://app.plane.so/acme-corp/browse/DX-<num>/' ]
+}
+
 @test "autolink_desired reports a missing project" {
   desired_from 'workspace: acme'
   [ "$status" -eq 0 ]
@@ -899,6 +943,17 @@ desired_from() {
   ' _ "$BIN"
   [ "$status" -eq 0 ]
   [[ "$output" == '!no .workitems.plane.yml'* ]]
+}
+
+@test "autolink_desired names the migration when only a pre-rename config exists" {
+  run bash -c '
+    _GH_SETTINGS_LIB_ONLY=1 source "$1"
+    plane_config_path() { [[ "${1:-}" == ".plane.yml" ]] && printf "/repo/.plane.yml\n"; return 0; }
+    autolink_desired
+  ' _ "$BIN"
+  [ "$status" -eq 0 ]
+  [[ "$output" == '!/repo/.plane.yml predates'* ]]
+  [[ "$output" == *"migrate-work-item-config"* ]]
 }
 
 # ─── autolink_state, with gh stubbed ───────────────────────────────────────
