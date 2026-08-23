@@ -6,6 +6,7 @@ bats_require_minimum_version 1.5.0
 
 RESOLVE="$DOTFILES_ROOT/agents/skills/work-item-conventions/scripts/resolve-tracker.sh"
 REFERENCES="$DOTFILES_ROOT/agents/skills/work-item-conventions/references"
+SKILLS="$DOTFILES_ROOT/agents/skills"
 GH_SETTINGS="$DOTFILES_ROOT/bin/gh-set-default-settings"
 
 # Source the script in library mode inside a subshell (so its `set -euo
@@ -216,10 +217,33 @@ resolve() {
   [[ "$stderr" == *"disagree on default_tracker"* ]]
 }
 
-# A value that looks like a regex is still just a value: is_known_tracker matches
-# with a quoted `case` pattern and the candidate match uses `grep -qxF`, so
-# neither reads it as one. Unguarded, the run would exit 0 naming a tracker with
-# no reference file behind it.
+# A value carrying metacharacters is still just a value. Two mechanisms have to
+# hold for that: is_known_tracker matches with a quoted `case` pattern, which
+# globs unless the expansion is quoted, and the candidate match uses `grep -qxF`,
+# which would read the value as a regex without the -F. So both a glob and a
+# regex fixture belong here - either one alone leaves the other mechanism
+# unpinned. Unguarded, the run would exit 0 naming a tracker with no reference
+# file behind it.
+@test "a default_tracker that glob-matches a candidate is not treated as a pattern" {
+  local root; root="$(repo multi-glob-default)"
+  config "$root" plane "default_tracker: pla*"
+  config "$root" github
+  resolve "$root"
+  [ "$status" -eq 10 ]
+  [ "$output" != "pla*" ]
+  [[ "$stderr" == *"is not a tracker"* ]]
+}
+
+@test "a default_tracker of '*' does not match every candidate" {
+  local root; root="$(repo multi-glob-wildcard)"
+  config "$root" plane 'default_tracker: "*"'
+  config "$root" github
+  resolve "$root"
+  [ "$status" -eq 10 ]
+  [ "$output" != "*" ]
+  [[ "$stderr" == *"is not a tracker"* ]]
+}
+
 @test "a default_tracker that regex-matches a candidate is not treated as a pattern" {
   local root; root="$(repo multi-regex-default)"
   config "$root" plane "default_tracker: p.ane"
@@ -237,6 +261,20 @@ resolve() {
   resolve "$root"
   [ "$status" -eq 10 ]
   [ "$output" != ".*" ]
+  [[ "$stderr" == *"is not a tracker"* ]]
+}
+
+# `#` opens a YAML comment at the start of a value or after whitespace, and
+# nowhere else. Trimming it anywhere would repair `plane#x` into a name that
+# resolves, which is the same hiding-the-typo failure the interior-whitespace
+# and interior-quote cases guard against.
+@test "a default_tracker with an interior hash asks rather than resolving" {
+  local root; root="$(repo multi-interior-hash)"
+  config "$root" plane "default_tracker: plane#x"
+  config "$root" github
+  resolve "$root"
+  [ "$status" -eq 10 ]
+  [ "$output" != "plane" ]
   [[ "$stderr" == *"is not a tracker"* ]]
 }
 
@@ -335,6 +373,24 @@ resolve() {
   [ "$output" = "github" ]
 }
 
+@test "declared_default keeps an interior hash but strips a real comment" {
+  local root; root="$(repo dd-hash)"
+  config "$root" plane "default_tracker: github#x"
+  call declared_default "$root/.workitems.plane.yml"
+  [ "$output" = "github#x" ]
+
+  config "$root" plane "default_tracker: github # x"
+  call declared_default "$root/.workitems.plane.yml"
+  [ "$output" = "github" ]
+}
+
+@test "declared_default reads a value that is only a comment as unset" {
+  local root; root="$(repo dd-hash-only)"
+  config "$root" plane "default_tracker: # github"
+  call declared_default "$root/.workitems.plane.yml"
+  [ -z "$output" ]
+}
+
 @test "declared_default ignores a nested key" {
   local root; root="$(repo dd-nested)"
   config "$root" plane "guidance:
@@ -381,10 +437,11 @@ resolve() {
   done
 }
 
-# file-work-item reads `<tracker>-creating.md` alongside the main reference, and
-# tells a run that a skeleton has none beside it. Both halves have to hold of
-# what is actually on disk, or one of those instructions sends a run at a file
-# that isn't there.
+# file-work-item reads `<tracker>-creating.md` alongside the main reference for
+# every tracker it names as implemented, so one has to sit beside each reference
+# that is not a skeleton, or that instruction sends a run at a file that isn't
+# there. The converse matters too: a create-side half beside a skeleton is a
+# tracker that is implemented and says otherwise.
 @test "a create-side reference sits beside every reference that is not a skeleton" {
   call known_trackers
   local t main creating
@@ -405,25 +462,56 @@ resolve() {
   done
 }
 
+# Both skills name the implemented references inline, so a run that resolves to a
+# skeleton stops without opening it - which is what keeps the skeletons off the
+# permission allowlist and out of a run's context. That list is a second copy of
+# a fact the reference files carry themselves, so pin the two together.
+@test "the skills name exactly the references that are not skeletons" {
+  call known_trackers
+  local t implemented=""
+  for t in $output; do
+    grep -q '^\*\*This reference is a skeleton' "$REFERENCES/$t.md" \
+      || implemented="$implemented$t "
+  done
+  implemented="$(printf '%s' "$implemented" | tr ' ' '\n' | grep . | sort | tr '\n' ' ')"
+  [ -n "$implemented" ]
+
+  local f named
+  for f in "$SKILLS/file-work-item/SKILL.md" "$SKILLS/refine-work-item/SKILL.md"; do
+    named="$(sed -n 's/^\*\*Implemented references: \(.*\)\.\*\*.*/\1/p' "$f" \
+      | tr -d '`,' | tr ' ' '\n' | grep . | sort | tr '\n' ' ')"
+    [ "$named" = "$implemented" ] || {
+      echo "$f names [$named]; references say [$implemented]" >&2
+      return 1
+    }
+  done
+}
+
 # ─── the two readers of the same file agree ────────────────────────────────
 
 # resolve-tracker.sh and gh-set-default-settings both read top-level scalars out
-# of a .workitems.plane.yml with their own not-a-YAML-parser. They drifted once
-# already (one deleted interior whitespace, the other kept it), and the drift is
-# invisible until a value lands in the wrong tracker, so pin them together.
+# of a .workitems.plane.yml with their own not-a-YAML-parser, and the drift is
+# invisible until a value lands in the wrong tracker or an autolink points at the
+# wrong workspace, so pin them together. Every key both sides read in production
+# is covered: declared_default is fixed to default_tracker, while the autolink
+# reads project and workspace, and it is the value-scrubbing sequence rather than
+# the key that drifts.
 @test "declared_default and plane_config_value read the same value the same way" {
   local root; root="$(repo parser-agreement)"
   local file="$root/.workitems.plane.yml"
-  local v a b
+  local v a k b
   for v in 'github' '"github"' "'github'" '"github"   ' '  github  ' 'gi"th"ub' \
-           '"github"  # note' 'git hub' 'p.ane' '.*' '"gith ub" ' 'github#x'; do
-    printf 'default_tracker: %s\n' "$v" > "$file"
+           '"github"  # note' 'github # x' '#github' 'git hub' 'p.ane' 'pla*' \
+           '.*' '"gith ub" ' 'github#x' '"github#x"'; do
+    printf 'default_tracker: %s\nproject: %s\nworkspace: %s\n' "$v" "$v" "$v" > "$file"
     a="$(bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"; declared_default "$2"' _ "$RESOLVE" "$file")"
-    b="$(bash -c '_GH_SETTINGS_LIB_ONLY=1 source "$1"; plane_config_value "$2" default_tracker' _ "$GH_SETTINGS" "$file")"
-    [ "$a" = "$b" ] || {
-      echo "disagree on [$v]: declared_default=[$a] plane_config_value=[$b]" >&2
-      return 1
-    }
+    for k in default_tracker project workspace; do
+      b="$(bash -c '_GH_SETTINGS_LIB_ONLY=1 source "$1"; plane_config_value "$2" "$3"' _ "$GH_SETTINGS" "$file" "$k")"
+      [ "$a" = "$b" ] || {
+        echo "disagree on [$v] via $k: declared_default=[$a] plane_config_value=[$b]" >&2
+        return 1
+      }
+    done
   done
 }
 
@@ -441,8 +529,8 @@ manifest() {
   done
 }
 
-# The script header promises it only ever reads, and that promise is the whole
-# case for putting it on a permission allowlist. Every branch runs here,
+# The script header promises it only ever reads, and that promise is what would
+# justify a permission-allowlist entry if one is ever added. Every branch runs here,
 # including the ones that exit non-zero - an error path is where a stray write
 # is likeliest and least noticed.
 @test "resolving never writes to the tree it reads" {

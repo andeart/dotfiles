@@ -62,6 +62,10 @@ to sanity-check a body.
 Pass the body via `--body-file -` and write it on stdin. A multi-line body through `--body` has to
 survive shell quoting, and a body containing backticks or `$` will not.
 
+Quote every other value on the command line for the same reason. `repo`, `milestone`, `type`, and
+the label names all come out of the repo config, which is as editable as any other file in the tree,
+and an unquoted one reaches the shell as syntax rather than as an argument.
+
 ## Report fields
 
 After `Issue:` and `Assignee:`, in this order: `State`, `Labels`, `Milestone`, `Type`, `Estimate`.
@@ -77,7 +81,7 @@ link.
 1. **Fetch:**
 
    ```bash
-   gh issue view <number> --repo <OWNER/REPO> \
+   gh issue view "$NUMBER" --repo "$REPO" \
      --json number,title,body,labels,milestone,assignees,state,issueType,url
    ```
 
@@ -85,8 +89,8 @@ link.
 2. **Apply:**
 
    ```bash
-   printf '%s' "$BODY" | gh issue edit <number> \
-     --repo <OWNER/REPO> --title <title> --body-file -
+   printf '%s' "$BODY" | gh issue edit "$NUMBER" \
+     --repo "$REPO" --title "$TITLE" --body-file -
    ```
 
    `gh issue edit` replaces the body wholesale. Pass only `--title` and `--body-file` unless the
@@ -139,29 +143,6 @@ already markdown, fence it as `markdown`:
 
 ## Example
 
-`CONVENTIONS.md`'s worked body, unchanged - on GitHub the preview form *is* the wire format. The
-title is not part of it; that rides on `--title`.
-
-```markdown
-### Impact
-
-- This will automatically secure and conserve the home when nobody is present so we can walk out without thinking about locking doors, turning off lights, or adjusting the thermostat.
-
----
-
-### Notes
-
-- Presence detection should use Wi-Fi presence as the primary method for the first version.
-- A door-lock failure is a meaningful edge case that should surface as an alert rather than fail silently.
-- Inspired by a friend's setup that locks doors, turns off lights, and turns down heat on departure.
-
----
-
-### Acceptance criteria
-
-- [ ] Wi-Fi presence detection is set up for all tracked occupants.
-- [ ] An automation triggers when all tracked occupants are detected as away.
-- [ ] The automation locks all doors.
-- [ ] An alert is sent if a door lock fails to lock.
-- [ ] The behavior is tested with a simulated all-away state before relying on real presence detection.
-```
+There is deliberately none here. On GitHub the chat preview *is* the wire format, so
+`CONVENTIONS.md`'s worked body is this tracker's example byte for byte, and a copy of it would only
+be a second file to keep in step. The title is not part of the body; that rides on `--title`.

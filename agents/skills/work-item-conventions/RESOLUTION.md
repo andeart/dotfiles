@@ -18,8 +18,9 @@ Each tracker a repo files into gets its own `.workitems.<tracker>.yml`, at the r
 `tmp/`. The root wins if both exist.
 
 `tmp/` is for public repos, where an assignee, project identifiers, and `guidance` prose have no
-business in the committed tree. It is conventionally gitignored for scratch and local files, so the
-config stays out of the tree without calling attention to itself.
+business in the committed tree. That only holds where the repo actually ignores `tmp/`, which is a
+convention rather than a guarantee - `file-work-item` checks with `git check-ignore` before offering
+the location.
 
 The tracker name in the filename is the whole detection signal. `.workitems.plane.yml` means this
 repo files into Plane; a second `.workitems.github.yml` beside it means it files into both.
@@ -30,9 +31,10 @@ Every config supports one shared key:
 | --- | ----------- |
 | `default_tracker` | Which tracker wins when the repo has more than one config. Only consulted then. |
 
-It is read from every config present, so it can be set wherever the user happened to open one. The
-configs must agree on it, and the value must name a tracker the repo actually has a config for. A
-repo on a single tracker never needs the key.
+It is read from the config that wins for each tracker, so it can be set in whichever tracker's
+config the user happened to open - though a copy under `tmp/` that a root-level file shadows is not
+read. The configs must agree on it, and the value must name a tracker the repo actually has a config
+for. A repo on a single tracker never needs the key.
 
 Everything else in a config is that tracker's own business - see `references/<tracker>.md` for its
 key set.

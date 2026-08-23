@@ -634,14 +634,18 @@ plane_config_path() {
 #
 # Surrounding whitespace comes off before the quotes so `key: "DX"   ` is not
 # left as `DX"`. Nothing interior is touched: a malformed value has to stay
-# malformed so the caller rejects it. resolve-tracker.sh's declared_default
-# applies the same sequence, and tests/resolve-tracker.bats pins them together.
+# malformed so the caller rejects it. That is why `#` only opens a comment where
+# YAML says it does - at the start of the value or after whitespace - leaving
+# `workspace: my#space` malformed instead of silently building a link to `my`.
+# resolve-tracker.sh's declared_default applies the same sequence, and
+# tests/resolve-tracker.bats pins them together.
 plane_config_value() {
   local file="$1" key="$2"
   awk -v key="$key" '
     index($0, key ":") == 1 {
       sub("^" key "[[:space:]]*:[[:space:]]*", "")
-      sub(/[[:space:]]*#.*$/, "")
+      sub(/^#.*$/, "")
+      sub(/[[:space:]]+#.*$/, "")
       sub(/[[:space:]]+$/, "")
       gsub(/^["\047]+|["\047]+$/, "")
       sub(/[[:space:]]+$/, "")

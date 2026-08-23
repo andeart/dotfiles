@@ -1,3 +1,6 @@
+# Root rather than tmp/, though this repo is public: nothing here is a secret -
+# the workspace and project need auth to reach, the estimate UUIDs mean nothing
+# outside it - and tracking the file is what lets a fresh clone file work items.
 mode: mcp
 project: DX
 assignee: anurag

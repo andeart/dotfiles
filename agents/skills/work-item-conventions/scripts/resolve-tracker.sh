@@ -19,8 +19,9 @@
 # be pinned by a test.
 #
 # It stats and reads .workitems.<tracker>.yml and nothing else: no writes, no
-# network, no subprocess it did not spawn itself. That is what makes it safe to
-# sit on a permission allowlist, so keep it true.
+# network, no subprocess it did not spawn itself. That is the property that would
+# justify a permission-allowlist entry if one is ever added off a real denial, so
+# keep it true either way. tests/resolve-tracker.bats pins it.
 
 set -euo pipefail
 
@@ -89,13 +90,16 @@ declared_default() {
   [ -n "$file" ] && [ -f "$file" ] || return 0
   raw="$(sed -n 's/^default_tracker:[[:space:]]*//p' "$file" | head -1)"
   [ -n "$raw" ] || return 0
-  raw="${raw%%#*}"
-  # Surrounding whitespace and one surrounding quote run, in that order, and
+  # A comment, then surrounding whitespace, then one surrounding quote run, and
   # nothing interior. Deleting interior characters would repair `git hub` or
   # `gi"th"ub` into a name that resolves, hiding the typo instead of failing on
-  # it. The sequence matches gh-set-default-settings' plane_config_value on the
-  # same line; tests/resolve-tracker.bats pins the two together.
+  # it. `#` only opens a comment where YAML says it does - at the start of the
+  # value or after whitespace - so `plane#x` stays malformed rather than being
+  # trimmed into a name. The sequence matches gh-set-default-settings'
+  # plane_config_value on the same line; tests/resolve-tracker.bats pins the two
+  # together.
   raw="$(printf '%s' "$raw" | sed \
+    -e 's/^#.*$//' -e 's/[[:space:]]#.*$//' \
     -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
     -e 's/^["'"'"']*//' -e 's/["'"'"']*$//' \
     -e 's/[[:space:]]*$//')"
@@ -138,9 +142,9 @@ resolve() {
     return "$EXIT_ASK"
   fi
 
-  # 3. More than one. Collect what the configs declare. Reading every config
-  #    rather than a designated one keeps the key writable wherever the user
-  #    happens to open it.
+  # 3. More than one. Collect what the candidates declare, reading the config
+  #    that wins for each tracker rather than one designated file, so the key
+  #    can be set in whichever tracker's config the user happens to open.
   local declared="" t d
   for t in $candidates; do
     d="$(declared_default "$(config_path_for "$root" "$t")")"
