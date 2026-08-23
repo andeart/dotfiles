@@ -6,8 +6,8 @@ work item body, so a work item reads the same whether it was created from scratc
 place, and whether it landed in Plane, GitHub, Jira, or GitLab.
 
 **Nothing tracker-specific belongs in this file.** Markup, field names, API and CLI calls,
-config keys, and URL shapes live in `references/<tracker>.md`. Exactly one of those is read per
-run - see `RESOLUTION.md` for how the tracker gets picked.
+config keys, and URL shapes live in `references/<tracker>.md`. Only the resolved tracker's are
+read - `RESOLUTION.md` covers how that tracker gets picked.
 
 See the [Example](#example) at the bottom for a worked body with all three sections.
 

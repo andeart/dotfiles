@@ -6,6 +6,7 @@ bats_require_minimum_version 1.5.0
 
 RESOLVE="$DOTFILES_ROOT/agents/skills/work-item-conventions/scripts/resolve-tracker.sh"
 REFERENCES="$DOTFILES_ROOT/agents/skills/work-item-conventions/references"
+GH_SETTINGS="$DOTFILES_ROOT/bin/gh-set-default-settings"
 
 # Source the script in library mode inside a subshell (so its `set -euo
 # pipefail` is contained) and invoke one function with args.
@@ -215,8 +216,10 @@ resolve() {
   [[ "$stderr" == *"disagree on default_tracker"* ]]
 }
 
-# grep reads its pattern as a regex, so "p.ane" matches the "plane" candidate.
-# Left unfixed the run exits 0 naming a tracker that has no reference file.
+# A value that looks like a regex is still just a value: is_known_tracker matches
+# with a quoted `case` pattern and the candidate match uses `grep -qxF`, so
+# neither reads it as one. Unguarded, the run would exit 0 naming a tracker with
+# no reference file behind it.
 @test "a default_tracker that regex-matches a candidate is not treated as a pattern" {
   local root; root="$(repo multi-regex-default)"
   config "$root" plane "default_tracker: p.ane"
@@ -240,6 +243,15 @@ resolve() {
 @test "a default_tracker naming something that is not a tracker at all asks" {
   local root; root="$(repo multi-nonsense-default)"
   config "$root" plane "default_tracker: linear"
+  config "$root" github
+  resolve "$root"
+  [ "$status" -eq 10 ]
+  [[ "$stderr" == *"is not a tracker"* ]]
+}
+
+@test "a default_tracker with interior quotes asks rather than resolving" {
+  local root; root="$(repo multi-inner-quotes)"
+  config "$root" plane 'default_tracker: gi"th"ub'
   config "$root" github
   resolve "$root"
   [ "$status" -eq 10 ]
@@ -304,6 +316,25 @@ resolve() {
   [ "$output" = "git hub" ]
 }
 
+# Interior quotes go the same way interior whitespace does: left alone, so the
+# value stays malformed and is rejected downstream instead of being repaired
+# into a name that resolves.
+@test "declared_default strips surrounding quotes but keeps interior ones" {
+  local root; root="$(repo dd-inner-quotes)"
+  config "$root" plane 'default_tracker: gi"th"ub'
+  call declared_default "$root/.workitems.plane.yml"
+  [ "$output" = 'gi"th"ub' ]
+}
+
+# Whitespace has to come off before the quote run, or `"github"   ` is trimmed
+# to `github"` - a quote the value never meant to carry.
+@test "declared_default strips a quoted value padded with trailing whitespace" {
+  local root; root="$(repo dd-quoted-padded)"
+  config "$root" plane 'default_tracker: "github"   '
+  call declared_default "$root/.workitems.plane.yml"
+  [ "$output" = "github" ]
+}
+
 @test "declared_default ignores a nested key" {
   local root; root="$(repo dd-nested)"
   config "$root" plane "guidance:
@@ -339,10 +370,98 @@ resolve() {
   call known_trackers
   local known="$output" f base
   for f in "$REFERENCES"/*.md; do
+    # `plane-creating.md` is the create-side half of `plane.md`, so the tracker
+    # is the part before the suffix.
     base="$(basename "$f" .md)"
+    base="${base%%-*}"
     printf '%s\n' "$known" | grep -qx "$base" || {
-      echo "reference file '$base.md' names no tracker resolve-tracker.sh knows" >&2
+      echo "reference file '$(basename "$f")' names no tracker resolve-tracker.sh knows" >&2
       return 1
     }
   done
+}
+
+# file-work-item reads `<tracker>-creating.md` alongside the main reference, and
+# tells a run that a skeleton has none beside it. Both halves have to hold of
+# what is actually on disk, or one of those instructions sends a run at a file
+# that isn't there.
+@test "a create-side reference sits beside every reference that is not a skeleton" {
+  call known_trackers
+  local t main creating
+  for t in $output; do
+    main="$REFERENCES/$t.md"
+    creating="$REFERENCES/$t-creating.md"
+    if grep -q '^\*\*This reference is a skeleton' "$main"; then
+      [ ! -e "$creating" ] || {
+        echo "$t.md is a skeleton but $t-creating.md exists beside it" >&2
+        return 1
+      }
+    else
+      [ -f "$creating" ] || {
+        echo "$t.md is implemented but $t-creating.md is missing" >&2
+        return 1
+      }
+    fi
+  done
+}
+
+# ─── the two readers of the same file agree ────────────────────────────────
+
+# resolve-tracker.sh and gh-set-default-settings both read top-level scalars out
+# of a .workitems.plane.yml with their own not-a-YAML-parser. They drifted once
+# already (one deleted interior whitespace, the other kept it), and the drift is
+# invisible until a value lands in the wrong tracker, so pin them together.
+@test "declared_default and plane_config_value read the same value the same way" {
+  local root; root="$(repo parser-agreement)"
+  local file="$root/.workitems.plane.yml"
+  local v a b
+  for v in 'github' '"github"' "'github'" '"github"   ' '  github  ' 'gi"th"ub' \
+           '"github"  # note' 'git hub' 'p.ane' '.*' '"gith ub" ' 'github#x'; do
+    printf 'default_tracker: %s\n' "$v" > "$file"
+    a="$(bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"; declared_default "$2"' _ "$RESOLVE" "$file")"
+    b="$(bash -c '_GH_SETTINGS_LIB_ONLY=1 source "$1"; plane_config_value "$2" default_tracker' _ "$GH_SETTINGS" "$file")"
+    [ "$a" = "$b" ] || {
+      echo "disagree on [$v]: declared_default=[$a] plane_config_value=[$b]" >&2
+      return 1
+    }
+  done
+}
+
+# ─── the read-only guarantee ───────────────────────────────────────────────
+
+# manifest <dir>: every path under dir, with a checksum for each regular file,
+# so one comparison catches an added file, a removed one, and an edited one.
+manifest() {
+  find "$1" | sort | while IFS= read -r p; do
+    if [ -f "$p" ]; then
+      printf '%s %s\n' "$p" "$(cksum < "$p")"
+    else
+      printf '%s dir\n' "$p"
+    fi
+  done
+}
+
+# The script header promises it only ever reads, and that promise is the whole
+# case for putting it on a permission allowlist. Every branch runs here,
+# including the ones that exit non-zero - an error path is where a stray write
+# is likeliest and least noticed.
+@test "resolving never writes to the tree it reads" {
+  local root; root="$(repo read-only)"
+  mkdir -p "$root/single/tmp" "$root/multi" "$root/bare"
+  printf 'project: DX\n' > "$root/single/tmp/.workitems.plane.yml"
+  printf 'default_tracker: p.ane\n' > "$root/multi/.workitems.plane.yml"
+  printf 'assignee: octocat\n' > "$root/multi/.workitems.github.yml"
+
+  local before after
+  before="$(manifest "$root")"
+  bash "$RESOLVE" --repo-root "$root/single" >/dev/null 2>&1 || true
+  bash "$RESOLVE" --repo-root "$root/multi" >/dev/null 2>&1 || true
+  bash "$RESOLVE" --repo-root "$root/bare" >/dev/null 2>&1 || true
+  bash "$RESOLVE" --repo-root "$root/single" --tracker github >/dev/null 2>&1 || true
+  bash "$RESOLVE" --repo-root "$root/single" --tracker linear >/dev/null 2>&1 || true
+  bash "$RESOLVE" --repo-root "$root/absent" >/dev/null 2>&1 || true
+  bash "$RESOLVE" --help >/dev/null 2>&1 || true
+  after="$(manifest "$root")"
+
+  [ "$before" = "$after" ]
 }

@@ -1,8 +1,9 @@
 ---
 name: refine-work-item
 description: >
-  Rewrite an existing work item - in Plane, GitHub, Jira, or GitLab - so it matches Anurag's
-  writing conventions. Use this skill whenever the user wants to improve, clean up, polish,
+  Rewrite an existing work item so it matches Anurag's writing conventions. Plane and GitHub are
+  implemented; Jira and GitLab are recognised but stop with a note that their mechanics are not
+  filled in yet. Use this skill whenever the user wants to improve, clean up, polish,
   rewrite, reshape, or tidy a work item that already exists. Also trigger when the user says
   "refine this work item", "rewrite this in our style", "make this work item conform", "fix up
   DX-22", "clean up this issue", or points at a work item identifier or URL and asks to improve
@@ -20,9 +21,9 @@ Everything this skill reads is under `~/.agents/skills/work-item-conventions/`:
 
 | File | What it holds |
 | ---- | ------------- |
-| `RESOLUTION.md` | How the tracker gets picked, and the resolver script's contract |
 | `CONVENTIONS.md` | Title, description structure, acceptance criteria style, the estimate rule |
 | `references/<tracker>.md` | Fetch and update mechanics, wire format, diagnosis hints for one tracker |
+| `RESOLUTION.md` | Where a repo's config lives and what `default_tracker` does - rarely needed |
 
 ## Scope
 
@@ -51,17 +52,18 @@ bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
   --repo-root <repo> [--tracker <name>]
 ```
 
-Pass `--tracker` only when the user named one. Handle exit codes per `RESOLUTION.md`: `0` carries
-on, `10` asks the user which candidate to use, `2` stops.
+Pass `--tracker` only when the user named one. Handle the exit codes: `0` carries on, `10` asks the
+user which candidate to use, `2` stops.
 
 A work item URL in the request is the exception worth noticing - the host names the tracker
-outright, so pass it as `--tracker` rather than running detection against a repo the user may not
-even be standing in.
+outright, so pass that tracker's name as `--tracker` rather than running detection against a repo
+the user may not even be standing in.
 
 ## Step 2: Read the conventions and the one reference file
 
-Read `CONVENTIONS.md`, then `references/<resolved>.md` and only that one. If the reference file
-says it is a skeleton, stop and tell the user.
+Read `CONVENTIONS.md`, then `references/<resolved>.md` and only that one - not another tracker's,
+and not `references/<resolved>-creating.md`, which is create-side from top to bottom. If the
+reference file says it is a skeleton, stop and tell the user.
 
 ## Step 3: Fetch the work item
 

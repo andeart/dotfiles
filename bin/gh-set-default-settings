@@ -22,9 +22,9 @@ idempotent by nature. Dependabot settings already enabled are reported and left
 alone rather than prompted for.
 
 The Plane autolink is offered only when the current directory is a checkout of
-<repo> and its .workitems.plane.yml supplies both `project` and `workspace`. It makes a
-bare identifier in a commit message (DX-49) link to the work item. GitHub does
-not apply autolinks to pull request or issue titles.
+<repo> and its .workitems.plane.yml supplies both `project` and `workspace`. It
+makes a bare identifier in a commit message (DX-49) link to the work item.
+GitHub does not apply autolinks to pull request or issue titles.
 
 Requires: gh (authenticated), jq.
 
@@ -610,7 +610,7 @@ run_repo_settings_section() {
 # plane_config_path [basename]: print the path to the config governing the target
 # repo, or nothing. Root-level wins over tmp/, matching the work item skills'
 # discovery. The basename is a parameter only so the caller can also ask for the
-# pre-rename .plane.yml, which this reads for nothing but a better skip reason.
+# pre-rename .plane.yml, whose presence buys nothing but a better skip reason.
 plane_config_path() {
   local base="${1:-.workitems.plane.yml}"
   local toplevel origin
@@ -631,12 +631,18 @@ plane_config_path() {
 # Deliberately not a YAML parser. Only an unindented `key: value` line matches,
 # so a commented-out key and a nested key of the same name both read as absent -
 # which is the answer that makes the caller skip rather than guess.
+#
+# Surrounding whitespace comes off before the quotes so `key: "DX"   ` is not
+# left as `DX"`. Nothing interior is touched: a malformed value has to stay
+# malformed so the caller rejects it. resolve-tracker.sh's declared_default
+# applies the same sequence, and tests/resolve-tracker.bats pins them together.
 plane_config_value() {
   local file="$1" key="$2"
   awk -v key="$key" '
     index($0, key ":") == 1 {
       sub("^" key "[[:space:]]*:[[:space:]]*", "")
       sub(/[[:space:]]*#.*$/, "")
+      sub(/[[:space:]]+$/, "")
       gsub(/^["\047]+|["\047]+$/, "")
       sub(/[[:space:]]+$/, "")
       print

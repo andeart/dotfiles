@@ -128,8 +128,9 @@ This exists to carry existing clones across a one-time rename, not to be a perma
 toolkit. Every repo that files work items needs it exactly once.
 
 Retire it once every meaningful clone has been through Step 4 and reports `Resolves:`. At that
-point remove this skill directory and its entry from the README structure tree - a migration path
-with nothing left to migrate is just another file to keep current.
+point remove this skill directory - a migration path with nothing left to migrate is just another
+file to keep current. The README structure tree wildcards `agents/skills/*`, so nothing needs
+removing there.
 
 Until then, leave it in place. The cost of keeping it is one skill description; the cost of
 retiring it early is a repo whose config silently stops being read.

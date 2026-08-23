@@ -1,8 +1,9 @@
 ---
 name: file-work-item
 description: >
-  File a new work item in whatever tracker a repo uses - Plane, GitHub, Jira, or GitLab - written
-  to Anurag's conventions. Use this skill whenever the user wants to create a work item that does
+  File a new work item in whatever tracker a repo uses, written to Anurag's conventions. Plane and
+  GitHub are implemented; Jira and GitLab are recognised but stop with a note that their mechanics
+  are not filled in yet. Use this skill whenever the user wants to create a work item that does
   not exist yet. Also trigger when the user says "make a work item", "make an issue", "create a
   ticket", "write a task", "log a bug", "file a bug", "report a problem", "open a GitHub issue",
   "file a Jira ticket", or describes a feature/bug/improvement they want tracked, even if they
@@ -20,9 +21,10 @@ Everything this skill reads is under `~/.agents/skills/work-item-conventions/`:
 
 | File | What it holds |
 | ---- | ------------- |
-| `RESOLUTION.md` | How the tracker gets picked, and the resolver script's contract |
 | `CONVENTIONS.md` | Title, description structure, acceptance criteria style, the estimate rule |
-| `references/<tracker>.md` | Config keys, wire format, call flow, field defaults for one tracker |
+| `references/<tracker>.md` | Config keys, wire format, report block, refine flow for one tracker |
+| `references/<tracker>-creating.md` | That tracker's create flow, entity assignment, relations, field defaults |
+| `RESOLUTION.md` | Where a repo's config lives and what `default_tracker` does - rarely needed |
 
 ## Step 1: Resolve the tracker
 
@@ -37,7 +39,7 @@ bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
 Pass `--tracker` only when the user named one in the request - "open a GitHub issue", "file this in
 Jira". Leave it off otherwise; a guess passed here silently outranks the repo's own config.
 
-Handle the exit codes per `RESOLUTION.md`:
+Handle the exit codes:
 
 - `0` - stdout is the tracker. Carry on.
 - `10` - stdout lists the candidates and stderr says why they couldn't be narrowed. Ask the user
@@ -47,16 +49,18 @@ Handle the exit codes per `RESOLUTION.md`:
   asked for a tracker this repo has no mechanics for, which is a real answer, not a reason to fall
   back to detection.
 
-## Step 2: Read the conventions and the one reference file
+## Step 2: Read the conventions and the resolved tracker's reference
 
-Read `CONVENTIONS.md`, then `references/<resolved>.md`.
+Read `CONVENTIONS.md`, then both halves of the resolved tracker's reference:
+`references/<resolved>.md` and `references/<resolved>-creating.md`. Filing needs both; the split
+exists so refining can skip the second.
 
-**Only the resolved tracker's reference file.** The others describe trackers this run is not
+**Only the resolved tracker's two files.** The other references describe trackers this run is not
 filing into; loading them spends context on mechanics that cannot apply, and invites one tracker's
 field names into another's call.
 
-If the reference file says it is a skeleton, stop there and tell the user. Do not improvise the
-mechanics from the other references.
+If `references/<resolved>.md` says it is a skeleton, stop there and tell the user - a skeleton has
+no `-creating.md` beside it. Do not improvise the mechanics from the other references.
 
 ## Step 3: Read the repo config
 
@@ -66,16 +70,23 @@ table says what the keys mean for this tracker.
 Two rules hold on every tracker:
 
 - **A key that is present applies without asking.** A key that is absent gets a question, unless
-  the reference file's "Default field values" gives a fallback. User-provided values always beat
-  the config.
+  `references/<tracker>-creating.md`'s "Default field values" gives a fallback. User-provided
+  values always beat the config.
 - **If `guidance` is set, read it before composing.** It carries project-wide context - compliance
   rules, how work is split - that shapes wording and constraints. It is background, never a field.
 
 ### No config at all
 
-Offer to create `.workitems.<tracker>.yml` before proceeding, and ask before writing. Write it with
-every key from the reference file's table commented out, so the shape is discoverable and the user
-can uncomment what they need:
+Offer to create `.workitems.<tracker>.yml` before proceeding, and ask before writing.
+
+**Ask where it goes, don't assume the root.** The file carries an assignee, project identifiers,
+and whatever `guidance` prose the user dictates. Resolution reads the repo root first and `tmp/`
+second, and `tmp/` is there for public repos where none of that belongs in the committed tree.
+Check with `gh repo view --json visibility` when it isn't obvious, and offer `tmp/` whenever that
+comes back `PUBLIC`.
+
+Write it with every key from the reference file's table commented out, so the shape is discoverable
+and the user can uncomment what they need:
 
 ```yaml
 # mode:
@@ -86,7 +97,7 @@ can uncomment what they need:
 #   Project-wide context that isn't tied to a single entity.
 ```
 
-Those three are the only keys every reference file shares. Take the rest from the resolved
+Those three are the only keys the implemented references share. Take the rest from the resolved
 tracker's table verbatim and never carry a key name across trackers - `project` is the identifier
 prefix on Plane but a Projects v2 board title on GitHub, which names its repo with `repo` instead.
 
@@ -121,6 +132,6 @@ because the user is the one pasting it.
 
 ## Step 6: Write, then report
 
-Follow the reference file's create flow, then print the fields block from `CONVENTIONS.md`'s
-"Reporting after the write" and nothing else. Build it from what this run already holds. Do not
-re-read the work item to render it.
+Follow `references/<tracker>-creating.md`'s create flow, then print the fields block from
+`CONVENTIONS.md`'s "Reporting after the write" and nothing else. Build it from what this run
+already holds. Do not re-read the work item to render it.

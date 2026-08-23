@@ -90,12 +90,15 @@ declared_default() {
   raw="$(sed -n 's/^default_tracker:[[:space:]]*//p' "$file" | head -1)"
   [ -n "$raw" ] || return 0
   raw="${raw%%#*}"
-  raw="${raw//\"/}"
-  raw="${raw//\'/}"
-  # Surrounding whitespace only. Deleting interior whitespace would repair
-  # "git hub" into a name that resolves, hiding the typo instead of failing on
-  # it, and would drift from how gh-set-default-settings reads the same file.
-  raw="$(printf '%s' "$raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  # Surrounding whitespace and one surrounding quote run, in that order, and
+  # nothing interior. Deleting interior characters would repair `git hub` or
+  # `gi"th"ub` into a name that resolves, hiding the typo instead of failing on
+  # it. The sequence matches gh-set-default-settings' plane_config_value on the
+  # same line; tests/resolve-tracker.bats pins the two together.
+  raw="$(printf '%s' "$raw" | sed \
+    -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+    -e 's/^["'"'"']*//' -e 's/["'"'"']*$//' \
+    -e 's/[[:space:]]*$//')"
   [ -n "$raw" ] || return 0
   printf '%s\n' "$raw"
 }
@@ -164,9 +167,10 @@ resolve() {
     return "$EXIT_ASK"
   fi
 
-  # Checked before the candidate match because grep would read the value as a
-  # pattern: "p.ane" matches the "plane" candidate, and the run would resolve to
-  # a name with no reference file behind it.
+  # Ordered before the candidate match so a typo is reported as a typo. Both
+  # checks reject an unknown name, but the candidate match can only say the
+  # value has no config, which sends the user looking for a missing file rather
+  # than at the misspelling in front of them.
   if ! is_known_tracker "$declared"; then
     printf '%s\n' "$candidates"
     echo "default_tracker names '$declared', which is not a tracker (known: $KNOWN_TRACKERS)" >&2
