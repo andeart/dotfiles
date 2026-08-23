@@ -742,7 +742,7 @@ Content-Type: application/json
 
 # ─── plane_config_value (pure) ─────────────────────────────────────────────
 
-# plane_yml <lines...>: write a .plane.yml fixture and print its path.
+# plane_yml <lines...>: write a .workitems.plane.yml fixture and print its path.
 plane_yml() {
   local file="$BATS_TEST_TMPDIR/plane-$$.yml"
   printf '%s\n' "$@" > "$file"
@@ -791,11 +791,11 @@ checkout_with_origin() {
   mkdir -p "$dir"
   git -C "$dir" init --quiet
   git -C "$dir" remote add origin "$origin"
-  [[ $# -eq 0 ]] || printf '%s\n' "$@" > "$dir/.plane.yml"
+  [[ $# -eq 0 ]] || printf '%s\n' "$@" > "$dir/.workitems.plane.yml"
   printf '%s\n' "$dir"
 }
 
-@test "plane_config_path finds the root .plane.yml when the origin matches" {
+@test "plane_config_path finds the root .workitems.plane.yml when the origin matches" {
   local dir; dir="$(checkout_with_origin 'git@github.com:owner/repo.git' 'project: DX')"
   run bash -c '
     _GH_SETTINGS_LIB_ONLY=1 source "$1"
@@ -804,7 +804,7 @@ checkout_with_origin() {
     plane_config_path
   ' _ "$BIN" "$dir"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"/.plane.yml" ]]
+  [[ "$output" == *"/.workitems.plane.yml" ]]
 }
 
 @test "plane_config_path finds nothing when the checkout is a different repo" {
@@ -820,10 +820,10 @@ checkout_with_origin() {
   [ -z "$output" ]
 }
 
-@test "plane_config_path prefers the root .plane.yml over tmp/" {
+@test "plane_config_path prefers the root .workitems.plane.yml over tmp/" {
   local dir; dir="$(checkout_with_origin 'git@github.com:owner/repo.git' 'project: DX')"
   mkdir -p "$dir/tmp"
-  printf 'project: ZZ\n' > "$dir/tmp/.plane.yml"
+  printf 'project: ZZ\n' > "$dir/tmp/.workitems.plane.yml"
   run bash -c '
     _GH_SETTINGS_LIB_ONLY=1 source "$1"
     OWNER_REPO=owner/repo
@@ -831,13 +831,13 @@ checkout_with_origin() {
     plane_config_path
   ' _ "$BIN" "$dir"
   [ "$status" -eq 0 ]
-  [[ "$output" != *"/tmp/.plane.yml" ]]
+  [[ "$output" != *"/tmp/.workitems.plane.yml" ]]
 }
 
-@test "plane_config_path falls back to tmp/.plane.yml" {
+@test "plane_config_path falls back to tmp/.workitems.plane.yml" {
   local dir; dir="$(checkout_with_origin 'git@github.com:owner/repo.git')"
   mkdir -p "$dir/tmp"
-  printf 'project: DX\n' > "$dir/tmp/.plane.yml"
+  printf 'project: DX\n' > "$dir/tmp/.workitems.plane.yml"
   run bash -c '
     _GH_SETTINGS_LIB_ONLY=1 source "$1"
     OWNER_REPO=owner/repo
@@ -845,7 +845,7 @@ checkout_with_origin() {
     plane_config_path
   ' _ "$BIN" "$dir"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"/tmp/.plane.yml" ]]
+  [[ "$output" == *"/tmp/.workitems.plane.yml" ]]
 }
 
 # ─── autolink_desired, with plane_config_path stubbed ──────────────────────
@@ -898,7 +898,7 @@ desired_from() {
     autolink_desired
   ' _ "$BIN"
   [ "$status" -eq 0 ]
-  [[ "$output" == '!no .plane.yml'* ]]
+  [[ "$output" == '!no .workitems.plane.yml'* ]]
 }
 
 # ─── autolink_state, with gh stubbed ───────────────────────────────────────
@@ -1015,9 +1015,9 @@ section_with() {
 }
 
 @test "run_autolink_section reports the skip reason it was given" {
-  section_with '!/repo/.plane.yml sets no workspace' absent
+  section_with '!/repo/.workitems.plane.yml sets no workspace' absent
   [ "$status" -eq 0 ]
-  [[ "$output" == *"skipped (/repo/.plane.yml sets no workspace)"* ]]
+  [[ "$output" == *"skipped (/repo/.workitems.plane.yml sets no workspace)"* ]]
   [[ "$output" != *"APPLIED"* ]]
 }
 

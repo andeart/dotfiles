@@ -68,7 +68,9 @@
       "mcp__home-assistant__ha_get_state",
       "mcp__home-assistant__ha_list_services",
       "Read(~/.agents/AGENTS.md)",
-      "Read(~/.agents/skills/plane-work-item-conventions/CONVENTIONS.md)",
+      "Read(~/.agents/skills/work-item-conventions/CONVENTIONS.md)",
+      "Read(~/.agents/skills/work-item-conventions/RESOLUTION.md)",
+      "Read(~/.agents/skills/work-item-conventions/references/*.md)",
       "Read(~/.claude/**)",
       "Skill(update-config)",
       "WebSearch"
