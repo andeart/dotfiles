@@ -59,6 +59,9 @@ labels:
     info: "Use when the item's primary value is reducing future friction, not user-facing."
 ```
 
+An entry with no `id` is guidance-only: reason about it, but resolve or ask for the UUID before
+assigning it.
+
 `estimate_points` accepts the same two value forms:
 
 ```yaml
@@ -108,7 +111,8 @@ Verified by round-tripping through `workitem` `retrieve_by_identifier`:
   The `data-type` is the signal; the inner empty `<div>` is required. Plane fills in its own
   Tailwind classes (`py-4 border-strong-1`) on save. A plain `<hr>` is untested - it may or may
   not normalize to this form, so prefer the verified markup.
-- `<strong>`, `<u>`, `<em>` for bold, underline, italic. `<a href="…">…</a>` for external links.
+- `<strong>`, `<u>`, `<em>` for bold, underline, italic. `<code>` for inline code -
+  identifiers, commands, file paths. `<a href="…">…</a>` for external links.
 
 Also pass `description_stripped` with the plain-text version (no tags, single newlines between
 blocks). Plane uses it for search and previews.
