@@ -3,10 +3,14 @@
 - Never force push under any circumstances, even if asked.
 - Never run `rm -rf` under any circumstances. If a destructive removal is needed, print the exact `rm`/`rmdir` command with absolute paths in your reply and ask the user to run it themselves.
 - Never delete a file yourself, including with `git rm`. When a file needs to be deleted, give the user a clear, specific deletion request naming exactly what to remove, and print the exact `rm`/`rmdir` command with absolute paths so they can run it directly.
-- Never merge a PR without explicitly asking the user for confirmation first.
 - Never pass permission-bypass flags (such as `--dangerously-skip-permissions`) to spawned `claude` or other agent processes. The spawned process inherits the flag and runs without permission checks, so bypassing permissions on it grants a fresh agent unrestricted access without the user's consent. If a programmatic spawn is genuinely necessary, use a narrow `--allowedTools` allowlist and clearly notify the user of every tool being granted before spawning; otherwise, hand the command to the user to run themselves.
+
+## Ask before
+
+- Never merge a PR without explicitly asking the user for confirmation first.
 - Never update a .gitignore file without explicitly asking the user for confirmation first.
 - Never install packages (pip, npm, brew, etc.) or pass `--break-system-packages` without asking first, including transient installs for a one-off task. Name the package and why, then ask; prefer an ephemeral runner (`uvx`, `npx`, `pipx run`) if approved.
+- Ask before publishing a PR body, issue description, commit message, or release note that reads like a hardening writeup. See the disclosure rules under "GitHub Issues & PRs".
 
 ## Communication
 
@@ -14,8 +18,34 @@
 - Ground factual claims with direct quotes from the source. If you can't find a supporting quote, retract the claim.
 - For long documents (>20k tokens), extract relevant quotes before performing the task.
 - If two things sound similar but might differ, say so - don't assert equivalence without verifying. When unsure, say "I'm not sure" or ask.
-- Use simple dashes (-), never em-dashes (—).
+- Use alternative punctuation or simple dashes (-), never em-dashes (—).
 - When asked to "add a rule" or "remember this rule", always add it to a CLAUDE.md file (repo-specific or global), never to memory.
+
+## Debugging
+
+- When a fix built on a theory fails, stop theorising and instrument. Two failed fixes is the signal, not three or more: add checkpoints, bisect, or print state until the failure names its own cause. Measuring once is cheaper than guessing twice.
+- Once the real cause is known, delete the speculative fixes. A workaround kept "just in case" ships a comment asserting a cause that was never true.
+
+## Tool Usage
+
+- Never truncate output from linters, test runners, or compilers. Errors and summaries appear at the end - using `head` hides them. If output is long, use `tail` to see the summary.
+- Read CI from the Actions API, never `gh pr checks`: `gh api repos/:owner/:repo/actions/runs?branch=<branch>` for the run, `.../actions/runs/<id>/jobs` for per-job results. `gh pr checks` always 403s on a fine-grained PAT and there is no "Checks" permission to grant, so retrying or widening scopes won't help.
+- Use Plane's built-in dependency types - `blocked_by`, `blocking`, and the rarely-needed scheduling four - and never probe `workitem_relation list_definitions` first. It always 402s on my workspace plan, so custom relations (`relates to`, `duplicate`, `implements`) cannot be created in any project.
+
+## Code comments
+
+- Keep source-file comments concise, technical, and intentional. Assume source ships public (e.g. published to a website), so a reader is looking at them directly.
+- Comments should only be: technical explanations of non-obvious code, occasional judgment/decision notes that direct future design, and critical warnings.
+- Do NOT write natural-language prose explanations, narration, historical records, or change/paper-trail notes. The comment explains the code as it stands now, not how it got here.
+
+## Design docs and specs
+
+Covers anything that records how a decision was reached - design docs, specs, ADRs, RFCs, postmortems. They are dated, and nothing re-reads them when the system changes, so be strict about what they are allowed to claim.
+
+- **Belongs there:** a measurement tied to its date and setup, and the alternatives that were rejected with the reason why. These stay true permanently - the number was what it was on the day, and a rejected option stays rejected for the reason given.
+- **Does not belong there:** a bare assertion about how the system behaves now. Nothing re-reads the doc when that behaviour changes, so the claim rots silently while still reading as authoritative. Ask of every sentence: is this still true if the system changes? If no, it is in the wrong file.
+- Current-state rules belong where something enforces them - a test, the source comment beside the code they constrain, or the runbook someone actually follows. When a design doc has to mention current behaviour, date the sentence or link the enforcing file instead of restating the rule.
+- This is the mirror of the Code comments rule above: a comment carries the present and no history, a design doc carries the history and asserts no present.
 
 ## Git
 
@@ -47,21 +77,9 @@
 - Avoid formal/corporate phrasing like "undermines the contract" or "addresses this gracefully" - prefer plain language like "so users end up hunting for files they shouldn't have to know about" or "should be enough to cover that."
 - Nothing overly jovial or silly. The goal is to sound like a thoughtful contributor talking to maintainers, not a spec generator.
 - Match the emotional register to the stakes. Describe the change matter-of-factly - what was happening, what changes now. "The preview was raw HTML; this renders it as markdown" lands better than "the markup drowns out the content."
-
-## Code comments
-
-- Keep source-file comments concise, technical, and intentional. Assume source ships public (e.g. published to a website), so a reader is looking at them directly.
-- Comments should only be: technical explanations of non-obvious code, occasional judgment/decision notes that direct future design, and critical warnings.
-- Do NOT write natural-language prose explanations, narration, historical records, or change/paper-trail notes. The comment explains the code as it stands now, not how it got here.
-
-## Design docs and specs
-
-Covers anything that records how a decision was reached - design docs, specs, ADRs, RFCs, postmortems. They are dated, and nothing re-reads them when the system changes, so be strict about what they are allowed to claim.
-
-- **Belongs there:** a measurement tied to its date and setup, and the alternatives that were rejected with the reason why. These stay true permanently - the number was what it was on the day, and a rejected option stays rejected for the reason given.
-- **Does not belong there:** a bare assertion about how the system behaves now. Nothing re-reads the doc when that behaviour changes, so the claim rots silently while still reading as authoritative. Ask of every sentence: is this still true if the system changes? If no, it is in the wrong file.
-- Current-state rules belong where something enforces them - a test, the source comment beside the code they constrain, or the runbook someone actually follows. When a design doc has to mention current behaviour, date the sentence or link the enforcing file instead of restating the rule.
-- This is the mirror of the Code comments rule above: a comment carries the present and no history, a design doc carries the history and asserts no present.
+- Never publish details about a repo's security posture in that repo's own public metadata (PR or issue descriptions, commit messages, comments, release notes). The repo where a defense lives is exactly the place an attacker is already reading.
+- Things that count as "security posture" and do NOT belong in public metadata: environment names paired with their branch or reviewer restrictions, actor/identity gates and their rationale, which protections are intentionally OFF, which mutable tags were SHA-pinned and why.
+- Public metadata should describe WHAT changed and WHY IT EXISTS AT ALL, not HOW THE DEFENSE IS SHAPED. Config and workflow files are unavoidable public surface; commit messages and PR bodies are not - keep them minimal.
 
 ## Permissions & capability grants
 
@@ -69,16 +87,3 @@ Covers anything that records how a decision was reached - design docs, specs, AD
 - Start with the minimum already proven in use, run the workload, read the specific denial, and add only the exact action/permission/scope the error names, scoped as tightly as the named resource/target allows. Iterate until the workload passes - then stop. No "while you're at it" additions.
 - If the application error wraps the underlying denial and the entry name isn't visible, surface the exact denied call from the relevant audit log (CloudTrail for AWS, audit log for K8s, GitHub audit log for PATs, etc.) before guessing.
 - If multiple denials surface in one run, batch them into one update - but still one entry per denial, not "and a few related ones."
-
-## Security
-
-- Never publish details about a repo's security posture in that repo's own public metadata (PR or issue descriptions, commit messages, comments, release notes). The repo where a defense lives is exactly the place an attacker is already reading.
-- Things that count as "security posture" and do NOT belong in public metadata: environment names paired with their branch or reviewer restrictions, actor/identity gates and their rationale, which protections are intentionally OFF, which mutable tags were SHA-pinned and why.
-- Public metadata should describe WHAT changed and WHY IT EXISTS AT ALL, not HOW THE DEFENSE IS SHAPED. Config and workflow files are unavoidable public surface; commit messages and PR bodies are not - keep them minimal.
-- If a description you're about to publish reads like a hardening writeup, stop and ask before shipping.
-
-## Tool Usage
-
-- Never truncate output from linters, test runners, or compilers. Errors and summaries appear at the end - using `head` hides them. If output is long, use `tail` to see the summary.
-- `gh pr checks` always 403s on a fine-grained PAT - there is no "Checks" permission to grant. Read CI from the Actions API instead: `gh api repos/:owner/:repo/actions/runs?branch=<branch>` for the run, `.../actions/runs/<id>/jobs` for per-job results.
-- Plane `workitem_relation list_definitions` always 402s on my workspace plan, so custom relations (`relates to`, `duplicate`, `implements`) cannot be created in any project. Use the built-in dependency types - `blocked_by`, `blocking`, and the rarely-needed scheduling four - and never probe for definitions first.
