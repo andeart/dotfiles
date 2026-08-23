@@ -47,9 +47,12 @@ For any branches NOT caught by criterion 1, check criterion 2:
 gh pr list --head <branch-name> --state merged --json number --jq 'length'
 ```
 
-If neither criterion matches a branch, it is not merged - exclude it.
+A branch matching neither criterion is not merged. Keep it aside as a *leftover*
+for Step 4 rather than dropping it - some leftovers were superseded rather than
+abandoned.
 
-If no merged branches are found, tell the user everything is clean and stop.
+If nothing matches either criterion and Step 4 clears none of the leftovers, tell
+the user everything is clean and stop.
 
 ## Step 3: Gather PR and remote info
 
@@ -75,7 +78,9 @@ If the remote branch still exists, also check if it has commits the local branch
 git log <branch-name>..origin/<branch-name> --oneline 2>/dev/null
 ```
 
-Present everything in a single consolidated list. Each line should show the branch name, its PR (if any), and its remote status:
+Present everything in a single consolidated list. Each line should show the branch
+name, its PR (if any), and its remote status, and should name the criterion that
+matched - a branch accepted by only one of the two is worth seeing as such:
 
 ```text
 Merged branches:
@@ -86,7 +91,53 @@ Merged branches:
 
 Do NOT suggest deleting remote branches. That's not this skill's job.
 
+## Step 4: Check the leftovers for superseded work
+
+A branch whose work landed under a different branch name fails both Step 2
+criteria and always will. Ancestry misses a squash merge by design, and
+`gh pr list --head` looks up a name the pull request never carried. No later fetch
+changes either answer, so the branch sits in the listing forever reading as
+unmerged work.
+
+Run the probe on each leftover:
+
+```bash
+agents/skills/wf-prune/scripts/superseded-probe.sh <branch-name> <DEFAULT>
+```
+
+It exits 0 and prints `verdict=superseded` when all of these hold, and exits 1
+with a `reason=` otherwise:
+
+- the branch name carries a work item identifier,
+- a merged pull request's title starts with that identifier,
+- that pull request landed after the branch diverged,
+- every path the branch touched since then is one that pull request touched, and
+- the default branch agrees with the direction of each change - a path the branch
+  added or modified exists there, one it deleted does not.
+
+The output also names the identifier, the pull requests and the path count. That
+is the evidence the Step 5 listing shows.
+
+A superseded branch is **not** merged and never joins the merged set. The probe
+reasons about a branch that was redone, not one whose commits landed, so it
+infers rather than proves - which is why these get their own confirmation below.
+
+The identifier is read the way `wf-wrap` reads it: anchored at the start of the
+name, after stripping a `worktree-` prefix. A branch named `user/abc-1-slug`
+therefore carries none as far as the probe is concerned, and the tier never fires
+for it.
+
+In a repository that does not lead pull request titles with a work item
+identifier, every leftover comes back `reason=no-identifier` and the skill
+behaves exactly as it did before.
+
 ## Step 5: Offer to delete
+
+Two groups, confirmed **separately**. Never fold them into one prompt: the merged
+set is proven and the superseded set is inferred, and a single confirmation over
+both would launder that difference.
+
+### Merged branches
 
 All branches from Step 2 are confirmed merged (via git ancestry or a merged GitHub PR). Present them all and ask the user for confirmation:
 
@@ -96,7 +147,21 @@ All branches from Step 2 are confirmed merged (via git ancestry or a merged GitH
 
 Also note their remote status from Step 3 so the user has full context, but remote status does not change whether a branch is eligible - the merge evidence is what matters.
 
-Wait for explicit confirmation. If the user confirms, delete each one:
+### Possibly superseded branches
+
+Raise these only once the merged set is settled, in their own prompt, carrying the
+Step 4 evidence:
+
+> These are not merged, but their work looks like it landed under a different
+> branch name. Delete them as well?
+> - dx-56-skill-trigger-evals - DX-56, landed in #214 and #215; all 23 paths covered
+
+Default to keeping them. Silence is not consent here: if the user answers only the
+first prompt, leave these alone and say that you did.
+
+### Deleting
+
+Wait for explicit confirmation on a group before deleting anything in it:
 
 ```bash
 git branch -D <branch-name>
