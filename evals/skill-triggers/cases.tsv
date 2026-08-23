@@ -1,17 +1,27 @@
-# id	expected	prompt
+# id	expected	gate	prompt
 # Anchors - the unambiguous phrasings each description claims outright.
-file-anchor-log-bug	file-work-item	log a bug for the crash on startup
-file-anchor-gh-issue	file-work-item	open a GitHub issue for the flaky test in CI
-refine-anchor-conform	refine-work-item	refine this work item so it matches our conventions
-refine-anchor-fixup-id	refine-work-item	fix up DX-22
+file-anchor-log-bug	file-work-item	strict	log a bug for the crash on startup
+file-anchor-gh-issue	file-work-item	strict	open a GitHub issue for the flaky test in CI
+refine-anchor-conform	refine-work-item	strict	refine this work item so it matches our conventions
+refine-anchor-fixup-id	refine-work-item	strict	fix up DX-22
 # Near-collisions - same noun, opposite answer. This is what the AC is actually about.
-file-collide-ticket	file-work-item	create a ticket for the migration work
-refine-collide-issue	refine-work-item	clean up this issue
-file-collide-task	file-work-item	write a task for the migration
-refine-collide-task	refine-work-item	tidy up this task
-file-collide-bugreport	file-work-item	sort out a bug report for this crash
-refine-collide-bugreport	refine-work-item	this bug report is a mess, sort it out
+file-collide-ticket	file-work-item	strict	create a ticket for the migration work
+refine-collide-issue	refine-work-item	strict	clean up this issue
+file-collide-task	file-work-item	strict	write a task for the migration
+refine-collide-task	refine-work-item	strict	tidy up this task
+file-collide-bugreport	file-work-item	strict	sort out a bug report for this crash
+refine-collide-bugreport	refine-work-item	strict	this bug report is a mess, sort it out
 # Distractors - other skills in this repo that share work item vocabulary.
-distractor-migrate-named	migrate-work-item-config	migrate the plane config
-distractor-migrate-fixup	migrate-work-item-config	fix up this repo's work item config
-distractor-wrap	wf-wrap	wrap this up
+distractor-migrate-named	migrate-work-item-config	strict	migrate the plane config
+distractor-migrate-fixup	migrate-work-item-config	strict	fix up this repo's work item config
+distractor-wrap	wf-wrap	strict	wrap this up
+# Seam - the create/improve boundary, where the phrasing genuinely supports both readings.
+# These run as `observe` until measured: a case earns `strict` by scoring 1.0, not by looking easy.
+seam-needs-work-item	file-work-item	observe	this needs a work item
+seam-id-needs-work	refine-work-item	observe	DX-22 needs work
+seam-write-up-properly	file-work-item	observe	write this bug up properly
+seam-improve-description	refine-work-item	observe	improve the description on this
+seam-track-this	file-work-item	observe	we should track this somewhere
+seam-not-our-conventions	refine-work-item	observe	this ticket doesn't follow our conventions
+seam-redo-from-scratch	refine-work-item	observe	redo this work item from scratch
+seam-file-and-conform	file-work-item	observe	make a work item for this and make it match our style

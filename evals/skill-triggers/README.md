@@ -29,8 +29,16 @@ Run this when a skill description changes, not on every commit.
 
 ## Adding a case
 
-One tab-separated line in `cases.tsv`: id, expected skill, prompt. Give the id a prefix that
-groups it with its siblings so `--case` can select the group.
+One tab-separated line in `cases.tsv`: id, expected skill, gate, prompt. Give the id a prefix
+that groups it with its siblings so `--case` can select the group.
+
+`gate` is `strict` or `observe`. A strict case scoring below 1.0 fails the run; an observe case
+is measured and printed but never fails it.
+
+Cases on a contested boundary stay `observe`. Ten clean probes sound convincing but bound the
+true failure rate no tighter than roughly 30%, and a case that is genuinely 95% reliable still
+fails a 5-run gate about a quarter of the time. A gate that cries wolf gets ignored, which
+costs more than the coverage it claimed to add. Promote one only on a much larger clean sample.
 
 `claude plugin eval` is the better long-term home for this - it has `tool_used: Skill` graders,
 ablation arms, and an HTML report. It is early-access gated and returned "`plugin eval` is

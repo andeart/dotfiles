@@ -26,7 +26,9 @@ if [ "${1:-}" = "__probe__" ]; then
     --setting-sources project,local \
     --strict-mcp-config \
     --allowedTools Skill 2>&1) || true
-  actual=$(printf '%s' "$out" | grep -oE '"skill":"[^"]+"' | head -1 | sed 's/.*:"//; s/"$//')
+  # `|| true` because no skill firing is a result, not an error: grep exits 1, and under
+  # pipefail that would kill the probe before it could report it.
+  actual=$(printf '%s' "$out" | grep -oE '"skill":"[^"]+"' | head -1 | sed 's/.*:"//; s/"$//') || true
   actual=${actual#agents:}
   [ -n "$actual" ] || actual='(none)'
   printf '%s\n' "$actual"
@@ -80,14 +82,14 @@ raw="$OUT_DIR/raw.tsv"
 selected=0
 jobs_file="$OUT_DIR/jobs.tsv"
 : > "$jobs_file"
-while IFS=$'\t' read -r id expected prompt; do
+while IFS=$'\t' read -r id expected gate prompt; do
   case "$id" in ''|\#*) continue ;; esac
   # shellcheck disable=SC2254
   case "$id" in $CASE_GLOB) ;; *) continue ;; esac
   selected=$((selected + 1))
   run=1
   while [ "$run" -le "$RUNS" ]; do
-    printf '%s\t%s\t%s\t%s\n' "$id" "$run" "$expected" "$prompt" >> "$jobs_file"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$run" "$expected" "$gate" "$prompt" >> "$jobs_file"
     run=$((run + 1))
   done
 done < "$CASES_FILE"
@@ -100,7 +102,7 @@ echo "results: $OUT_DIR"
 
 # Fixed-size batches rather than `wait -n`, which needs bash 4.3 and macOS ships 3.2.
 in_flight=0
-while IFS=$'\t' read -r id run expected prompt; do
+while IFS=$'\t' read -r id run expected gate prompt; do
   "$SUITE_DIR/run-triggers.sh" __probe__ "$prompt" "$probe_cwd" > "$probes_dir/$id.$run" &
   in_flight=$((in_flight + 1))
   if [ "$in_flight" -ge "$JOBS" ]; then
@@ -113,32 +115,38 @@ wait
 echo
 
 : > "$raw"
-while IFS=$'\t' read -r id run expected prompt; do
-  actual=$(cat "$probes_dir/$id.$run" 2>/dev/null || echo '(none)')
-  printf '%s\t%s\t%s\t%s\n' "$id" "$run" "$expected" "$actual" >> "$raw"
+while IFS=$'\t' read -r id run expected gate prompt; do
+  # Covers a probe that died outright as well as one that reported nothing.
+  actual=$(cat "$probes_dir/$id.$run" 2>/dev/null || true)
+  [ -n "$actual" ] || actual='(none)'
+  printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$run" "$expected" "$gate" "$actual" >> "$raw"
 done < "$jobs_file"
 
 echo
-printf '%-28s %-26s %6s  %s\n' CASE EXPECTED SCORE ACTUALS
+printf '%-28s %-26s %-8s %6s  %s\n' CASE EXPECTED GATE SCORE ACTUALS
 failed=0
-while IFS=$'\t' read -r id expected prompt; do
+observed=0
+while IFS=$'\t' read -r id expected gate prompt; do
   case "$id" in ''|\#*) continue ;; esac
   # shellcheck disable=SC2254
   case "$id" in $CASE_GLOB) ;; *) continue ;; esac
-  hits=$(awk -F'\t' -v i="$id" -v e="$expected" '$1==i && $4==e' "$raw" | wc -l | tr -d ' ')
+  hits=$(awk -F'\t' -v i="$id" -v e="$expected" '$1==i && $5==e' "$raw" | wc -l | tr -d ' ')
   seen=$(awk -F'\t' -v i="$id" '$1==i' "$raw" | wc -l | tr -d ' ')
-  actuals=$(awk -F'\t' -v i="$id" '$1==i {print $4}' "$raw" | sort | uniq -c | sort -rn \
+  actuals=$(awk -F'\t' -v i="$id" '$1==i {print $5}' "$raw" | sort | uniq -c | sort -rn \
     | awk '{printf "%s%s x%s", (NR>1 ? ", " : ""), $2, $1}')
   score=$(awk -v h="$hits" -v s="$seen" 'BEGIN { printf "%.2f", (s ? h/s : 0) }')
-  printf '%-28s %-26s %6s  %s\n' "$id" "$expected" "$score" "$actuals"
-  if [ "$seen" -eq 0 ] || [ "$hits" -ne "$seen" ]; then
+  printf '%-28s %-26s %-8s %6s  %s\n' "$id" "$expected" "$gate" "$score" "$actuals"
+  if [ "$gate" = "observe" ]; then
+    observed=$((observed + 1))
+  elif [ "$seen" -eq 0 ] || [ "$hits" -ne "$seen" ]; then
     failed=$((failed + 1))
   fi
 done < "$CASES_FILE"
 
 echo
+[ "$observed" -eq 0 ] || echo "$observed observe cases recorded, not gated"
 if [ "$failed" -gt 0 ]; then
-  echo "$failed of $selected cases scored below 1.0"
+  echo "$failed strict cases scored below 1.0"
   exit 1
 fi
-echo "all $selected cases scored 1.0"
+echo "all strict cases scored 1.0"
