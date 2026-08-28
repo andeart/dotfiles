@@ -32,10 +32,11 @@ specrev-anchor-slash	wf-spec-review	strict	/wf-spec-review
 specrev-anchor-spec	wf-spec-review	observe	review this spec before we build it
 implrev-anchor-slash	wf-impl-review	strict	/wf-impl-review
 implrev-anchor-cycle	wf-impl-review	observe	run the reviewer cycle over this branch
+implrev-anchor-multi	wf-impl-review	observe	get four reviewers onto this branch one after another
 # The contested pairs - same verb, opposite answers.
 boundary-review-design	wf-spec-review	observe	run the reviewer cycle over the design doc
 boundary-review-branch	wf-impl-review	observe	run the reviewer cycle over what I've committed
-# The generic single-pass phrasing belongs to the built-in code-review skill, not this cycle.
-boundary-implrev-vs-codereview	wf-impl-review	observe	get four reviewers onto this branch one after another
-# wf-shape must not swallow the filing skills.
-boundary-shape-vs-file	file-work-item	observe	log a bug about the resolver rejecting comments
+# wf-shape must not swallow the filing skills; "let's start on" does not make a new bug an existing work item.
+boundary-shape-vs-file	file-work-item	observe	let's start on a new bug for the resolver rejecting comments
+# wf-shape must not trigger when the spec already exists; wf-spec-review handles reviewing existing specs.
+boundary-shape-vs-specrev	wf-spec-review	observe	let's pick up DX-57, the spec is already written
