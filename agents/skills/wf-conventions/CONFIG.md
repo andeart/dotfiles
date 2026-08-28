@@ -22,6 +22,9 @@ force an arbitrary owner.
 | `ship.test-commands` | list | none | `/wf-ship` |
 | `wrap.watch-post-merge-ci` | bool | `false` | `/wf-wrap` |
 
+`/wf-shape`, `/wf-spec-review`, `/wf-impl-review` and `/wf-status` arrive with
+DX-57's later PRs; `/wf-ship` and `/wf-wrap` start reading these keys then too.
+
 The default `review.focus`:
 
 1. Security hardening
@@ -55,11 +58,13 @@ The default `review.focus`:
 One call, once per run:
 
 ```bash
-agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
+  --repo-root "$(git rev-parse --show-toplevel)"
 ```
 
 Every setting comes back as `key=value` with defaults filled in, in a fixed
-order, list members 1-indexed:
+order, list members 1-indexed - except `ship.test-commands`, which has no
+default and prints no lines when unset:
 
 ```bash
 states.shaping=Shaping
@@ -69,5 +74,9 @@ ship.test-commands.1=bats tests/
 wrap.watch-post-merge-ci=true
 ```
 
-Exit `0` resolved, `2` usage error, `3` a config that is present but wrong,
-with the offending key named on stderr.
+To walk a list key, read `key.1`, `key.2`, ... until a line is missing; a list
+is absent when `key.1` is missing. That is how a skill detects that
+`ship.test-commands` is unset.
+
+Exit `0` resolved, `2` usage error (also what a missing `yq` produces), `3` a
+config that is present but wrong, with the offending key named on stderr.
