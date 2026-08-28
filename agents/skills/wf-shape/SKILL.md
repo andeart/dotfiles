@@ -64,11 +64,11 @@ Read `workspace.impl`:
 
 ## Step 6: Write the Shaping state
 
-Read `states.shaping` from the resolver output. Call `state` with `action: "list"` and this project's id, and match that name exactly.
-
-- **A state matches** - call `workitem` with `action: "update"`, passing only `state`. Report that the item moved.
-- **No state matches** - skip the write and say so in one line. A project that has not adopted the stage states keeps working; this is deliberate for the trial. DX-59 turns the skip into a loud failure once the states exist everywhere.
-- **The item already sits in a `completed` or `cancelled` state** - leave it alone and say so. Shaping work that is already closed is a signal to check the identifier, not to reopen it.
+1. Call `state` with `action: "list"` and `project_id` set to the project id Step 1 saved.
+2. **Check the guard first.** If the state Step 1 saved belongs to a state in that list whose `group` is `completed` or `cancelled`, leave the item alone, report that, and stop here - do not read `states.shaping` at all. Compare against every state in those groups, not one named state: a project can close work items into more than one state.
+3. Only past the guard, read `states.shaping` from Step 5's resolver output and match it by name, exactly, against the same list.
+4. **No state matches** - skip the write and say so in one line. A project that has not adopted the stage states keeps working; this is deliberate for the trial. DX-59 turns the skip into a loud failure once the states exist everywhere.
+5. **A state matches** - call `workitem` with `action: "update"`, passing only `state`. Report that the item moved.
 
 A Plane failure here never stops the run. The workspace exists and the spec is the point; report the failure and continue.
 
