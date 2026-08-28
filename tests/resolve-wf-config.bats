@@ -452,3 +452,17 @@ ship:
   [ "$(value workspace.impl)" = "base" ]
   [ "$(value wrap.watch-post-merge-ci)" = "true" ]
 }
+
+# ─── bash 3.2 compatibility ────────────────────────────────────────────────
+
+# The script's shebang resolves to bash 5.x on this machine's PATH, so a
+# passing `bash -n` above proves nothing about macOS's shipped /bin/bash 3.2 -
+# only running the parser under 3.2 itself does. CI runs Ubuntu, where
+# /bin/bash is already 5.x, so skip there rather than pass trivially.
+@test "the script parses under /bin/bash when that is bash 3.x" {
+  local version
+  version="$(/bin/bash --version | head -n1)"
+  [[ "$version" == *"version 3."* ]] || skip "/bin/bash here is not 3.x: $version"
+  run /bin/bash -n "$RESOLVE"
+  [ "$status" -eq 0 ]
+}

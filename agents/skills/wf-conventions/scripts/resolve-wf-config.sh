@@ -39,7 +39,11 @@ KNOWN_SHAPES=(
 # Defaults as newline-delimited `key=value`, not a map: bash 3.2 ships on macOS
 # and has no associative arrays. ship.test-commands is absent on purpose - see
 # the test that pins it.
-DEFAULTS=$(cat <<'EOF'
+#
+# Kept as a bare here-doc, not wrapped in $( ): bash 3.2's parser mishandles an
+# apostrophe inside a quoted here-doc once it sits inside command substitution.
+# Do not "tidy" this back into DEFAULTS=$(cat <<'EOF' ...).
+IFS= read -r -d '' DEFAULTS <<'EOF' || true
 states.shaping=Shaping
 states.implementing=Implementing
 states.in-review=In Review
@@ -55,7 +59,6 @@ review.focus.4=Succinct documentation that's not unnecessarily elaborate
 ship.draft-by-default=true
 wrap.watch-post-merge-ci=false
 EOF
-)
 
 die() {
   echo "resolve-wf-config: $*" >&2
