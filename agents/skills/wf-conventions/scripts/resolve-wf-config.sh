@@ -123,6 +123,48 @@ is_known_shape() {
   return 1
 }
 
+# validate <kv>: reject anything the family does not understand, naming the key.
+validate() {
+  local line key val shape
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    key="${line%%=*}"
+    val="${line#*=}"
+    shape="$(shape_of "$key")"
+
+    if ! is_known_shape "$shape"; then
+      # A list written as a scalar, or the reverse, reaches here too. Both are
+      # real mistakes with a clearer name than "unknown key".
+      if is_known_shape "$key.N"; then
+        invalid "$key must be a list"
+      fi
+      if is_known_shape "${key%.*}"; then
+        invalid "${key%.*} must be a single value, not a list"
+      fi
+      invalid "unknown key: $key"
+    fi
+
+    if [ -z "$val" ]; then
+      invalid "$key is empty; remove the key to take its default"
+    fi
+
+    case "$key" in
+      workspace.impl)
+        case "$val" in
+          base|worktree) ;;
+          *) invalid "workspace.impl must be base or worktree, not '$val'" ;;
+        esac ;;
+      ship.draft-by-default|wrap.watch-post-merge-ci)
+        case "$val" in
+          true|false) ;;
+          *) invalid "$key must be true or false, not '$val'" ;;
+        esac ;;
+    esac
+  done <<EOF
+$1
+EOF
+}
+
 # lines_under <kv> <prefix>: every `prefix.<n>=` line, in the order given.
 lines_under() {
   printf '%s\n' "$1" | awk -v p="$2." 'index($0, p) == 1'
@@ -170,6 +212,7 @@ resolve() {
     return 0
   fi
   kv="$(read_props "$file")"
+  validate "$kv"
   emit "$kv"
 }
 

@@ -263,3 +263,106 @@ states:
   [ "$first" = "states.shaping=Designing" ]
   [ "$last" = "wrap.watch-post-merge-ci=true" ]
 }
+
+# ─── validation ────────────────────────────────────────────────────────────
+
+# Silently ignoring a key means a setting that appears to apply and does not,
+# which is worse than a file that will not load.
+@test "an unknown top-level section exits 3 and names it" {
+  local root; root="$(repo unknown-section)"
+  config "$root" 'bogus:
+  thing: 1'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"unknown key: bogus.thing"* ]]
+}
+
+@test "an unknown key inside a known section exits 3 and names it" {
+  local root; root="$(repo unknown-key)"
+  config "$root" 'ship:
+  draft-by-defualt: true'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"unknown key: ship.draft-by-defualt"* ]]
+}
+
+# The bare "unknown key" would send the reader hunting for a typo that is not
+# there, so the shape mismatch says which of the two it is.
+@test "a scalar where a list belongs says so" {
+  local root; root="$(repo scalar-for-list)"
+  config "$root" 'review:
+  reviewers: Ana'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"review.reviewers must be a list"* ]]
+}
+
+@test "a list where a scalar belongs says so" {
+  local root; root="$(repo list-for-scalar)"
+  config "$root" 'workspace:
+  impl: [base]'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"workspace.impl must be a single value"* ]]
+}
+
+# A key written with no value reads as deliberate, so taking the default would
+# quietly do something other than what the file says.
+@test "a key present with an empty value exits 3" {
+  local root; root="$(repo empty-value)"
+  config "$root" 'states:
+  shaping:'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"states.shaping is empty"* ]]
+}
+
+@test "an out-of-range workspace.impl exits 3 and lists the choices" {
+  local root; root="$(repo bad-enum)"
+  config "$root" 'workspace:
+  impl: sandbox'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"workspace.impl must be base or worktree"* ]]
+}
+
+@test "workspace.impl accepts worktree" {
+  local root; root="$(repo good-enum)"
+  config "$root" 'workspace:
+  impl: worktree'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value workspace.impl)" = "worktree" ]
+}
+
+@test "a non-boolean ship.draft-by-default exits 3" {
+  local root; root="$(repo bad-bool)"
+  config "$root" 'ship:
+  draft-by-default: yes'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"ship.draft-by-default must be true or false"* ]]
+}
+
+@test "a non-boolean wrap.watch-post-merge-ci exits 3" {
+  local root; root="$(repo bad-bool-wrap)"
+  config "$root" 'wrap:
+  watch-post-merge-ci: 1'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"wrap.watch-post-merge-ci must be true or false"* ]]
+}
+
+@test "a valid config passes validation and resolves" {
+  local root; root="$(repo valid)"
+  config "$root" 'workspace:
+  impl: worktree
+ship:
+  draft-by-default: false
+  test-commands:
+    - bats tests/'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value ship.draft-by-default)" = "false" ]
+  [ "$(value ship.test-commands.1)" = "bats tests/" ]
+}
