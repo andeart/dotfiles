@@ -15,7 +15,7 @@ Every stop condition and every skipped step reports in full.
 
 ## Step 0: Resolve the identifier
 
-The skill's argument when given. Otherwise the branch name's leading identifier (`dx-57-wf-config-foundation` -> `DX-57`).
+The skill's argument when given. Otherwise the branch name's leading identifier, read the way `wf-wrap` reads it: strip a leading `worktree-` if present, then match the remainder against `^([a-zA-Z]+)-(\d+)` and uppercase the prefix (`dx-57-wf-config-foundation` → `DX-57`; `worktree-dx-57-wf-config-foundation` → `DX-57`).
 
 If neither yields one, ask. Never guess and never scan the conversation for identifier-shaped strings: this skill posts a public comment on whatever it resolves, and a wrong identifier writes onto someone else's work.
 
@@ -47,20 +47,28 @@ Print the questions the premise pass raised and **stop**. Do not create a worksp
 
 This is a hard gate, not a courtesy. Everything downstream depends on the answers, and a premise pass that ends by immediately building has not been read by anyone.
 
+Once the user answers, resume at Step 5 with those answers folded into the premise findings.
+
 If the pass raised no questions and every premise held, say so in one line and continue to Step 5.
 
 ## Step 5: Create the workspace
 
-Resolve the config in one call:
+Resolve the config and the default branch in one call:
 
 ```bash
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+origin=$(git remote get-url origin 2>/dev/null)
+[ -n "$origin" ] && git fetch --quiet origin
+default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
+echo "default=$default"
 ```
+
+`default=` empty - neither `main` nor `master` exists; stop and say so.
 
 Read `workspace.impl`:
 
 - **`base`** - cut a branch from the current default branch: `git checkout -b <id-lowercase>-<short-kebab-slug> origin/<default>`. The slug comes from the work item's title, under 50 characters.
-- **`worktree`** - use the `EnterWorktree` tool. Do not hand-roll `git worktree add`; the tool tracks what it created, which is what lets `/wf-wrap` tear it down.
+- **`worktree`** - use the `EnterWorktree` tool, passing `name` set to `<id-lowercase>-<short-kebab-slug>` - the same branch name the `base` path uses. Do not hand-roll `git worktree add`; the tool tracks what it created, which is what lets `/wf-wrap` tear it down.
 
 ## Step 6: Write the Shaping state
 
@@ -74,6 +82,6 @@ A Plane failure here never stops the run. The workspace exists and the spec is t
 
 ## Step 7: Hand off
 
-Invoke `superpowers:brainstorming` for this work item. That skill owns the spec from here.
+Invoke `superpowers:brainstorming` for this work item, telling it to lead the spec filename's `<topic>` with `<id-lowercase>` (`docs/superpowers/specs/YYYY-MM-DD-<id-lowercase>-<topic>-design.md`) - `/wf-spec-review` finds the spec by matching the identifier against the filename. That skill owns the spec from here.
 
 Report in one line: the identifier, the workspace created, and the state outcome.

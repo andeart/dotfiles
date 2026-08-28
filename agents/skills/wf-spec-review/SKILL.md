@@ -20,14 +20,19 @@ One call answers everything:
 ```bash
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'repo=no'; exit 0; }
 echo 'repo=yes'
-echo "root=$(git rev-parse --show-toplevel)"
+root=$(git rev-parse --show-toplevel)
+echo "root=$root"
 echo "branch=$(git symbolic-ref --short HEAD 2>/dev/null)"
-git check-ignore -q docs/reviews && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
+origin=$(git remote get-url origin 2>/dev/null)
+echo "origin=$origin"
+[ -n "$origin" ] && git fetch --quiet origin
+git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
 echo 'specs<<<'
-ls -t docs/superpowers/specs/*.md 2>/dev/null
+ls -t "$root"/docs/superpowers/specs/*.md 2>/dev/null
 ```
 
 - `repo=no` - stop and say this is not a git repository.
+- `origin=` empty - stop and tell the user no remote named `origin` is configured.
 - `reviews_ignored=no` - **stop.** Say that `docs/reviews/` is not gitignored here, so each reviewer's commit would sweep its own notes into the branch. Ask the user to add it, and do not edit `.gitignore` yourself - that file is gated.
 
 ## Step 1: Resolve the roster and focus
@@ -42,9 +47,9 @@ If the call exits non-zero, stop and print its stderr - a broken `.wf.yml` is th
 
 ## Step 2: Resolve the target and the identifier
 
-**The spec path** is the skill's argument when given. Otherwise take the newest `docs/superpowers/specs/*.md` whose filename contains the identifier, and say which one you picked in the pre-flight summary.
+**The spec path** is the skill's argument when given. Otherwise take the newest file from Step 0's `specs<<<` listing whose filename contains the identifier, matched case-insensitively, and say which one you picked in the pre-flight summary. If none match, **stop** and say no spec under `docs/superpowers/specs/` names this identifier - do not fall back to the newest spec overall, which belongs to another work item.
 
-**The identifier** comes from the branch name's leading identifier (`dx-57-wf-authoring-skills` -> `DX-57`). If the branch carries none and the user named none, ask for it - it names the review files and a wrong one writes into another work item's notes.
+**The identifier** comes from the branch name's leading identifier, read the way `wf-wrap` reads it: strip a leading `worktree-` if present, then match the remainder against `^([a-zA-Z]+)-(\d+)` and uppercase the prefix (`dx-57-wf-authoring-skills` → `DX-57`). If the branch carries none and the user named none, ask for it - it names the review files and a wrong one writes into another work item's notes.
 
 ## Step 3: Pre-flight, then wait
 
@@ -61,7 +66,7 @@ The snippet this skill comes from ends its setup the same way. A cycle is `<N>` 
 
 For each reviewer in roster order, one at a time. Never run two concurrently - each reads the previous one's revisions.
 
-**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the spec path, the identifier, and the focus list. Give it nothing else - no extra context, no summary of earlier reviewers, no repo orientation. The genericity of the prompt is what makes each pass holistic.
+**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the spec path, the identifier, and the focus list. Give it nothing else - no extra context, no summary of earlier reviewers, no repo orientation. The genericity of the prompt is what makes each pass holistic. The numbered focus list carries one line per `review.focus` entry, however many the repo configures; the four shown below are this repo's defaults.
 
 ```text
 I have a spec written in my worktree at <ABSOLUTE SPEC PATH>. Review this spec holistically. Write your review feedback in normal markdown format to docs/reviews/<id>-spec-review-YourName.md within this branch. Note that docs/reviews/ is gitignored, which is fine. The spec file is the only deliverable. Every point you raise must be actionable as an edit to that spec. If a suggestion can only be carried out by writing implementation code, write it into the spec as a design note instead.
@@ -97,8 +102,9 @@ The first reviewer may find no branch history to work from; that is expected and
 
 ```bash
 git push -u origin HEAD
+gh pr view --json url --jq '.url' 2>/dev/null
 ```
 
-If a pull request already exists for this branch, the push updates it; say so.
+A URL means a pull request already exists for this branch; the push updated it - report the URL. No output means there is none yet.
 
 Report, one line per reviewer: its name, whether it wrote its notes file, and whether it committed a spec revision. Then the push result.

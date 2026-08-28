@@ -20,14 +20,19 @@ One call answers everything:
 ```bash
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'repo=no'; exit 0; }
 echo 'repo=yes'
-echo "root=$(git rev-parse --show-toplevel)"
+root=$(git rev-parse --show-toplevel)
+echo "root=$root"
 echo "branch=$(git symbolic-ref --short HEAD 2>/dev/null)"
+origin=$(git remote get-url origin 2>/dev/null)
+echo "origin=$origin"
+[ -n "$origin" ] && git fetch --quiet origin
 default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
 echo "default=$default"
-git check-ignore -q docs/reviews && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
+git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
 ```
 
 - `repo=no` - stop and say this is not a git repository.
+- `origin=` empty - stop and tell the user no remote named `origin` is configured.
 - `default=` - if empty, neither `main` nor `master` exists; stop and say so.
 - `reviews_ignored=no` - **stop.** Say that `docs/reviews/` is not gitignored here, so each reviewer's commit would sweep its own notes into the branch. Ask the user to add it, and do not edit `.gitignore` yourself - that file is gated.
 
@@ -45,7 +50,7 @@ If the call exits non-zero, stop and print its stderr - a broken `.wf.yml` is th
 
 **The target** is the branch's committed changes against the latest default branch; the skill takes no path argument.
 
-**The identifier** comes from the branch name's leading identifier (`dx-57-wf-authoring-skills` -> `DX-57`). If the branch carries none and the user named none, ask for it - it names the review files and a wrong one writes into another work item's notes.
+**The identifier** comes from the branch name's leading identifier, read the way `wf-wrap` reads it: strip a leading `worktree-` if present, then match the remainder against `^([a-zA-Z]+)-(\d+)` and uppercase the prefix (`dx-57-wf-authoring-skills` → `DX-57`). If the branch carries none and the user named none, ask for it - it names the review files and a wrong one writes into another work item's notes.
 
 ## Step 3: Pre-flight, then wait
 
@@ -62,10 +67,10 @@ The snippet this skill comes from ends its setup the same way. A cycle is `<N>` 
 
 For each reviewer in roster order, one at a time. Never run two concurrently - each reads the previous one's revisions.
 
-**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the worktree path, the identifier, the focus list, and the resolved default branch. Give it nothing else - no extra context, no summary of earlier reviewers, no repo orientation. The genericity of the prompt is what makes each pass holistic.
+**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the worktree path, the identifier, the focus list, and the resolved default branch. Give it nothing else - no extra context, no summary of earlier reviewers, no repo orientation. The genericity of the prompt is what makes each pass holistic. The numbered focus list carries one line per `review.focus` entry, however many the repo configures; the four shown below are this repo's defaults.
 
 ```text
-I have changes committed in my worktree checked out at <ABSOLUTE WORKTREE PATH>. Review these changes against the latest `<default>` holistically. Write your review feedback in normal markdown format to docs/reviews/<id>-impl-review-YourName.md within this branch. Note that docs/reviews/ is gitignored, which is fine.
+I have changes committed in my worktree checked out at <ABSOLUTE WORKTREE PATH>. Review these changes against the latest `origin/<default>` holistically. Write your review feedback in normal markdown format to docs/reviews/<id>-impl-review-YourName.md within this branch. Note that docs/reviews/ is gitignored, which is fine.
 You are reviewing as YourName. Focus your review of this on:
 1. <focus.1>
 2. <focus.2>
@@ -96,8 +101,9 @@ The first reviewer may find no branch history to work from; that is expected and
 
 ```bash
 git push -u origin HEAD
+gh pr view --json url --jq '.url' 2>/dev/null
 ```
 
-If a pull request already exists for this branch, the push updates it; say so.
+A URL means a pull request already exists for this branch; the push updated it - report the URL. No output means there is none yet.
 
 Report, one line per reviewer: its name, whether it wrote its notes file, and whether it committed a revision. Then the push result.
