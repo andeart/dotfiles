@@ -185,6 +185,18 @@ value() {
   [ "$(value ship.test-commands.1)" = "make TARGET=all test" ]
 }
 
+# yq -o=props emits a comment as its own output line, unparsed. One containing
+# " = " - a documented example, an inline aside - must not be mistaken for a
+# key.
+@test "an inline comment containing an equals sign does not break parsing" {
+  local root; root="$(repo commented)"
+  config "$root" 'workspace:
+  impl: base   # spelled impl = base'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value workspace.impl)" = "base" ]
+}
+
 @test "a block sequence parses" {
   local root; root="$(repo block-list)"
   config "$root" 'review:
@@ -264,7 +276,45 @@ states:
   [ "$last" = "wrap.watch-post-merge-ci=true" ]
 }
 
+# The two-line check above pins the ends; this pins the whole dump, so a
+# reordering inside KNOWN_SHAPES fails a test instead of shipping unnoticed.
+@test "the no-config dump matches KNOWN_SHAPES order exactly" {
+  local root; root="$(repo full-dump)"
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  local expected
+  expected="$(cat <<'EOF'
+states.shaping=Shaping
+states.implementing=Implementing
+states.in-review=In Review
+workspace.impl=base
+review.reviewers.1=Alia
+review.reviewers.2=Bheem
+review.reviewers.3=Cristo
+review.reviewers.4=Darius
+review.focus.1=Security hardening
+review.focus.2=Performance
+review.focus.3=Cleanliness and maintainability of code
+review.focus.4=Succinct documentation that's not unnecessarily elaborate
+ship.draft-by-default=true
+wrap.watch-post-merge-ci=false
+EOF
+)"
+  [ "$output" = "$expected" ]
+}
+
 # ─── validation ────────────────────────────────────────────────────────────
+
+# read_props's `|| invalid` path: exit 3 depends on yq's own exit code here,
+# not on validate().
+@test "malformed YAML exits 3" {
+  local root; root="$(repo malformed)"
+  config "$root" 'states: [unterminated
+  shaping: Designing'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"could not parse"* ]]
+}
 
 # Silently ignoring a key means a setting that appears to apply and does not,
 # which is worse than a file that will not load.
@@ -275,6 +325,9 @@ states:
   resolve "$root"
   [ "$status" -eq 3 ]
   [[ "$stderr" == *"unknown key: bogus.thing"* ]]
+  # validate() rejects through a heredoc, not a pipe, precisely so a rejection
+  # never leaves a dump on stdout behind it.
+  [ -z "$output" ]
 }
 
 @test "an unknown key inside a known section exits 3 and names it" {

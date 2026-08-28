@@ -63,8 +63,7 @@ die() {
 }
 
 # invalid <message>: a config that is present but cannot be honoured. Separate
-# from die() so a caller can tell a broken config apart from a broken
-# invocation. Task 3 is what starts calling it in anger.
+# from die() - see EXIT_INVALID above.
 invalid() {
   echo "resolve-wf-config: $*" >&2
   exit "$EXIT_INVALID"
@@ -90,6 +89,10 @@ read_props() {
   out="$(yq -o=props -- "$file")" || invalid "could not parse $file as YAML"
   printf '%s\n' "$out" | awk '
     {
+      # yq -o=props emits YAML comments verbatim as their own lines. Skip them
+      # before the split, or a comment containing " = " (a documented example,
+      # say) is parsed as a key and rejected as unknown.
+      if ($0 ~ /^[[:space:]]*#/) next
       # Split on the FIRST " = " only: a value can contain one, and splitting
       # on each would truncate it at the flag assignment.
       i = index($0, " = ")
