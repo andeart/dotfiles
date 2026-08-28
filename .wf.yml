@@ -1,0 +1,15 @@
+# Settings for the wf-* skill family. Keys are documented in
+# agents/skills/wf-conventions/CONFIG.md; anything not listed there is rejected
+# rather than ignored.
+
+# Work happens on plain feature branches here, not in worktrees.
+workspace:
+  impl: base
+
+ship:
+  test-commands:
+    - bats tests/
+    - pre-commit run --all-files
+
+wrap:
+  watch-post-merge-ci: true

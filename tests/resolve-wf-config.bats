@@ -387,3 +387,15 @@ ship:
   [ "$(value ship.draft-by-default)" = "false" ]
   [ "$(value ship.test-commands.1)" = "bats tests/" ]
 }
+
+# ─── this repo's own config ────────────────────────────────────────────────
+
+# The resolver's rejection paths are only useful if the file they guard is
+# actually valid, and this is the one .wf.yml that ships in the repo.
+@test "the repo's own .wf.yml resolves cleanly" {
+  run --separate-stderr bash "$RESOLVE" --repo-root "$DOTFILES_ROOT"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value workspace.impl)" = "base" ]
+  [ "$(value wrap.watch-post-merge-ci)" = "true" ]
+}

@@ -32,6 +32,7 @@ dotfiles/
 ├── .gitleaks.toml                     # gitleaks config, used by pre-commit, pre-push and CI
 ├── .markdownlint.yml                  → markdownlint/markdownlint.yml.symlink (in-repo .yml needed by pre-commit)
 ├── .workitems.plane.yml               # work item defaults, read by the work item skills and wf-ship
+├── .wf.yml                            # wf-* skill family settings, keys documented in agents/skills/wf-conventions/CONFIG.md
 ├── .yamllint.yml                      # yamllint config, used by pre-commit and CI
 ├── .github/
 │   ├── dependabot.yml                 # weekly bumps for pinned action SHAs and pre-commit hook revs

@@ -1,0 +1,73 @@
+# .wf.yml
+
+Repo-level settings for the `wf-*` skill family, read by
+`scripts/resolve-wf-config.sh`. The file is optional: with none present every
+key takes the default below.
+
+Sections group by concern rather than by skill, because `states` and
+`workspace` are each read by more than one skill and a per-skill layout would
+force an arbitrary owner.
+
+## Keys
+
+| Key | Type | Default | Read by |
+| --- | --- | --- | --- |
+| `states.shaping` | string | `Shaping` | `/wf-shape`, `/wf-ship`, `/wf-status` |
+| `states.implementing` | string | `Implementing` | `/wf-ship`, `/wf-status` |
+| `states.in-review` | string | `In Review` | `/wf-ship`, `/wf-status` |
+| `workspace.impl` | `base` \| `worktree` | `base` | `/wf-shape`, `/wf-wrap`, `/wf-status` |
+| `review.reviewers` | list | `Alia`, `Bheem`, `Cristo`, `Darius` | `/wf-spec-review`, `/wf-impl-review` |
+| `review.focus` | list | the four headings below | `/wf-spec-review`, `/wf-impl-review` |
+| `ship.draft-by-default` | bool | `true` | `/wf-ship` |
+| `ship.test-commands` | list | none | `/wf-ship` |
+| `wrap.watch-post-merge-ci` | bool | `false` | `/wf-wrap` |
+
+The default `review.focus`:
+
+1. Security hardening
+2. Performance
+3. Cleanliness and maintainability of code
+4. Succinct documentation that's not unnecessarily elaborate
+
+## Rules
+
+- **A list in the file replaces its default; it does not extend it.** A roster
+  of two names runs two review cycles, not six.
+- **An explicitly empty list is treated as unset and takes the default.**
+  `reviewers: []` and an absent `reviewers` key look identical to the
+  resolver, so both give the four-name roster. To run fewer cycles, name the
+  reviewers you want rather than emptying the list.
+- **An unrecognised key is an error, not a no-op.** A key that is quietly
+  ignored looks like a setting that applies and does not.
+- **A key present with no value is an error.** A bare `key:`, `null` and `~`
+  are all spellings of "no value" and all three are rejected. Remove the key
+  to take its default.
+- **State names are matched against the project's Plane states by name.** A
+  project without a matching state has that write skipped and reported, which
+  is what lets the states be trialled in one project. DX-59 covers making that
+  a loud failure once they exist everywhere.
+- `states.*` names are matched rather than stored as identifiers, so one
+  `.wf.yml` works across projects and workspaces where the same state carries
+  different UUIDs.
+
+## Reading it from a skill
+
+One call, once per run:
+
+```bash
+agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+```
+
+Every setting comes back as `key=value` with defaults filled in, in a fixed
+order, list members 1-indexed:
+
+```bash
+states.shaping=Shaping
+workspace.impl=base
+review.reviewers.1=Alia
+ship.test-commands.1=bats tests/
+wrap.watch-post-merge-ci=true
+```
+
+Exit `0` resolved, `2` usage error, `3` a config that is present but wrong,
+with the offending key named on stderr.
