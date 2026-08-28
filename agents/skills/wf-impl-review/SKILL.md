@@ -1,6 +1,6 @@
 ---
 name: wf-impl-review
-description: Run a sequential multi-reviewer cycle over a branch's implementation, each reviewer writing notes and then revising the code. Use this skill whenever the user says "/wf-impl-review", "review this implementation", "review the code on this branch", "run the impl review cycle", or any variation of wanting implemented code reviewed before it merges. Do NOT trigger for reviewing a written spec - that is wf-spec-review.
+description: Run a sequential multi-reviewer cycle over a branch's implementation, each reviewer writing notes and then revising the code. Use this skill whenever the user says "/wf-impl-review", "review this implementation", "run the impl review cycle", "run the reviewer cycle over this branch", or any variation of wanting implemented code reviewed before it merges. Do NOT trigger for reviewing a written spec - that is wf-spec-review. Do NOT trigger for a single-pass review of the current diff - that is the built-in code-review skill.
 ---
 
 # Implementation Review Cycle
@@ -22,11 +22,13 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'repo=no'; exit 0;
 echo 'repo=yes'
 echo "root=$(git rev-parse --show-toplevel)"
 echo "branch=$(git symbolic-ref --short HEAD 2>/dev/null)"
-echo "default=$(git rev-parse --verify --quiet main >/dev/null && echo main || echo master)"
+default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
+echo "default=$default"
 git check-ignore -q docs/reviews && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
 ```
 
 - `repo=no` - stop and say this is not a git repository.
+- `default=` - if empty, neither `main` nor `master` exists; stop and say so.
 - `reviews_ignored=no` - **stop.** Say that `docs/reviews/` is not gitignored here, so each reviewer's commit would sweep its own notes into the branch. Ask the user to add it, and do not edit `.gitignore` yourself - that file is gated.
 
 ## Step 1: Resolve the roster and focus
