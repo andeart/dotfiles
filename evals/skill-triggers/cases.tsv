@@ -38,5 +38,7 @@ boundary-review-design	wf-spec-review	observe	run the reviewer cycle over the de
 boundary-review-branch	wf-impl-review	observe	run the reviewer cycle over what I've committed
 # wf-shape must not swallow the filing skills; "let's start on" does not make a new bug an existing work item.
 boundary-shape-vs-file	file-work-item	observe	let's start on a new bug for the resolver rejecting comments
-# wf-shape must not trigger when the spec already exists; wf-spec-review handles reviewing existing specs.
-boundary-shape-vs-specrev	wf-spec-review	observe	let's pick up DX-57, the spec is already written
+# wf-shape's Do-NOT clause is scoped to reviewing an existing spec, not to picking up work with one; the prompt must request the review to test that boundary.
+boundary-shape-vs-specrev	wf-spec-review	observe	let's pick up DX-57 - the spec is written, get the reviewers on it
+# wf-impl-review's Do-NOT clause names the built-in code-review skill; this expects that built-in, so a miss here may mean it isn't loaded in the probe environment rather than a routing error.
+boundary-implrev-vs-codereview	code-review	observe	review the diff I've got right now
