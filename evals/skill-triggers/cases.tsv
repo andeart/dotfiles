@@ -25,3 +25,20 @@ seam-track-this	file-work-item	observe	we should track this somewhere
 seam-not-our-conventions	refine-work-item	observe	this ticket doesn't follow our conventions
 seam-redo-from-scratch	refine-work-item	observe	redo this work item from scratch
 seam-file-and-conform	file-work-item	observe	make a work item for this and make it match our style
+# wf-shape / wf-spec-review / wf-impl-review anchors.
+shape-anchor-slash	wf-shape	strict	/wf-shape DX-57
+shape-anchor-start	wf-shape	observe	let's start on DX-57
+specrev-anchor-slash	wf-spec-review	strict	/wf-spec-review
+specrev-anchor-spec	wf-spec-review	observe	review this spec before we build it
+implrev-anchor-slash	wf-impl-review	strict	/wf-impl-review
+implrev-anchor-cycle	wf-impl-review	observe	run the reviewer cycle over this branch
+implrev-anchor-multi	wf-impl-review	observe	get four reviewers onto this branch one after another
+# The contested pairs - same verb, opposite answers.
+boundary-review-design	wf-spec-review	observe	run the reviewer cycle over the design doc
+boundary-review-branch	wf-impl-review	observe	run the reviewer cycle over what I've committed
+# wf-shape must not swallow the filing skills; "let's start on" does not make a new bug an existing work item.
+boundary-shape-vs-file	file-work-item	observe	let's start on a new bug for the resolver rejecting comments
+# wf-shape's Do-NOT clause is scoped to reviewing an existing spec, not to picking up work with one; the prompt must request the review to test that boundary.
+boundary-shape-vs-specrev	wf-spec-review	observe	let's pick up DX-57 - the spec is written, get the reviewers on it
+# wf-impl-review's Do-NOT clause names the built-in code-review skill; this expects that built-in, so a miss here may mean it isn't loaded in the probe environment rather than a routing error.
+boundary-implrev-vs-codereview	code-review	observe	review the diff I've got right now
