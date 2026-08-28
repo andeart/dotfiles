@@ -142,3 +142,124 @@ value() {
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
+
+# ─── reading a config ──────────────────────────────────────────────────────
+
+@test "a scalar in the file wins over its default" {
+  local root; root="$(repo scalar-override)"
+  config "$root" 'states:
+  shaping: Designing'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value states.shaping)" = "Designing" ]
+}
+
+@test "keys the file leaves out still resolve to their defaults" {
+  local root; root="$(repo partial)"
+  config "$root" 'states:
+  shaping: Designing'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value states.implementing)" = "Implementing" ]
+  [ "$(value workspace.impl)" = "base" ]
+}
+
+@test "a value containing spaces survives intact" {
+  local root; root="$(repo spacey)"
+  config "$root" 'states:
+  in-review: Waiting On Review'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value states.in-review)" = "Waiting On Review" ]
+}
+
+# yq props uses " = " as its separator, so splitting on every occurrence would
+# truncate any command carrying a flag assignment.
+@test "a value containing an equals sign survives intact" {
+  local root; root="$(repo equals)"
+  config "$root" 'ship:
+  test-commands:
+    - make TARGET=all test'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value ship.test-commands.1)" = "make TARGET=all test" ]
+}
+
+@test "a block sequence parses" {
+  local root; root="$(repo block-list)"
+  config "$root" 'review:
+  reviewers:
+    - Ana
+    - Bo'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value review.reviewers.1)" = "Ana" ]
+  [ "$(value review.reviewers.2)" = "Bo" ]
+}
+
+# yq normalises both list syntaxes, so accepting each costs nothing and
+# rejecting one would be a rule with no reason behind it.
+@test "an inline sequence parses the same way" {
+  local root; root="$(repo inline-list)"
+  config "$root" 'review:
+  reviewers: [Ana, Bo]'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value review.reviewers.1)" = "Ana" ]
+  [ "$(value review.reviewers.2)" = "Bo" ]
+}
+
+# Merging instead would mean a two-name roster silently ran six cycles.
+@test "a list in the file replaces the default rather than appending to it" {
+  local root; root="$(repo list-replace)"
+  config "$root" 'review:
+  reviewers: [Ana, Bo]'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value review.reviewers.2)" = "Bo" ]
+  [ -z "$(value review.reviewers.3)" ]
+}
+
+@test "list indices in the dump are 1-based" {
+  local root; root="$(repo one-based)"
+  config "$root" 'review:
+  reviewers: [Ana]'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"review.reviewers.1=Ana"* ]]
+  [[ "$output" != *"review.reviewers.0="* ]]
+}
+
+@test "an empty .wf.yml resolves every default" {
+  local root; root="$(repo empty-file)"
+  : > "$root/.wf.yml"
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value states.shaping)" = "Shaping" ]
+  [ "$(value review.reviewers.4)" = "Darius" ]
+}
+
+@test "an empty section resolves that section's defaults" {
+  local root; root="$(repo empty-section)"
+  config "$root" 'review: {}'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value review.reviewers.1)" = "Alia" ]
+}
+
+# The dump is an interface: a skill reads it and bats asserts on it, so the
+# order must not depend on how the file happened to be written.
+@test "output order is canonical regardless of the file's own order" {
+  local root; root="$(repo ordering)"
+  config "$root" 'wrap:
+  watch-post-merge-ci: true
+states:
+  shaping: Designing'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  local first last
+  first="$(printf '%s\n' "$output" | head -1)"
+  last="$(printf '%s\n' "$output" | tail -1)"
+  [ "$first" = "states.shaping=Designing" ]
+  [ "$last" = "wrap.watch-post-merge-ci=true" ]
+}

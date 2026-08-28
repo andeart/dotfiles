@@ -82,6 +82,30 @@ config_path() {
   fi
 }
 
+# read_props <file>: the single yq fork. Emits `key=value`, normalising yq's
+# " = " separator and its 0-based list indices.
+read_props() {
+  local file="$1" out
+  command -v yq >/dev/null 2>&1 || die "yq is required to read .wf.yml"
+  out="$(yq -o=props -- "$file")" || invalid "could not parse $file as YAML"
+  printf '%s\n' "$out" | awk '
+    {
+      # Split on the FIRST " = " only: a value can contain one, and splitting
+      # on each would truncate it at the flag assignment.
+      i = index($0, " = ")
+      if (i == 0) next
+      key = substr($0, 1, i - 1)
+      val = substr($0, i + 3)
+      # yq indexes lists from 0; the dump reads better from 1, and every
+      # consumer counts reviewers rather than offsets.
+      if (match(key, /\.[0-9]+$/)) {
+        key = substr(key, 1, RSTART - 1) "." (substr(key, RSTART + 1) + 1)
+      }
+      print key "=" val
+    }
+  '
+}
+
 # shape_of <key>: the key with a trailing list index replaced by N.
 shape_of() {
   printf '%s\n' "$1" | sed 's/\.[0-9][0-9]*$/.N/'
@@ -138,9 +162,15 @@ emit() {
 
 # resolve <root>: the whole decision. See the exit codes above.
 resolve() {
-  local root="$1"
+  local root="$1" file kv
   [ -d "$root" ] || die "no such directory: $root"
-  emit ""
+  file="$(config_path "$root")"
+  if [ -z "$file" ]; then
+    emit ""
+    return 0
+  fi
+  kv="$(read_props "$file")"
+  emit "$kv"
 }
 
 main() {
