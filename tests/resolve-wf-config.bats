@@ -317,6 +317,27 @@ states:
   [[ "$stderr" == *"states.shaping is empty"* ]]
 }
 
+# yq hands `null` and `~` through as literal strings, so the bare-key check
+# alone would let two of YAML's three spellings of "no value" resolve as if
+# they were the value.
+@test "a key set to null exits 3" {
+  local root; root="$(repo null-value)"
+  config "$root" 'states:
+  shaping: null'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"states.shaping is empty"* ]]
+}
+
+@test "a key set to a tilde exits 3" {
+  local root; root="$(repo tilde-value)"
+  config "$root" 'states:
+  shaping: ~'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"states.shaping is empty"* ]]
+}
+
 @test "an out-of-range workspace.impl exits 3 and lists the choices" {
   local root; root="$(repo bad-enum)"
   config "$root" 'workspace:

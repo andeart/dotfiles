@@ -144,9 +144,9 @@ validate() {
       invalid "unknown key: $key"
     fi
 
-    if [ -z "$val" ]; then
-      invalid "$key is empty; remove the key to take its default"
-    fi
+    case "$val" in
+      ""|"null"|"~") invalid "$key is empty; remove the key to take its default" ;;
+    esac
 
     case "$key" in
       workspace.impl)
