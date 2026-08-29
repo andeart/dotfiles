@@ -62,6 +62,10 @@ Save the whole dump as `<WF_CONFIG>`. The keys this skill reads:
 
 Exit 3 means the repo's `.wf.yml` is present but wrong. Stop and print stderr: a broken config is the user's to fix, and guessing a draft setting would ship a PR in the wrong state. Exit 2 with `yq` missing is the same - say what is missing rather than proceeding on defaults.
 
+**If the skill was invoked as `/wf-ship ready`** - go to the "Finalizing a draft" flow. That flow pushes nothing and creates nothing; it flips an existing draft and reconciles the work item.
+
+The mode is the literal argument `ready`, never inferred. Inferring it from a PR's draft status would flip every draft the moment its branch was shipped again, which is the opposite of what a draft is for.
+
 Then route:
 
 **If `branch` IS `<DEFAULT_BRANCH>`** - go to the "Shipping from default branch" flow.
@@ -139,6 +143,38 @@ Follow the "Linking the PR to Plane" section below.
 ### 8. Report
 
 Print the PR URL, then the Plane line from "Reporting the Plane outcome". You are now on the feature branch.
+
+---
+
+## Finalizing a draft
+
+You were invoked as `/wf-ship ready`. Nothing is committed, pushed or created here.
+
+### 1. Find the PR
+
+```bash
+gh pr view --json url,number,isDraft,body --jq '.url, .number, .isDraft, "body<<<", (.body // "" | split("\n")[0])'
+```
+
+- **No PR for this branch** - stop with:
+
+  > No pull request exists for `<FEATURE>`. Run `/wf-ship` first to open one.
+
+- **`isDraft` is `false`** - the PR is already ready. Say so, skip Step 2, and continue to Step 3: the work item may still be sitting in the wrong state, and reconciling it is the rest of this flow's job.
+
+Save the URL as `PR_URL` and the body's first line as `<PR_FIRST_LINE>`.
+
+### 2. Flip it
+
+```bash
+gh pr ready <PR_URL>
+```
+
+If this fails, stop and report. Do not continue to the state write - a work item saying In Review over a PR still marked draft is worse than one left alone.
+
+### 3. Reconcile and report
+
+Set `<PR_STATE>` to `ready`, then follow "Reconciling the Plane state" and "Linking the PR to Plane". Report the PR URL, whether it was flipped or already ready, and the Plane lines from both sections.
 
 ---
 
