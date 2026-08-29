@@ -40,6 +40,13 @@ true failure rate no tighter than roughly 30%, and a case that is genuinely 95% 
 fails a 5-run gate about a quarter of the time. A gate that cries wolf gets ignored, which
 costs more than the coverage it claimed to add. Promote one only on a much larger clean sample.
 
+A slash-command prompt (`/wf-shape DX-57`) cannot be measured here. The runner reads which
+skill fired by grepping the probe's stream for a `Skill` tool call, and a slash command expands
+the skill directly without emitting one - so the probe records `(none)` however well the skill
+ran. The deeper reason not to add one is that a slash command names the skill outright: there is
+no routing decision, and routing is what this suite measures. Write the phrase a person would
+type instead.
+
 `claude plugin eval` is the better long-term home for this - it has `tool_used: Skill` graders,
 ablation arms, and an HTML report. It is early-access gated and returned "`plugin eval` is
 currently in early access" on this account as of 2026-08-23, which is why this runner exists.
