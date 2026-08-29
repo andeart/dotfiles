@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+#
+# Report worktree, branch and pull request state for one or more git
+# repositories.
+#
+# The git/gh half of wf-status: no Plane credential, no Plane network call.
+# A skill in a later task joins Plane state on top of --porcelain's output,
+# which is why that output is a stable, documented interface rather than an
+# implementation detail.
+#
+# Usage: wf-status [--porcelain] [repo-path ...]
+#
+# Exit codes:
+#   0   every repo-path reported.
+#   2   usage error, or a repo-path is not a git work tree.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: wf-status [--porcelain] [repo-path ...]
+
+Report every worktree of one or more git repositories, the branch checked out
+in it, the Plane identifier that branch carries (if any), whether it is
+dirty, and the state of its pull request. Carries no Plane credential and
+makes no Plane network call; gh is the only network dependency and it is
+optional.
+
+With no repo-path, reports the repository the script runs in. Each argument
+must be a git work tree (main or linked); a path that is not one is an error.
+
+Options:
+  --porcelain   Tab-separated, one row per worktree, no header: repo,
+                worktree, branch, identifier, dirty, pr_state, pr_url.
+                identifier is - when the branch carries none; pr_state is one
+                of none, draft, ready, merged, closed; pr_url is - when there
+                is no PR. A stable interface for scripts.
+  -h, --help    Show this help.
+
+Without --porcelain, prints the same fields as an aligned table with a
+header.
+EOF
+}
+
+die() {
+  echo "wf-status: $*" >&2
+  exit 2
+}
+
+# identifier_of <branch>: wf-wrap's Step 2 branch rule (agents/skills/wf-wrap/
+# SKILL.md) - strip a leading worktree- (EnterWorktree prefixes the branches
+# it creates), match the remainder against ^([a-zA-Z]+)-([0-9]+), uppercase
+# the prefix. No match prints -. tr, not ${var^^}, for bash 3.2.
+identifier_of() {
+  local branch="${1#worktree-}" prefix
+  if [[ "$branch" =~ ^([a-zA-Z]+)-([0-9]+) ]]; then
+    prefix="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:lower:]' '[:upper:]')"
+    printf '%s-%s\n' "$prefix" "${BASH_REMATCH[2]}"
+  else
+    printf '%s\n' "-"
+  fi
+}
+
+# pr_lookup <worktree-dir> <branch>: prints "pr_state<TAB>pr_url". No gh on
+# PATH, no remote, no PR, or any gh error all degrade to none/- rather than
+# fail - a fresh clone with no gh auth must still get a usable report, and the
+# bats fixtures (no remote) must run with no network access.
+pr_lookup() {
+  local dir="$1" branch="$2" json state is_draft url
+  command -v gh >/dev/null 2>&1 || { printf 'none\t-\n'; return 0; }
+  json="$(cd "$dir" && gh pr view "$branch" \
+    --json state,isDraft,url --jq '[.state, (.isDraft | tostring), .url] | @tsv' \
+    2>/dev/null)" || { printf 'none\t-\n'; return 0; }
+  [ -n "$json" ] || { printf 'none\t-\n'; return 0; }
+  IFS=$'\t' read -r state is_draft url <<<"$json"
+  case "$state" in
+    MERGED) printf 'merged\t%s\n' "$url" ;;
+    CLOSED) printf 'closed\t%s\n' "$url" ;;
+    OPEN)
+      if [ "$is_draft" = "true" ]; then
+        printf 'draft\t%s\n' "$url"
+      else
+        printf 'ready\t%s\n' "$url"
+      fi
+      ;;
+    *) printf 'none\t-\n' ;;
+  esac
+}
+
+# worktrees_of <repo-root>: "worktree-path<TAB>branch" per row of `git
+# worktree list --porcelain` - the main tree plus every linked one, covering
+# both the <repo>/.claude/worktrees/<name> and <repo>-worktrees/<name>
+# layouts without a path glob. A detached worktree carries no "branch" line;
+# its branch field comes out empty, which identifier_of and pr_lookup both
+# already treat as no match / no PR.
+worktrees_of() {
+  local repo="$1" path="" branch=""
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*)
+        [ -z "$path" ] || printf '%s\t%s\n' "$path" "$branch"
+        path="${line#worktree }"
+        branch=""
+        ;;
+      "branch refs/heads/"*)
+        branch="${line#branch refs/heads/}"
+        ;;
+    esac
+  done < <(git -C "$repo" worktree list --porcelain)
+  [ -z "$path" ] || printf '%s\t%s\n' "$path" "$branch"
+}
+
+# dirty_count <dir>: lines of `git status --porcelain` in that worktree. awk,
+# not `grep -c .`, because grep exits 1 on zero matches and would trip
+# pipefail on a clean worktree.
+dirty_count() {
+  git -C "$1" status --porcelain | awk 'END { print NR }'
+}
+
+# ROWS accumulates one 7-field tab-separated row per worktree, across every
+# repo-path argument, before anything is printed - so a later repo-path that
+# fails validation (collect_rows's die) aborts before any output, rather than
+# a table half-printed around the error.
+ROWS=()
+
+# collect_rows <repo-path>: resolve <repo-path> to its work tree, then append
+# one row to ROWS per worktree `git worktree list --porcelain` reports for it.
+collect_rows() {
+  local input="$1" root repo_path="" wt_path wt_branch dirty ident pr_state pr_url
+  root="$(git -C "$input" rev-parse --show-toplevel 2>/dev/null)" \
+    || die "not a git repository: $input"
+  while IFS=$'\t' read -r wt_path wt_branch; do
+    [ -n "$repo_path" ] || repo_path="$wt_path"
+    dirty="$(dirty_count "$wt_path")"
+    ident="$(identifier_of "$wt_branch")"
+    IFS=$'\t' read -r pr_state pr_url < <(pr_lookup "$wt_path" "$wt_branch")
+    ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+      "$repo_path" "$wt_path" "$wt_branch" "$ident" "$dirty" "$pr_state" "$pr_url")")
+  done < <(worktrees_of "$root")
+}
+
+# print_table: ROWS as an aligned table with a header.
+print_table() {
+  { printf 'REPO\tWORKTREE\tBRANCH\tIDENTIFIER\tDIRTY\tPR_STATE\tPR_URL\n'
+    printf '%s\n' "${ROWS[@]}"
+  } | column -t -s $'\t'
+}
+
+main() {
+  local porcelain=0
+  local repos=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --porcelain) porcelain=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      -*) usage >&2; die "unknown option: $1" ;;
+      *) repos+=("$1"); shift ;;
+    esac
+  done
+  [ ${#repos[@]} -gt 0 ] || repos=(".")
+
+  local r
+  for r in "${repos[@]}"; do
+    collect_rows "$r"
+  done
+
+  if [ "$porcelain" -eq 1 ]; then
+    printf '%s\n' "${ROWS[@]}"
+  else
+    print_table
+  fi
+}
+
+# Sourced with _WF_STATUS_LIB_ONLY=1 (by tests): define functions and stop
+# before parsing args or touching a repo.
+if [ -n "${_WF_STATUS_LIB_ONLY:-}" ]; then
+  return 0 2>/dev/null || exit 0
+fi
+
+main "$@"
