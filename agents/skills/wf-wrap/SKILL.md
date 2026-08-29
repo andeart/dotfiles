@@ -14,7 +14,7 @@ Two facts shape the order below, and both are load-bearing:
 
 ## Output
 
-Happy-path steps produce no progress output. Do not announce a step, do not confirm that a check passed, do not restate what a command returned, and do not explain what a section proved. On a successful run the Step 6 report is the only thing the user sees.
+Happy-path steps produce no progress output. Do not announce a step, do not confirm that a check passed, do not restate what a command returned, and do not explain what a section proved. On a successful run the Step 7 report is the only thing the user sees.
 
 The one exception: a step that does something a reader would otherwise be surprised by gets a single short line naming what is happening and why - for example "Tearing down the worktree first because you cannot check out the default branch from inside one." One line, not a paragraph, and only where the surprise is real.
 
@@ -68,13 +68,13 @@ Finally, resolve the worktree state from the three path lines. If `gitdir` and `
 
 ## Step 1: Verify the PR is merged, and prove nothing is lost
 
-Look up the PR for `<FEATURE>`. Read the state, number, URL, and the top of the body in one call - Step 2 needs that body and `gh` is network-bound, so a second lookup is the most expensive duplicate this skill can make:
+Look up the PR for `<FEATURE>`. Read the state, number, URL, merge commit, and the top of the body in one call - Step 2 needs that body and `gh` is network-bound, so a second lookup is the most expensive duplicate this skill can make:
 
 ```bash
-gh pr view --json state,number,url,body --jq '.state, .number, .url, "body<<<", (.body // "" | split("\n")[0:3] | .[])'
+gh pr view --json state,number,url,body,mergeCommit --jq '.state, .number, .url, (.mergeCommit.oid // ""), "body<<<", (.body // "" | split("\n")[0:3] | .[])'
 ```
 
-Three values come back in order - state, number, URL - then a `body<<<` marker and the body's first three lines. Save the URL as `<PR_URL>` for the final report and those body lines as `<PR_BODY_HEAD>` for Step 2.
+Four values come back in order - state, number, URL, merge commit SHA - then a `body<<<` marker and the body's first three lines. Save the URL as `<PR_URL>` for the final report, the merge commit SHA as `<MERGE_SHA>` for Step 6, and those body lines as `<PR_BODY_HEAD>` for Step 2.
 
 If `gh` reports no PR for `<FEATURE>`, stop with:
 
@@ -190,7 +190,48 @@ Do not write this as `... && git branch -D <FEATURE> || true`. The `|| true` als
 
 Use `show-ref --verify refs/heads/...` rather than `git rev-parse --verify <FEATURE>`, which also matches a same-named tag. Use `-D` (uppercase) for the reason at the top of this skill: `git branch -d` does not recognize a squash merge, even though Step 1 proved the content landed.
 
-## Step 6: Report
+## Step 6: Watch the post-merge run
+
+Resolve the config once:
+
+```bash
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+```
+
+**Exit 2 (`yq` missing) or exit 3 (a broken `.wf.yml`)** - unlike `wf-ship` and `wf-spec-review`, do not stop the skill. By this step the worktree is gone and the branch is deleted; failing now would report a completed cleanup as an error. Set Step 6's outcome to `config-error`, keep the stderr, and skip the rest of this step.
+
+`wrap.watch-post-merge-ci` `false` or absent - skip this step entirely and say nothing. It is opt-in because it spends real wall-clock and only means anything where CI exists.
+
+`true`, and `<MERGE_SHA>` is empty - set Step 6's outcome to `unidentified` and skip the rest of this step. A squash merge always produces a merge commit, so an empty value means the `gh` call changed shape, not that there is nothing to watch.
+
+Otherwise, before polling, print one line naming what is being watched and the cap - the Output section's stated exception for a genuine surprise, since by this point the worktree and branch are already gone and a silent wait of up to 15 minutes would leave the user with no report of that irreversible work:
+
+```text
+Watching post-merge CI for <MERGE_SHA> (up to 15m) - the wrap itself is already done.
+```
+
+Then poll for the run against the merge commit:
+
+```bash
+gh api "repos/:owner/:repo/actions/runs?head_sha=<MERGE_SHA>" --jq '.workflow_runs[] | "\(.id)\t\(.status)\t\(.conclusion // "-")\t\(.html_url)"'
+```
+
+Four tab-separated fields come back per run: id, status, conclusion (`-` while pending), and the run URL - the red and timeout report lines below print that URL.
+
+Key on `head_sha`, never on the branch. Post-merge the branch is the default branch, and a branch query returns every run on it including other people's. `~/.agents/AGENTS.md` also rules out the PR-checks subcommand, which 403s on a fine-grained PAT.
+
+**Timings, pinned so nobody has to invent them.** Allow 60 seconds for a run to appear - GitHub takes a few seconds to create one - then poll every 15 seconds to a 15-minute cap. Both wrong answers are bad: a short cap reports "still running" on every green build, a long one hangs the wrap.
+
+Six outcomes total, all reported in full - `config-error` and `unidentified` above, plus four more here:
+
+- **Every run concluded `success`** - one line in the report.
+- **Any run concluded otherwise** - fetch `gh api "repos/:owner/:repo/actions/runs/<id>/jobs"` and name the jobs that did not pass, with the run URL.
+- **No run appeared within the grace window** - say so, naming `<MERGE_SHA>`.
+- **A run is still going at the cap** - say so, with the run URL.
+
+**A red run never fails the wrap.** By the time this runs the merge has landed and the branch is gone; there is nothing to roll back, and stopping here would strand the user with a cleanup half done and no report of it.
+
+## Step 7: Report
 
 Print a single block:
 
@@ -218,5 +259,15 @@ Then add a line for `<PLANE_LINK>`, but only when it has something to say:
 - `backfilled`: `- Linked the PR on <PLANE_ID> - the ship had not.`
 - `failed`: `- Could not link the PR on <PLANE_ID>: <error>. The wrap itself is done.`
 - `present`: no line. The link being there is the expected case, and reporting it every wrap buries the two outcomes that matter.
+
+Then add a line for Step 6's outcome, unless it was skipped:
+
+- green: `- Post-merge CI passed.`
+- red: `- Post-merge CI failed: <jobs>. <run URL>`
+- absent: `- No post-merge CI run appeared for <MERGE_SHA> within 60s.`
+- timeout: `- Post-merge CI still running after 15m. <run URL>`
+- unidentified: `- Post-merge CI not checked - the merge commit could not be identified.`
+- config-error: `- Post-merge CI not checked - config error: <stderr>.`
+- skipped: print nothing.
 
 The user always sees whether Plane was touched and why.
