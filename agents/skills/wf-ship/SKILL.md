@@ -146,11 +146,11 @@ This removes the local commit from the default branch now that it lives on the f
 
 ### 7. Link the PR to Plane and reconcile its state
 
-Follow the "Linking the PR to Plane" section below, then "Reconciling the Plane state".
+Follow the "Linking the PR to Plane" section below, then "Reconciling the Plane state", "Handing back the spec cleanup", and "Checking off acceptance criteria".
 
 ### 8. Report
 
-Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it", then the test line from "Reporting the test results". You are now on the feature branch.
+Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it", then the test line from "Reporting the test results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You are now on the feature branch.
 
 ---
 
@@ -242,11 +242,11 @@ Otherwise, follow "Running the tests" below, then create a PR with a proper summ
 
 Follow the "Linking the PR to Plane" section below. Two paths reach here without having created anything - Step 1's fall-through when there was nothing to push, and Step 3's early exit when a PR already existed - and both land here on purpose. A branch that already has a PR still needs its link checked, and that section is what keeps a repeat run from adding a duplicate.
 
-Then follow "Reconciling the Plane state".
+Then follow "Reconciling the Plane state", "Handing back the spec cleanup", and "Checking off acceptance criteria".
 
 ### 5. Report
 
-Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it", then the test line from "Reporting the test results". You remain on the feature branch.
+Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it", then the test line from "Reporting the test results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You remain on the feature branch.
 
 If Step 1 found nothing new to push, say so above the PR URL. A run that only checked the link should not read like one that shipped work.
 
@@ -454,3 +454,53 @@ One line, after the link line:
 - `nothing-pushed`: `- No state change - nothing was pushed.`
 - `not-inferred`: `- No state change - no work item known for this change.`
 - `failed`: `- No state change - Plane returned: <error>.`
+
+## Handing back the spec cleanup
+
+Once the PR is up, the working notes for this change have served their purpose. No identifier from "Recording the work item" - set `<CLEANUP>` to `none` and skip the search. Otherwise, find them, matching `<id-lowercase>` - that identifier, lowercased (e.g. `ZZZ-0` -> `zzz-0`):
+
+```bash
+git status --porcelain --ignored | awk '$1 == "!!" || $1 == "??" { print $2 }' | grep -i "<id-lowercase>"
+```
+
+That covers both ignored and untracked paths, which is what these are in every repo this family runs in - `docs/superpowers/plans/`, `docs/reviews/`, and in some repos `docs/superpowers/specs/` too.
+
+**Only untracked and ignored files are candidates.** A tracked spec is a committed decision record and stays; in the psychfam repos that is exactly what `docs/superpowers/specs/` holds. The distinction is tracked-versus-untracked, never the word "spec".
+
+**Print the command; never run it.** `~/.agents/AGENTS.md` requires deletions be handed over, and `claude/block-file-deletions.sh` denies `rm` at PreToolUse, so a run that tried would be blocked mid-flight. Set `<CLEANUP>` to the exact command with absolute paths:
+
+```sh
+rm -rf <absolute path> <absolute path>
+```
+
+Nothing matched: set `<CLEANUP>` to `none`. Not every change leaves notes behind.
+
+### Reporting the cleanup
+
+One line, after the test line:
+
+- `<CLEANUP>` not `none`: `- These working notes are no longer needed. To remove them:` followed by the command in a fenced block.
+- `<CLEANUP>` is `none` - say nothing.
+
+## Checking off acceptance criteria
+
+The work item's criteria are task-list items in its description. Plane exposes the description as one field, so checking a box means writing the whole thing back.
+
+No identifier from "Recording the work item" - set `<AC_OUTCOME>` to `not-inferred` and skip the rest of this section.
+
+1. Call `workitem` with `action: "retrieve_by_identifier"` **immediately before writing** - not the copy any earlier section fetched. The whole description round-trips, so anything edited in the Plane UI between an earlier read and this write would be silently reverted. A fresh read shrinks that window to this step.
+2. In `description_html`, find `<li data-type="taskItem" data-checked="false">` entries.
+3. Flip `data-checked` to `"true"` only for criteria **this ship has evidence for** - something in `<PUSHED_PATHS>`, `<TEST_RESULTS>` or the PR itself demonstrates. A criterion you believe is met but cannot point at stays unchecked. The checklist is the work item's own record of what is done; a box checked on faith makes it a record of what someone hoped.
+4. Change nothing else in the HTML - not the wording, not the ordering, not an already-checked box.
+5. Call `workitem` with `action: "update"` passing only `description_html`.
+
+Set `<AC_OUTCOME>` to `checked:<n>` for how many you flipped, `none-matched` when nothing had evidence, or `failed` with the error text. A Plane failure here never fails the ship.
+
+### Reporting the acceptance criteria
+
+One line, after the cleanup line:
+
+- `not-inferred`: `- No acceptance criteria checked - no work item known for this change.`
+- `checked:<n>`: `- Checked off <n> acceptance criteria on <ID>.`
+- `none-matched`: `- No acceptance criteria checked - none had evidence from this ship.`
+- `failed`: `- Could not check acceptance criteria on <ID>: <error>.`
