@@ -198,25 +198,36 @@ Resolve the config once:
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
 ```
 
+**Exit 2 (`yq` missing) or exit 3 (a broken `.wf.yml`)** - unlike `wf-ship` and `wf-spec-review`, do not stop the skill. By this step the worktree is gone and the branch is deleted; failing now would report a completed cleanup as an error. Set Step 6's outcome to `config-error`, keep the stderr, and skip the rest of this step.
+
 `wrap.watch-post-merge-ci` `false` or absent - skip this step entirely and say nothing. It is opt-in because it spends real wall-clock and only means anything where CI exists.
 
-`true`, and `<MERGE_SHA>` is empty - report that the run could not be identified and continue. A squash merge always produces a merge commit, so an empty value means the `gh` call changed shape, not that there is nothing to watch.
+`true`, and `<MERGE_SHA>` is empty - set Step 6's outcome to `unidentified` and skip the rest of this step. A squash merge always produces a merge commit, so an empty value means the `gh` call changed shape, not that there is nothing to watch.
 
-Otherwise poll for the run against the merge commit:
+Otherwise, before polling, print one line naming what is being watched and the cap - the Output section's stated exception for a genuine surprise, since by this point the worktree and branch are already gone and a silent wait of up to 15 minutes would leave the user with no report of that irreversible work:
+
+```text
+Watching post-merge CI for <MERGE_SHA> (up to 15m) - the wrap itself is already done.
+```
+
+Then poll for the run against the merge commit:
 
 ```bash
-gh api "repos/:owner/:repo/actions/runs?head_sha=<MERGE_SHA>" --jq '.workflow_runs[] | "\(.id)\t\(.status)\t\(.conclusion // "-")"'
+gh api "repos/:owner/:repo/actions/runs?head_sha=<MERGE_SHA>" --jq '.workflow_runs[] | "\(.id)\t\(.status)\t\(.conclusion // "-")\t\(.html_url)"'
 ```
+
+Four tab-separated fields come back per run: id, status, conclusion (`-` while pending), and the run URL - the red and timeout report lines below print that URL.
 
 Key on `head_sha`, never on the branch. Post-merge the branch is the default branch, and a branch query returns every run on it including other people's. `~/.agents/AGENTS.md` also rules out the PR-checks subcommand, which 403s on a fine-grained PAT.
 
 **Timings, pinned so nobody has to invent them.** Allow 60 seconds for a run to appear - GitHub takes a few seconds to create one - then poll every 15 seconds to a 15-minute cap. Both wrong answers are bad: a short cap reports "still running" on every green build, a long one hangs the wrap.
 
-Three endings, all reported in full:
+Six outcomes total, all reported in full - `config-error` and `unidentified` above, plus four more here:
 
 - **Every run concluded `success`** - one line in the report.
 - **Any run concluded otherwise** - fetch `gh api "repos/:owner/:repo/actions/runs/<id>/jobs"` and name the jobs that did not pass, with the run URL.
-- **No run appeared within the grace window, or one is still going at the cap** - say which, with the run URL if there is one.
+- **No run appeared within the grace window** - say so, naming `<MERGE_SHA>`.
+- **A run is still going at the cap** - say so, with the run URL.
 
 **A red run never fails the wrap.** By the time this runs the merge has landed and the branch is gone; there is nothing to roll back, and stopping here would strand the user with a cleanup half done and no report of it.
 
@@ -256,6 +267,7 @@ Then add a line for Step 6's outcome, unless it was skipped:
 - absent: `- No post-merge CI run appeared for <MERGE_SHA> within 60s.`
 - timeout: `- Post-merge CI still running after 15m. <run URL>`
 - unidentified: `- Post-merge CI not checked - the merge commit could not be identified.`
+- config-error: `- Post-merge CI not checked - config error: <stderr>.`
 - skipped: print nothing.
 
 The user always sees whether Plane was touched and why.
