@@ -119,3 +119,19 @@ fixture() {
   [ "$status" -eq 0 ]
   [ "$(printf '%s\n' "$output" | grep -c .)" -eq 2 ]
 }
+
+# A worktree directory moved or deleted without `git worktree prune` is a
+# state git itself names (a `prunable` line in --porcelain output), not a
+# hypothetical. It must cost only its own row's detail, not the run: the main
+# tree's row - already collected - must still come out, and the exit must
+# stay 0.
+@test "a prunable worktree reports rather than aborting the run" {
+  local root; root="$(fixture prunable)"
+  git -C "$root" worktree add -q -b dx-30-gone "$BATS_TEST_TMPDIR/prunable-wt"
+  mv "$BATS_TEST_TMPDIR/prunable-wt" "$BATS_TEST_TMPDIR/prunable-wt-moved"
+  run --separate-stderr bash "$WF_STATUS" --porcelain "$root"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | grep -c .)" -eq 2 ]
+  [[ "$output" == *"DX-30"* ]]
+  [ "$(printf '%s\n' "$output" | awk -F'\t' '$3 == "dx-30-gone" {print $5}')" = "prunable" ]
+}

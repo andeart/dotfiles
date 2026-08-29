@@ -31,10 +31,19 @@ must be a git work tree (main or linked); a path that is not one is an error.
 
 Options:
   --porcelain   Tab-separated, one row per worktree, no header: repo,
-                worktree, branch, identifier, dirty, pr_state, pr_url.
-                identifier is - when the branch carries none; pr_state is one
-                of none, draft, ready, merged, closed; pr_url is - when there
-                is no PR. A stable interface for scripts.
+                worktree, branch, identifier, dirty, pr_state, pr_url. May
+                appear before or after the repo-path arguments.
+
+                repo is the repository's main worktree path - the same
+                value on every row of that repository, whichever worktree
+                the row itself describes. identifier is - when the branch
+                carries none. dirty is a `git status --porcelain` line
+                count; prunable when the worktree's directory has been
+                moved or deleted without `git worktree prune` (git's own
+                term - see `git worktree list`); - if it could not be
+                observed for any other reason. pr_state is one of none,
+                draft, ready, merged, closed; pr_url is - when there is no
+                PR. A stable interface for scripts.
   -h, --help    Show this help.
 
 Without --porcelain, prints the same fields as an aligned table with a
@@ -61,10 +70,16 @@ identifier_of() {
   fi
 }
 
-# pr_lookup <worktree-dir> <branch>: prints "pr_state<TAB>pr_url". No gh on
-# PATH, no remote, no PR, or any gh error all degrade to none/- rather than
-# fail - a fresh clone with no gh auth must still get a usable report, and the
-# bats fixtures (no remote) must run with no network access.
+# pr_lookup <dir> <branch>: prints "pr_state<TAB>pr_url" for <branch> in the
+# repo <dir> belongs to. <dir> only needs to be somewhere inside the
+# repository - gh resolves owner/repo from its remote, which is shared
+# across every worktree - so the caller passes the resolved root rather than
+# the specific worktree's own directory. That is what lets a prunable
+# worktree's PR state still be reported even though its own directory is
+# gone. No gh on PATH, no remote, no PR, or any gh error all degrade to
+# none/- rather than fail - a fresh clone with no gh auth must still get a
+# usable report, and the bats fixtures (no remote) must run with no network
+# access.
 pr_lookup() {
   local dir="$1" branch="$2" json state is_draft url
   command -v gh >/dev/null 2>&1 || { printf 'none\t-\n'; return 0; }
@@ -87,34 +102,49 @@ pr_lookup() {
   esac
 }
 
-# worktrees_of <repo-root>: "worktree-path<TAB>branch" per row of `git
+# worktrees_of <repo-root>: "path<TAB>branch<TAB>prunable" per row of `git
 # worktree list --porcelain` - the main tree plus every linked one, covering
 # both the <repo>/.claude/worktrees/<name> and <repo>-worktrees/<name>
-# layouts without a path glob. A detached worktree carries no "branch" line;
-# its branch field comes out empty, which identifier_of and pr_lookup both
-# already treat as no match / no PR.
+# layouts without a path glob. prunable is 1 when git's own porcelain output
+# carries a `prunable ...` line for that entry (its directory was moved or
+# deleted without `git worktree prune`), otherwise empty. A detached
+# worktree carries no "branch" line; its branch field comes out empty, which
+# identifier_of and pr_lookup both already treat as no match / no PR.
 worktrees_of() {
-  local repo="$1" path="" branch=""
+  local repo="$1" path="" branch="" prunable=""
   while IFS= read -r line; do
     case "$line" in
       "worktree "*)
-        [ -z "$path" ] || printf '%s\t%s\n' "$path" "$branch"
+        [ -z "$path" ] || printf '%s\t%s\t%s\n' "$path" "$branch" "$prunable"
         path="${line#worktree }"
         branch=""
+        prunable=""
         ;;
       "branch refs/heads/"*)
         branch="${line#branch refs/heads/}"
         ;;
+      "prunable "*)
+        prunable=1
+        ;;
     esac
   done < <(git -C "$repo" worktree list --porcelain)
-  [ -z "$path" ] || printf '%s\t%s\n' "$path" "$branch"
+  [ -z "$path" ] || printf '%s\t%s\t%s\n' "$path" "$branch" "$prunable"
 }
 
-# dirty_count <dir>: lines of `git status --porcelain` in that worktree. awk,
-# not `grep -c .`, because grep exits 1 on zero matches and would trip
-# pipefail on a clean worktree.
+# dirty_count <dir>: lines of `git status --porcelain` in that worktree, or -
+# if git status fails for a reason other than the known-prunable case
+# collect_rows already short-circuits around - an unanticipated failure here
+# degrades this one row's detail rather than the whole run. The assignment
+# sits in the `if` condition, not a bare statement, so its failure is caught
+# rather than tripping set -e. awk, not `grep -c .`, because grep exits 1 on
+# zero matches and would trip pipefail on a clean worktree.
 dirty_count() {
-  git -C "$1" status --porcelain | awk 'END { print NR }'
+  local dir="$1" n
+  if n="$(git -C "$dir" status --porcelain 2>/dev/null | awk 'END { print NR }')"; then
+    printf '%s\n' "$n"
+  else
+    printf -- '-\n'
+  fi
 }
 
 # ROWS accumulates one 7-field tab-separated row per worktree, across every
@@ -124,16 +154,22 @@ dirty_count() {
 ROWS=()
 
 # collect_rows <repo-path>: resolve <repo-path> to its work tree, then append
-# one row to ROWS per worktree `git worktree list --porcelain` reports for it.
+# one row to ROWS per worktree `git worktree list --porcelain` reports for
+# it - including a prunable one, whose directory is gone but whose branch
+# and PR state are still meaningful to report.
 collect_rows() {
-  local input="$1" root repo_path="" wt_path wt_branch dirty ident pr_state pr_url
+  local input="$1" root repo_path="" wt_path wt_branch wt_prunable dirty ident pr_state pr_url
   root="$(git -C "$input" rev-parse --show-toplevel 2>/dev/null)" \
     || die "not a git repository: $input"
-  while IFS=$'\t' read -r wt_path wt_branch; do
+  while IFS=$'\t' read -r wt_path wt_branch wt_prunable; do
     [ -n "$repo_path" ] || repo_path="$wt_path"
-    dirty="$(dirty_count "$wt_path")"
+    if [ -n "$wt_prunable" ]; then
+      dirty="prunable"
+    else
+      dirty="$(dirty_count "$wt_path")"
+    fi
     ident="$(identifier_of "$wt_branch")"
-    IFS=$'\t' read -r pr_state pr_url < <(pr_lookup "$wt_path" "$wt_branch")
+    IFS=$'\t' read -r pr_state pr_url < <(pr_lookup "$root" "$wt_branch")
     ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
       "$repo_path" "$wt_path" "$wt_branch" "$ident" "$dirty" "$pr_state" "$pr_url")")
   done < <(worktrees_of "$root")
@@ -141,6 +177,8 @@ collect_rows() {
 
 # print_table: ROWS as an aligned table with a header.
 print_table() {
+  command -v column >/dev/null 2>&1 \
+    || die "column is required for the human-readable table (use --porcelain instead)"
   { printf 'REPO\tWORKTREE\tBRANCH\tIDENTIFIER\tDIRTY\tPR_STATE\tPR_URL\n'
     printf '%s\n' "${ROWS[@]}"
   } | column -t -s $'\t'
