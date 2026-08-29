@@ -57,10 +57,12 @@ bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$
 Save the whole dump as `<WF_CONFIG>`. The keys this skill reads:
 
 - `ship.draft-by-default` - whether "Writing the PR" passes `--draft`.
-- `ship.test-commands.N` - what "Running the tests" runs. Absent means run nothing.
+- `ship.test-commands.1`, `.2`, ... - what "Running the tests" runs. Absent means run nothing.
 - `states.shaping`, `states.implementing`, `states.in-review` - the names "Reconciling the Plane state" matches against.
 
 Exit 3 means the repo's `.wf.yml` is present but wrong. Stop and print stderr: a broken config is the user's to fix, and guessing a draft setting would ship a PR in the wrong state. Exit 2 with `yq` missing is the same - say what is missing rather than proceeding on defaults.
+
+### Choosing the flow
 
 **If the skill was invoked as `/wf-ship ready`** - go to the "Finalizing a draft" flow. That flow pushes nothing and creates nothing; it flips an existing draft and reconciles the work item.
 
@@ -144,13 +146,79 @@ git branch -f <DEFAULT_BRANCH> <upstream-hash>
 
 This removes the local commit from the default branch now that it lives on the feature branch.
 
-### 7. Link the PR to Plane and reconcile its state
+### 7. Link the PR to Plane, reconcile state, hand back cleanup, and check criteria
 
 Follow the "Linking the PR to Plane" section below, then "Reconciling the Plane state", "Handing back the spec cleanup", and "Checking off acceptance criteria".
 
 ### 8. Report
 
-Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it", then the test line from "Reporting the test results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You are now on the feature branch.
+Print the PR URL, then the line from "Reporting the PR state", then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting the state outcome", then the test line from "Reporting the test results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You are now on the feature branch.
+
+---
+
+## Shipping from feature branch
+
+You're on a feature branch with work that's ready for review.
+
+### 1. Stage and commit
+
+Step 0 already ran every safety check for this flow and resolved `<DEFAULT_BRANCH>`. If it reported porcelain lines, use the `suggest-commit` skill to craft a commit message, then immediately stage all changes and commit using that message.
+
+> **IMPORTANT: After suggest-commit returns, immediately continue executing wf-ship. Do NOT pause, display the message to the user, ask for confirmation, or wait for any input. The commit message is ready to use as-is. Resume the next step of wf-ship without interruption.**
+
+After committing (or if there was nothing to commit), check whether there are unpushed commits:
+
+- If Step 0 reported a non-empty `upstream`, run `git log @{upstream}..HEAD --oneline`. If this outputs nothing, there are no unpushed commits.
+- If `upstream` was empty, the branch has no upstream yet, so there are commits to push by definition.
+
+If nothing was committed AND the branch has an upstream AND there are no unpushed commits, there is nothing new to push - which is not the same as nothing to do. Run Step 3's PR lookup now and branch on it:
+
+- **A PR exists** - skip Step 2 entirely, then pick up Step 3 at its existing-PR branch: take `PR_URL` from the lookup, set `<PR_STATE>` from `isDraft`, run the `--add-assignee @me` no-op, set `<TEST_RESULTS>` to `not-run`, and continue into Step 4. The work item may still be missing its link: Plane can have been down on the ship that created the PR, the PR can predate the link step, or the link can have been removed by hand. Step 4 is the only thing that puts it back, and its duplicate check makes running it again free. Note that nothing was pushed, for the report.
+- **No PR exists** - stop with "nothing to ship".
+
+The default-branch flow's equivalent stop stays absolute. There, no unpushed commits means there is no work to move off the default branch at all - no feature branch and no PR for one - so there is nothing for a fall-through to act on.
+
+### 2. Push
+
+Record what this push carries, before pushing - afterwards the upstream has moved and the range is empty:
+
+```bash
+git rev-parse --verify --quiet '@{upstream}' >/dev/null 2>&1 \
+  && git diff --name-only '@{upstream}'..HEAD \
+  || git diff --name-only "origin/<DEFAULT_BRANCH>"..HEAD
+```
+
+Save the file list as `<PUSHED_PATHS>`. A branch with no upstream has never been pushed, so its whole divergence from the default branch is what is going up.
+
+```bash
+git push -u origin HEAD
+```
+
+If the branch has no upstream yet, this sets it. If it already has one, it pushes new commits.
+
+### 3. Create PR
+
+Before running `gh pr create`, check whether a PR already exists for this branch. Read the URL, draft status, and the body's first line together - the Plane section below needs that line, and `gh` is network-bound, so a second lookup is the most expensive duplicate this skill can make:
+
+```bash
+gh pr view --json url,body,isDraft --jq '.url, .isDraft, (.body // "" | split("\n")[0])' 2>/dev/null
+```
+
+Three lines come back: the PR URL, whether it's a draft, then the first line of its body. If a PR URL is returned, use it - do not create a new PR. Set `<PR_STATE>` to `draft` or `ready` from the `isDraft` value - Step 1's fall-through sets it the same way, from this same lookup. Save the body's first line as `<PR_FIRST_LINE>` for "Linking the PR to Plane". Assign it with `gh pr edit <PR_URL> --add-assignee @me`, which is a no-op if it's already assigned, set `<TEST_RESULTS>` to `not-run`, then skip to Step 4.
+
+Otherwise, follow "Running the tests" below, then create a PR with a proper summary (see "Writing the PR" section below). By the time `gh pr create` runs, the tests have already run. Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
+
+### 4. Link the PR to Plane, reconcile state, hand back cleanup, and check criteria
+
+Follow the "Linking the PR to Plane" section below. Two paths reach here without having created anything - Step 1's fall-through when there was nothing to push, and Step 3's early exit when a PR already existed - and both land here on purpose. A branch that already has a PR still needs its link checked, and that section is what keeps a repeat run from adding a duplicate.
+
+Then follow "Reconciling the Plane state", "Handing back the spec cleanup", and "Checking off acceptance criteria".
+
+### 5. Report
+
+Print the PR URL, then the line from "Reporting the PR state", then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting the state outcome", then the test line from "Reporting the test results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You remain on the feature branch.
+
+If Step 1 found nothing new to push, say so above the PR URL. A run that only checked the link should not read like one that shipped work.
 
 ---
 
@@ -182,73 +250,7 @@ If this fails, stop and report. Do not continue to the state write - a work item
 
 ### 3. Reconcile and report
 
-Set `<PR_STATE>` to `ready`, then follow "Reconciling the Plane state" and "Linking the PR to Plane". Report the PR URL, whether it was flipped or already ready, and the Plane lines from both sections.
-
----
-
-## Shipping from feature branch
-
-You're on a feature branch with work that's ready for review.
-
-### 1. Stage and commit
-
-Step 0 already ran every safety check for this flow and resolved `<DEFAULT_BRANCH>`. If it reported porcelain lines, use the `suggest-commit` skill to craft a commit message, then immediately stage all changes and commit using that message.
-
-> **IMPORTANT: After suggest-commit returns, immediately continue executing wf-ship. Do NOT pause, display the message to the user, ask for confirmation, or wait for any input. The commit message is ready to use as-is. Resume the next step of wf-ship without interruption.**
-
-After committing (or if there was nothing to commit), check whether there are unpushed commits:
-
-- If Step 0 reported a non-empty `upstream`, run `git log @{upstream}..HEAD --oneline`. If this outputs nothing, there are no unpushed commits.
-- If `upstream` was empty, the branch has no upstream yet, so there are commits to push by definition.
-
-If nothing was committed AND the branch has an upstream AND there are no unpushed commits, there is nothing new to push - which is not the same as nothing to do. Run Step 3's PR lookup now and branch on it:
-
-- **A PR exists** - skip Step 2 entirely, then pick up Step 3 at its existing-PR branch: take `PR_URL` from the lookup, run the `--add-assignee @me` no-op, set `<TEST_RESULTS>` to `not-run`, and continue into Step 4. The work item may still be missing its link: Plane can have been down on the ship that created the PR, the PR can predate the link step, or the link can have been removed by hand. Step 4 is the only thing that puts it back, and its duplicate check makes running it again free. Note that nothing was pushed, for the report.
-- **No PR exists** - stop with "nothing to ship".
-
-The default-branch flow's equivalent stop stays absolute. There, no unpushed commits means there is no work to move off the default branch at all - no feature branch and no PR for one - so there is nothing for a fall-through to act on.
-
-### 2. Push
-
-Record what this push carries, before pushing - afterwards the upstream has moved and the range is empty:
-
-```bash
-git rev-parse --verify --quiet '@{upstream}' >/dev/null 2>&1 \
-  && git diff --name-only '@{upstream}'..HEAD \
-  || git diff --name-only "origin/<DEFAULT_BRANCH>"..HEAD
-```
-
-Save the file list as `<PUSHED_PATHS>`. A branch with no upstream has never been pushed, so its whole divergence from the default branch is what is going up.
-
-```bash
-git push -u origin HEAD
-```
-
-If the branch has no upstream yet, this sets it. If it already has one, it pushes new commits.
-
-### 3. Create PR
-
-Before running `gh pr create`, check whether a PR already exists for this branch. Read the URL and the body's first line together - the Plane section below needs that line, and `gh` is network-bound, so a second lookup is the most expensive duplicate this skill can make:
-
-```bash
-gh pr view --json url,body --jq '.url, (.body // "" | split("\n")[0])' 2>/dev/null
-```
-
-Two lines come back: the PR URL, then the first line of its body. If a PR URL is returned, use it - do not create a new PR. Save the body's first line as `<PR_FIRST_LINE>` for "Linking the PR to Plane". Assign it with `gh pr edit <PR_URL> --add-assignee @me`, which is a no-op if it's already assigned, set `<TEST_RESULTS>` to `not-run`, then skip to Step 4.
-
-Otherwise, follow "Running the tests" below, then create a PR with a proper summary (see "Writing the PR" section below). By the time `gh pr create` runs, the tests have already run. Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
-
-### 4. Link the PR to Plane and reconcile its state
-
-Follow the "Linking the PR to Plane" section below. Two paths reach here without having created anything - Step 1's fall-through when there was nothing to push, and Step 3's early exit when a PR already existed - and both land here on purpose. A branch that already has a PR still needs its link checked, and that section is what keeps a repeat run from adding a duplicate.
-
-Then follow "Reconciling the Plane state", "Handing back the spec cleanup", and "Checking off acceptance criteria".
-
-### 5. Report
-
-Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it", then the test line from "Reporting the test results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You remain on the feature branch.
-
-If Step 1 found nothing new to push, say so above the PR URL. A run that only checked the link should not read like one that shipped work.
+Set `<PR_STATE>` to `ready`, then follow "Reconciling the Plane state", "Linking the PR to Plane", and "Handing back the spec cleanup" - the ready-flip is the condition that section gates on, so this is the one flow where it actually runs. Report the PR URL, whether it was flipped or already ready, the Plane lines from both sections, and the cleanup line from "Reporting the cleanup".
 
 ---
 
@@ -374,6 +376,15 @@ Drop the `Issue:` line and the blank line after it when no work item is known.
 
 Set `<PR_STATE>` to `draft` or `ready` to match what was created. "Reconciling the Plane state" reads it, and the Report step names it so a run that opened a draft does not read like one that opened a finished PR.
 
+### Reporting the PR state
+
+One line, right after the PR URL:
+
+- `draft`: `- Draft PR - run /wf-ship ready when it's ready for review.`
+- `ready`: `- PR is ready for review.`
+
+`<PR_STATE>` is always set by this point in both shipping flows - either here, or on the existing-PR paths in Step 1's fall-through and Step 3's early exit, which read it from the same `isDraft` lookup.
+
 ---
 
 ## Linking the PR to Plane
@@ -384,10 +395,10 @@ A link, not a comment: the sidebar holds one canonical entry that stays findable
 
 ### Which work item
 
-Whichever identifier "Recording the work item" resolved. That is the only source.
+There are two ways to reach an identifier here, and nothing else counts:
 
-- **No identifier there** - set `<PLANE_OUTCOME>` to `not-inferred` and skip the rest of this section. Do not re-derive a candidate and do not scan the conversation for one; the reasons in that section apply here unchanged.
-- **The PR already existed** (feature-branch flow, via Step 1's fall-through or Step 3's early exit) - this run never composed a body, so read the identifier off `<PR_FIRST_LINE>`, which Step 3's lookup already returned. Do not call `gh pr view` again for it.
+- **This run composed the PR body** (default-branch flow, or the feature-branch flow's Step 3 "Otherwise" branch) - whichever identifier "Recording the work item" resolved. No identifier there - set `<PLANE_OUTCOME>` to `not-inferred` and skip the rest of this section. Do not re-derive a candidate and do not scan the conversation for one; the reasons in that section apply here unchanged.
+- **This run never composed a body** - the feature-branch flow's Step 1 fall-through, its Step 3 early exit, or the ready flow's Step 1 - read the identifier off `<PR_FIRST_LINE>`, which that path's own lookup already returned. Do not call `gh pr view` again for it.
 
   Match `^Issue:\s*\[?([A-Z]+-\d+)\]?`. That is the same `Issue:` line, written by the earlier ship rather than this one, so it is not a new inference rule. No match means no identifier: `not-inferred`.
 
@@ -406,7 +417,7 @@ Whichever identifier "Recording the work item" resolved. That is the only source
 
 ### Reporting the Plane outcome
 
-The Report step prints the PR URL, then one line for `<PLANE_OUTCOME>`:
+One line for `<PLANE_OUTCOME>`, after the PR-state line:
 
 - `linked`: `- Linked the PR on <ID>.`
 - `already-linked`: `- <ID> already links this PR - left as is.`
@@ -424,6 +435,8 @@ Record the result in `<STATE_OUTCOME>`; the Report step prints one line for it.
 
 ### Which state the evidence implies
 
+Checked in order; the first match wins:
+
 - **`<PR_STATE>` is `ready`** → `states.in-review`. Flipping a draft to ready is the event that means review has started.
 - **`<PUSHED_PATHS>` holds only paths under `docs/`** → `states.shaping`. The change so far is a spec.
 - **`<PUSHED_PATHS>` holds anything outside `docs/`** → `states.implementing`.
@@ -435,7 +448,7 @@ A repo that gitignores all of `docs/` can never produce a docs-only push, so tha
 
 The same procedure `/wf-shape` uses, pointed at a different phase.
 
-1. Resolve the work item the way "Linking the PR to Plane" does - the identifier is decided in "Recording the work item" and there is one per ship. No identifier means `<STATE_OUTCOME>` is `not-inferred`; stop here. The `retrieve_by_identifier` call also returns `state`; save it too, alongside `id` and `project` - the guard below needs it.
+1. Resolve the work item the way "Linking the PR to Plane" does (see its "Which work item"). No identifier means `<STATE_OUTCOME>` is `not-inferred`; stop here. Call `workitem` with `action: "retrieve_by_identifier"`; on a 404 or any not-found error, set `<STATE_OUTCOME>` to `not-found` and stop. The same call also returns `state`; save it too, alongside `id` and `project` - the guard below needs it.
 2. Call `state` with `action: "list"` and `project_id` set to the work item's project.
 3. **Check the guard first.** If the work item's current state belongs to a state in that list whose `group` is `completed` or `cancelled`, set `<STATE_OUTCOME>` to `already-closed`, leave it alone, and stop - do not read the target name at all. Compare against every state in those groups, not one named state: a project can close work items into more than one.
 4. Only past the guard, read the target state name from `<WF_CONFIG>` as `<name>` and match it, exactly, against the same list.
@@ -444,7 +457,7 @@ The same procedure `/wf-shape` uses, pointed at a different phase.
 
 A Plane failure never fails the ship. By the time this runs the PR exists; set `<STATE_OUTCOME>` to `failed`, keep the error text, and continue.
 
-### Reporting it
+### Reporting the state outcome
 
 One line, after the link line:
 
@@ -453,15 +466,22 @@ One line, after the link line:
 - `no-such-state`: `- No state change - <ID>'s project has no state named <name>.`
 - `nothing-pushed`: `- No state change - nothing was pushed.`
 - `not-inferred`: `- No state change - no work item known for this change.`
+- `not-found`: `- No state change - <ID> was not found in Plane.`
 - `failed`: `- No state change - Plane returned: <error>.`
 
 ## Handing back the spec cleanup
 
-Once the PR is up, the working notes for this change have served their purpose. No identifier from "Recording the work item" - set `<CLEANUP>` to `none` and skip the search. Otherwise, find them, matching `<id-lowercase>` - that identifier, lowercased (e.g. `ZZZ-0` -> `zzz-0`):
+Gate this whole section on `<PR_STATE>` being `ready` - that is when review has actually started and the working notes for this change have genuinely served their purpose, not the first push. A run that only opened or updated a draft is still mid-implementation, and one work item can span several PRs still in flight; offering to delete notes on every push would hand back drafts still in use.
+
+**`<PR_STATE>` is not `ready`** - set `<CLEANUP>` to `none` and skip the rest of this section.
+
+No identifier (resolved the way "Linking the PR to Plane" does) - set `<CLEANUP>` to `none` and skip the search. Otherwise, find them, matching `<id-lowercase>` - that identifier, lowercased (e.g. `ZZZ-0` → `zzz-0`):
 
 ```bash
-git status --porcelain --ignored | awk '$1 == "!!" || $1 == "??" { print $2 }' | grep -iE "<id-lowercase>([^0-9]|$)"
+git status --porcelain -uall --ignored | awk '$1 == "!!" || $1 == "??" { print substr($0,4) }' | grep -iE "<id-lowercase>([^0-9]|$)"
 ```
+
+`-uall` is required: without it, `git status --porcelain` collapses an ignored or untracked directory to a single entry for the directory itself and never lists the files inside, so the search returns nothing. `substr($0,4)` replaces a `$2`-field split, which truncates any path containing a space.
 
 That covers both ignored and untracked paths, which is what these are in every repo this family runs in - `docs/superpowers/plans/`, `docs/reviews/`, and in some repos `docs/superpowers/specs/` too.
 
@@ -479,7 +499,7 @@ Nothing matched: set `<CLEANUP>` to `none`. Not every change leaves notes behind
 
 ### Reporting the cleanup
 
-One line, after the test line:
+One line:
 
 - `<CLEANUP>` not `none`: `- These working notes are no longer needed. To remove them:` followed by the command in a fenced block.
 - `<CLEANUP>` is `none`: say nothing.
@@ -490,13 +510,15 @@ The work item's criteria are task-list items in its description. Plane exposes t
 
 No identifier from "Recording the work item" - set `<AC_OUTCOME>` to `not-inferred` and skip the rest of this section.
 
-1. Call `workitem` with `action: "retrieve_by_identifier"` **immediately before writing** - not the copy any earlier section fetched. The whole description round-trips, so anything edited in the Plane UI between an earlier read and this write would be silently reverted. A fresh read shrinks that window to this step.
-2. In `description_html`, find `<li data-type="taskItem" data-checked="false">` entries.
+**Nothing was pushed this run** (`<PUSHED_PATHS>` unset, from Step 1's fall-through) - set `<AC_OUTCOME>` to `none-matched` and skip the rest: a run that only re-checked a link produced no evidence.
+
+1. Call `workitem` with `action: "retrieve_by_identifier"` **immediately before writing** - not the copy any earlier section fetched. On a 404 or any not-found error, set `<AC_OUTCOME>` to `not-found` and stop. The whole description round-trips, so anything edited in the Plane UI between an earlier read and this write would be silently reverted. A fresh read shrinks that window to this step.
+2. In `description_html`, find every `<li data-type="taskItem" ...>` entry, regardless of its `data-checked` value. None at all - set `<AC_OUTCOME>` to `no-criteria` and skip the rest: there is nothing to check off. Otherwise take the ones with `data-checked="false"`.
 3. Flip `data-checked` to `"true"` only for criteria **this ship has evidence for** - something in `<PUSHED_PATHS>`, `<TEST_RESULTS>` or the PR itself demonstrates. A criterion you believe is met but cannot point at stays unchecked. The checklist is the work item's own record of what is done; a box checked on faith makes it a record of what someone hoped.
 4. Change nothing else in the HTML - not the wording, not the ordering, not an already-checked box.
 5. Call `workitem` with `action: "update"` passing only `description_html`.
 
-Set `<AC_OUTCOME>` to `checked:<n>` for how many you flipped, `none-matched` when nothing had evidence, or `failed` with the error text. A Plane failure here never fails the ship.
+Set `<AC_OUTCOME>` to `checked:<n>` for how many you flipped, `none-matched` when the work item has criteria but nothing had evidence, or `failed` with the error text. A Plane failure here never fails the ship.
 
 ### Reporting the acceptance criteria
 
@@ -505,4 +527,6 @@ One line, after the cleanup line:
 - `not-inferred`: `- No acceptance criteria checked - no work item known for this change.`
 - `checked:<n>`: `- Checked off <n> acceptance criteria on <ID>.`
 - `none-matched`: `- No acceptance criteria checked - none had evidence from this ship.`
+- `no-criteria`: `- No acceptance criteria checked - <ID> has none in its description.`
+- `not-found`: `- Could not check acceptance criteria - <ID> was not found in Plane.`
 - `failed`: `- Could not check acceptance criteria on <ID>: <error>.`
