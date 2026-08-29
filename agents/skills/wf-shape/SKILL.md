@@ -58,10 +58,13 @@ Resolve the config and the default branch in one call:
 ```bash
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
 origin=$(git remote get-url origin 2>/dev/null)
+echo "origin=$origin"
 [ -n "$origin" ] && git fetch --quiet origin
 default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
 echo "default=$default"
 ```
+
+`origin=` empty - stop and tell the user no remote named `origin` is configured.
 
 `default=` empty - neither `main` nor `master` exists; stop and say so.
 
