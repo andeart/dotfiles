@@ -74,6 +74,11 @@ observing a condition.
 | `states.implementing` | The change touches anything outside `docs/` |
 | `states.in-review` | The pull request is open and not a draft |
 
+More than one row can hold at once - a ready pull request on a branch that
+touches code matches both `states.implementing` and `states.in-review`. Which
+one wins is the consumer's to state, not this table's; `/wf-ship` resolves it
+by checking the pull request first, so the later stage wins.
+
 Two of `/wf-status`'s checks have no writer and no `states.*` key, since
 "closed" is a group concept rather than a configured name (see Rules above):
 
