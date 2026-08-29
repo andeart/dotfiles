@@ -460,10 +460,12 @@ One line, after the link line:
 Once the PR is up, the working notes for this change have served their purpose. No identifier from "Recording the work item" - set `<CLEANUP>` to `none` and skip the search. Otherwise, find them, matching `<id-lowercase>` - that identifier, lowercased (e.g. `ZZZ-0` -> `zzz-0`):
 
 ```bash
-git status --porcelain --ignored | awk '$1 == "!!" || $1 == "??" { print $2 }' | grep -i "<id-lowercase>"
+git status --porcelain --ignored | awk '$1 == "!!" || $1 == "??" { print $2 }' | grep -iE "<id-lowercase>([^0-9]|$)"
 ```
 
 That covers both ignored and untracked paths, which is what these are in every repo this family runs in - `docs/superpowers/plans/`, `docs/reviews/`, and in some repos `docs/superpowers/specs/` too.
+
+`([^0-9]|$)` blocks the match from continuing into more digits: a plain substring match would let `DX-5` match every path belonging to `DX-57`, since `dx-5` is a literal prefix of `dx-57`. Requiring a non-digit (or end of line) right after the identifier stops a short identifier from matching inside a longer one. Do not simplify this back to a plain substring match.
 
 **Only untracked and ignored files are candidates.** A tracked spec is a committed decision record and stays; in the psychfam repos that is exactly what `docs/superpowers/specs/` holds. The distinction is tracked-versus-untracked, never the word "spec".
 
@@ -480,7 +482,7 @@ Nothing matched: set `<CLEANUP>` to `none`. Not every change leaves notes behind
 One line, after the test line:
 
 - `<CLEANUP>` not `none`: `- These working notes are no longer needed. To remove them:` followed by the command in a fenced block.
-- `<CLEANUP>` is `none` - say nothing.
+- `<CLEANUP>` is `none`: say nothing.
 
 ## Checking off acceptance criteria
 
