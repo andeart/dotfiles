@@ -46,6 +46,22 @@ Read the results into the names the rest of this skill uses:
 - `upstream=` - the upstream commit hash, or empty if the branch has no upstream. This is the hash the default-branch flow's Step 2 needs; do not re-read it.
 - `status<<<` - the porcelain lines, if any.
 
+### Resolve the wf config
+
+One call, and every section below reads its output. Calling it per section would fork `yq` several times for one file that does not change mid-run:
+
+```bash
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+```
+
+Save the whole dump as `<WF_CONFIG>`. The keys this skill reads:
+
+- `ship.draft-by-default` - whether "Writing the PR" passes `--draft`.
+- `ship.test-commands.N` - what "Running the tests" runs. Absent means run nothing.
+- `states.shaping`, `states.implementing`, `states.in-review` - the names "Reconciling the Plane state" matches against.
+
+Exit 3 means the repo's `.wf.yml` is present but wrong. Stop and print stderr: a broken config is the user's to fix, and guessing a draft setting would ship a PR in the wrong state. Exit 2 with `yq` missing is the same - say what is missing rather than proceeding on defaults.
+
 Then route:
 
 **If `branch` IS `<DEFAULT_BRANCH>`** - go to the "Shipping from default branch" flow.
@@ -184,6 +200,8 @@ If Step 1 found nothing new to push, say so above the PR URL. A run that only ch
 
 Use `gh pr create` with a title, a body, and `--assignee @me`. Do NOT use `--fill`.
 
+Pass `--draft` when `<WF_CONFIG>`'s `ship.draft-by-default` is `true`. A draft is the default because the stage a PR is in is what `/wf-ship ready` later reads to move the work item to In Review - without the draft-then-ready split there is no event that distinguishes an initial push from a finalize. Set the key `false` in a repo where drafts are not wanted; nothing else in this skill changes.
+
 **Title:** Lead with the work item identifier and a colon when one is known, then the subject. The identifier is whatever "Recording the work item" resolves - there is one per ship and it is decided there. When it resolves nothing, the title starts at the verb; no placeholder, and no bare colon.
 
 The identifier leads rather than trails because a subject that runs long is truncated from the right, in `git log --oneline` and in GitHub's commit list alike. A trailing identifier is the first thing to disappear, and it takes the `(#123)` with it.
@@ -253,7 +271,7 @@ If the user declines to name a slug at all, write the line bare - `Issue: <ID>`,
 Use a heredoc to pass the body:
 
 ```bash
-gh pr create --assignee @me --title "ZZZ-0: the title" --body "$(cat <<'EOF'
+gh pr create --draft --assignee @me --title "ZZZ-0: the title" --body "$(cat <<'EOF'
 Issue: [ZZZ-0](https://app.plane.so/<workspace>/browse/ZZZ-0/)
 
 ## Summary
@@ -265,7 +283,11 @@ EOF
 )"
 ```
 
+Drop `--draft` when the key is `false`.
+
 Drop the `Issue:` line and the blank line after it when no work item is known.
+
+Set `<PR_STATE>` to `draft` or `ready` to match what was created. "Reconciling the Plane state" reads it, and the Report step names it so a run that opened a draft does not read like one that opened a finished PR.
 
 ---
 
