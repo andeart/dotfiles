@@ -52,11 +52,11 @@ The default `review.focus`:
 - `states.*` names are matched rather than stored as identifiers, so one
   `.wf.yml` works across projects and workspaces where the same state carries
   different UUIDs.
-- **"Closed" always means the `completed` and `cancelled` state groups, never
-  a configured name - there is no `states.done` key.** `/wf-shape`, `/wf-ship`,
-  and `/wf-wrap` each guard against rewriting a work item already in one of
-  those two groups, and `/wf-wrap` picks its own completion target from the
-  `completed` group rather than a name in `.wf.yml`.
+- **"Closed" is a group concept, never a configured name - there is no
+  `states.done` key.** `/wf-shape` and `/wf-ship` guard against rewriting a
+  work item already in the `completed` or `cancelled` group. `/wf-wrap` guards
+  only the `completed` group, and picks its own completion target from it
+  rather than a name in `.wf.yml`.
 
 ## Reading it from a skill
 
