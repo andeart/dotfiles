@@ -58,6 +58,29 @@ The default `review.focus`:
   only the `completed` group, and picks its own completion target from it
   rather than a name in `.wf.yml`.
 
+## The state correspondence
+
+`/wf-ship` decides a state from a push's file list and the pull request's
+state; `/wf-shape` writes `states.shaping` unconditionally, since nothing has
+been pushed yet when it runs. `/wf-status` reads a work item's current state
+and flags a condition that holds when it does not match, observed from a
+working tree and the pull request's current state. This table names only the
+correspondence, not a procedure - each consumer states its own way of
+observing a condition.
+
+| State key | The condition it corresponds to |
+| --- | --- |
+| `states.shaping` | The change so far touches only `docs/` |
+| `states.implementing` | The change touches anything outside `docs/` |
+| `states.in-review` | The pull request is open and not a draft |
+
+Two of `/wf-status`'s checks have no writer and no `states.*` key, since
+"closed" is a group concept rather than a configured name (see Rules above):
+
+- The work item sits in the `completed` or `cancelled` group, and its branch
+  has not merged.
+- The identifier resolves to nothing in Plane.
+
 ## Reading it from a skill
 
 One call, once per run:
