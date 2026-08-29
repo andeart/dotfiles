@@ -37,7 +37,7 @@ For every row whose `identifier` is not `-`, call `workitem` with `action: "retr
 
 A row whose `identifier` is `-` needs no lookup and carries no disagreement of its own.
 
-Plane being unreachable for any reason other than the not-found case above does not fail the run. Report every row's git and `gh` half, say Plane could not be reached, and stop there - half the answer is worth more than none.
+Plane being unreachable for any reason other than the not-found case above does not fail the run. Keep and report every comparison already resolved for a row reached before the failure; only the rows not yet reached lose their Plane half - report their git and `gh` half alone and say Plane could not be reached for the rest. Same property as everywhere else in this step: one failure costs its own detail and never another row's.
 
 ## Step 2: Check each row against the correspondence
 
@@ -51,9 +51,11 @@ Skip a row whose identifier is `-` or came back `identifier-not-found` from Step
 
 Flag the row when that holds - Plane says the item is closed out, the branch says otherwise - and move to the next row. Do not also run the correspondence-row check below for a guarded row; the guard is why this condition has no key of its own.
 
-**Past the guard**, resolve which correspondence row the evidence points to, in the same order `/wf-ship` resolves it - the pull request checked first, so the later stage wins on the case where more than one row holds at once:
+**Check `pr_state` for `merged` next, before the correspondence rows.** All three correspondence rows describe work still in flight; a branch that has merged has already left that space, and `/wf-wrap` - not this skill - owns moving the work item the rest of the way, so until it runs the item's Plane state is expected to still sit wherever `/wf-ship` last left it. Flag nothing for this row and move to the next one. Do not fall through to the diff below for a merged branch: this repo squash-merges, so the branch tip is never an ancestor of `origin/<default>`, and `origin/<default>...HEAD` still lists every file the branch ever touched - the same logic that correctly resolves an unmerged branch would resolve a merged one falsely. Step 3 still prints `pr_state=merged` on the row, so a merged-but-not-yet-wrapped item stays visible; only the correspondence comparison is skipped.
 
-1. **`pr_state` is `ready`** - the pull request's row is the one that holds. A `draft`, `closed`, `merged`, or `none` pull request is not "open and not a draft," so none of those satisfy this row; fall through to the diff below and let the tree decide instead.
+**Only when neither the guard nor the merged check above fired**, resolve which correspondence row the evidence points to, in the same order `/wf-ship` resolves it - the pull request checked first, so the later stage wins on the case where more than one row holds at once:
+
+1. **`pr_state` is `ready`** - the pull request's row is the one that holds. A `draft`, `closed`, or `none` pull request is not "open and not a draft," so none of those satisfy this row; fall through to the diff below and let the tree decide instead.
 2. **Otherwise, diff the worktree against its repo's default branch.** The porcelain row does not carry that name, so resolve it per repo, once, and reuse it across that repo's rows. Verify the ref you are about to diff against, not a same-named local branch that may not track it - a repo can have a local `main` with no `origin/main`, or the reverse:
 
    ```bash
