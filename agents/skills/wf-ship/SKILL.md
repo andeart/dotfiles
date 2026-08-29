@@ -203,7 +203,7 @@ After committing (or if there was nothing to commit), check whether there are un
 
 If nothing was committed AND the branch has an upstream AND there are no unpushed commits, there is nothing new to push - which is not the same as nothing to do. Run Step 3's PR lookup now and branch on it:
 
-- **A PR exists** - skip Step 2 entirely, then pick up Step 3 at its existing-PR branch: take `PR_URL` from the lookup, run the `--add-assignee @me` no-op, and continue into Step 4. The work item may still be missing its link: Plane can have been down on the ship that created the PR, the PR can predate the link step, or the link can have been removed by hand. Step 4 is the only thing that puts it back, and its duplicate check makes running it again free. Note that nothing was pushed, for the report.
+- **A PR exists** - skip Step 2 entirely, then pick up Step 3 at its existing-PR branch: take `PR_URL` from the lookup, run the `--add-assignee @me` no-op, set `<TEST_RESULTS>` to `not-run`, and continue into Step 4. The work item may still be missing its link: Plane can have been down on the ship that created the PR, the PR can predate the link step, or the link can have been removed by hand. Step 4 is the only thing that puts it back, and its duplicate check makes running it again free. Note that nothing was pushed, for the report.
 - **No PR exists** - stop with "nothing to ship".
 
 The default-branch flow's equivalent stop stays absolute. There, no unpushed commits means there is no work to move off the default branch at all - no feature branch and no PR for one - so there is nothing for a fall-through to act on.
