@@ -158,7 +158,7 @@ gh pr view --json url,number,isDraft,body --jq '.url, .number, .isDraft, "body<<
 
 - **No PR for this branch** - stop with:
 
-  > No pull request exists for `<FEATURE>`. Run `/wf-ship` first to open one.
+  > No pull request exists for `branch`. Run `/wf-ship` first to open one.
 
 - **`isDraft` is `false`** - the PR is already ready. Say so, skip Step 2, and continue to Step 3: the work item may still be sitting in the wrong state, and reconciling it is the rest of this flow's job.
 
