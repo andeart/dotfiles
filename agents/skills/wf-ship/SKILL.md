@@ -118,6 +118,14 @@ git cherry-pick <upstream-hash>..<DEFAULT_BRANCH>
 
 If cherry-pick fails, tell the user about the conflict and stop. Do not force anything.
 
+Record what this push carries, before pushing - afterwards the upstream has moved and the range is empty. The new branch has no upstream of its own yet, so this compares against the point it was cut from:
+
+```bash
+git diff --name-only <upstream-hash>..HEAD
+```
+
+Save the file list as `<PUSHED_PATHS>`.
+
 ### 5. Push and create PR
 
 ```bash
@@ -136,13 +144,13 @@ git branch -f <DEFAULT_BRANCH> <upstream-hash>
 
 This removes the local commit from the default branch now that it lives on the feature branch.
 
-### 7. Link the PR to Plane
+### 7. Link the PR to Plane and reconcile its state
 
-Follow the "Linking the PR to Plane" section below.
+Follow the "Linking the PR to Plane" section below, then "Reconciling the Plane state".
 
 ### 8. Report
 
-Print the PR URL, then the Plane line from "Reporting the Plane outcome". You are now on the feature branch.
+Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it". You are now on the feature branch.
 
 ---
 
@@ -202,6 +210,16 @@ The default-branch flow's equivalent stop stays absolute. There, no unpushed com
 
 ### 2. Push
 
+Record what this push carries, before pushing - afterwards the upstream has moved and the range is empty:
+
+```bash
+git rev-parse --verify --quiet '@{upstream}' >/dev/null 2>&1 \
+  && git diff --name-only '@{upstream}'..HEAD \
+  || git diff --name-only "origin/<DEFAULT_BRANCH>"..HEAD
+```
+
+Save the file list as `<PUSHED_PATHS>`. A branch with no upstream has never been pushed, so its whole divergence from the default branch is what is going up.
+
 ```bash
 git push -u origin HEAD
 ```
@@ -220,13 +238,15 @@ Two lines come back: the PR URL, then the first line of its body. If a PR URL is
 
 Otherwise, create a PR with a proper summary (see "Writing the PR" section below). Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
 
-### 4. Link the PR to Plane
+### 4. Link the PR to Plane and reconcile its state
 
 Follow the "Linking the PR to Plane" section below. Two paths reach here without having created anything - Step 1's fall-through when there was nothing to push, and Step 3's early exit when a PR already existed - and both land here on purpose. A branch that already has a PR still needs its link checked, and that section is what keeps a repeat run from adding a duplicate.
 
+Then follow "Reconciling the Plane state".
+
 ### 5. Report
 
-Print the PR URL, then the Plane line from "Reporting the Plane outcome". You remain on the feature branch.
+Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it". You remain on the feature branch.
 
 If Step 1 found nothing new to push, say so above the PR URL. A run that only checked the link should not read like one that shipped work.
 
@@ -366,3 +386,42 @@ The Report step prints the PR URL, then one line for `<PLANE_OUTCOME>`:
 - `failed`: `- No Plane work item linked - Plane returned: <error>. The PR is up; add the link by hand if you want it.`
 
 The user always sees whether Plane was touched, and why not when it wasn't.
+
+## Reconciling the Plane state
+
+This skill reconciles rather than transitions: it writes whatever state its own evidence implies, so a checkpoint missed for any reason self-corrects on the next ship instead of drifting further.
+
+Record the result in `<STATE_OUTCOME>`; the Report step prints one line for it.
+
+### Which state the evidence implies
+
+- **`<PR_STATE>` is `ready`** → `states.in-review`. Flipping a draft to ready is the event that means review has started.
+- **`<PUSHED_PATHS>` holds only paths under `docs/`** → `states.shaping`. The change so far is a spec.
+- **`<PUSHED_PATHS>` holds anything outside `docs/`** → `states.implementing`.
+- **Nothing was pushed and this is not a ready-flip** - set `<STATE_OUTCOME>` to `nothing-pushed` and skip the rest. A run that only re-checked a link has no evidence about the stage.
+
+A repo that gitignores all of `docs/` can never produce a docs-only push, so that state only ever gets written by `/wf-shape` itself. That is a property of the repo's `.gitignore`, not a special case here.
+
+### Writing it
+
+The same procedure `/wf-shape` uses, pointed at a different phase.
+
+1. Resolve the work item the way "Linking the PR to Plane" does - the identifier is decided in "Recording the work item" and there is one per ship. No identifier means `<STATE_OUTCOME>` is `not-inferred`; stop here. The `retrieve_by_identifier` call also returns `state`; save it too, alongside `id` and `project` - the guard below needs it.
+2. Call `state` with `action: "list"` and `project_id` set to the work item's project.
+3. **Check the guard first.** If the work item's current state belongs to a state in that list whose `group` is `completed` or `cancelled`, set `<STATE_OUTCOME>` to `already-closed`, leave it alone, and stop - do not read the target name at all. Compare against every state in those groups, not one named state: a project can close work items into more than one.
+4. Only past the guard, read the target state name from `<WF_CONFIG>` as `<name>` and match it, exactly, against the same list.
+5. **No match** - set `<STATE_OUTCOME>` to `no-such-state` and skip the write.
+6. **A match** - call `workitem` with `action: "update"` passing only `state`, and set `<STATE_OUTCOME>` to `moved:<name>`.
+
+A Plane failure never fails the ship. By the time this runs the PR exists; set `<STATE_OUTCOME>` to `failed`, keep the error text, and continue.
+
+### Reporting it
+
+One line, after the link line:
+
+- `moved:<name>`: `- Moved <ID> to <name>.`
+- `already-closed`: `- <ID> is already closed - state left as is.`
+- `no-such-state`: `- No state change - <ID>'s project has no state named <name>.`
+- `nothing-pushed`: `- No state change - nothing was pushed.`
+- `not-inferred`: `- No state change - no work item known for this change.`
+- `failed`: `- No state change - Plane returned: <error>.`
