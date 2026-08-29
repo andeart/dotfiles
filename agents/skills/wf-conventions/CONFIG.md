@@ -15,15 +15,15 @@ force an arbitrary owner.
 | `states.shaping` | string | `Shaping` | `/wf-shape`, `/wf-ship`, `/wf-status` |
 | `states.implementing` | string | `Implementing` | `/wf-ship`, `/wf-status` |
 | `states.in-review` | string | `In Review` | `/wf-ship`, `/wf-status` |
-| `workspace.impl` | `base` \| `worktree` | `base` | `/wf-shape`, `/wf-wrap`, `/wf-status` |
+| `workspace.impl` | `base` \| `worktree` | `base` | `/wf-shape`, `/wf-status` |
 | `review.reviewers` | list | `Alia`, `Bheem`, `Cristo`, `Darius` | `/wf-spec-review`, `/wf-impl-review` |
 | `review.focus` | list | the four headings below | `/wf-spec-review`, `/wf-impl-review` |
 | `ship.draft-by-default` | bool | `true` | `/wf-ship` |
 | `ship.test-commands` | list | none | `/wf-ship` |
 | `wrap.watch-post-merge-ci` | bool | `false` | `/wf-wrap` |
 
-`/wf-shape`, `/wf-spec-review`, `/wf-impl-review` and `/wf-status` arrive with
-DX-57's later PRs; `/wf-ship` and `/wf-wrap` start reading these keys then too.
+`/wf-status` arrives with DX-57's PR 4, reading `states.*` and `workspace.impl`
+alongside the skills already listed above.
 
 The default `review.focus`:
 
