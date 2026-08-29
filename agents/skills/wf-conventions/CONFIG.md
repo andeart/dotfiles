@@ -15,15 +15,15 @@ force an arbitrary owner.
 | `states.shaping` | string | `Shaping` | `/wf-shape`, `/wf-ship`, `/wf-status` |
 | `states.implementing` | string | `Implementing` | `/wf-ship`, `/wf-status` |
 | `states.in-review` | string | `In Review` | `/wf-ship`, `/wf-status` |
-| `workspace.impl` | `base` \| `worktree` | `base` | `/wf-shape`, `/wf-status` |
+| `workspace.impl` | `base` \| `worktree` | `base` | `/wf-shape` |
 | `review.reviewers` | list | `Alia`, `Bheem`, `Cristo`, `Darius` | `/wf-spec-review`, `/wf-impl-review` |
 | `review.focus` | list | the four headings below | `/wf-spec-review`, `/wf-impl-review` |
 | `ship.draft-by-default` | bool | `true` | `/wf-ship` |
 | `ship.test-commands` | list | none | `/wf-ship` |
 | `wrap.watch-post-merge-ci` | bool | `false` | `/wf-wrap` |
 
-`/wf-status` arrives with DX-57's PR 4, reading `states.*` and `workspace.impl`
-alongside the skills already listed above.
+`/wf-status` arrives with DX-57's PR 4, reading `states.*` alongside the skills
+already listed above.
 
 The default `review.focus`:
 
@@ -52,6 +52,11 @@ The default `review.focus`:
 - `states.*` names are matched rather than stored as identifiers, so one
   `.wf.yml` works across projects and workspaces where the same state carries
   different UUIDs.
+- **"Closed" always means the `completed` and `cancelled` state groups, never
+  a configured name - there is no `states.done` key.** `/wf-shape`, `/wf-ship`,
+  and `/wf-wrap` each guard against rewriting a work item already in one of
+  those two groups, and `/wf-wrap` picks its own completion target from the
+  `completed` group rather than a name in `.wf.yml`.
 
 ## Reading it from a skill
 
