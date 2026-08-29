@@ -132,7 +132,7 @@ Save the file list as `<PUSHED_PATHS>`.
 git push -u origin <branch-name>
 ```
 
-Create a PR with a proper summary (see "Writing the PR" section below). Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch, do NOT reset the default branch.
+Follow "Running the tests" below, then create a PR with a proper summary (see "Writing the PR" section below). By the time `gh pr create` runs, the tests have already run. Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch, do NOT reset the default branch.
 
 ### 6. Clean up the default branch
 
@@ -236,7 +236,7 @@ gh pr view --json url,body --jq '.url, (.body // "" | split("\n")[0])' 2>/dev/nu
 
 Two lines come back: the PR URL, then the first line of its body. If a PR URL is returned, use it - do not create a new PR. Save the body's first line as `<PR_FIRST_LINE>` for "Linking the PR to Plane". Assign it with `gh pr edit <PR_URL> --add-assignee @me`, which is a no-op if it's already assigned, then skip to Step 4.
 
-Otherwise, create a PR with a proper summary (see "Writing the PR" section below). Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
+Otherwise, follow "Running the tests" below, then create a PR with a proper summary (see "Writing the PR" section below). By the time `gh pr create` runs, the tests have already run. Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
 
 ### 4. Link the PR to Plane and reconcile its state
 
@@ -251,6 +251,22 @@ Print the PR URL, then the Plane line from "Reporting the Plane outcome", then t
 If Step 1 found nothing new to push, say so above the PR URL. A run that only checked the link should not read like one that shipped work.
 
 ---
+
+## Running the tests
+
+Read `ship.test-commands.1`, `.2`, ... from `<WF_CONFIG>` until a line is missing. Run each from the repo root, in order, and record its outcome in `<TEST_RESULTS>`: the command, whether it exited zero, and the last few lines of its output.
+
+**No `ship.test-commands` at all** - run nothing, set `<TEST_RESULTS>` to `none-configured`, and say so in the Report step. Guessing a test command runs something arbitrary in a repo that never asked for it.
+
+**A command fails** - do not stop the ship. The PR is the place a failure gets discussed, and a red suite that never reaches a PR gets fixed silently and forgotten. Record the failure, leave its box unchecked, and name it in the Report step.
+
+Never truncate a failing command's output with `head` - the summary is at the end. Use `tail`.
+
+### What this does and does not decide
+
+The Test plan in the PR body is written independently of this, and thoroughly: it lists what a reviewer should verify, whether or not anything here can run it. This section only decides which of those boxes starts checked.
+
+That split matters because the checklist is the honest record. A box left unchecked with a reason beside it tells a reviewer what still needs doing; a checklist trimmed to only what the machine could run tells them nothing.
 
 ## Writing the PR
 
@@ -283,7 +299,11 @@ Issue: [<ID>](https://app.plane.so/<workspace>/browse/<ID>/)
 <Bulleted checklist of how to verify the changes>
 ```
 
-Derive the summary from the commit messages and the conversation context (what was discussed, what the subagent built, what was tested). The test plan should reflect what was actually verified during development.
+Derive the summary from the commit messages and the conversation context (what was discussed, what the subagent built, what was tested).
+
+> The Test plan is a checklist, written independently of what this run could execute - list what a reviewer should verify. Then check off exactly the items `<TEST_RESULTS>` shows passing, and leave the rest unchecked with a short reason on the line. An item nothing here could run is not a gap in the plan; it is a box for a person.
+>
+> An item deliberately declined - something you decided not to run and are not asking anyone else to - does not belong in the checklist at all. State it in prose below the list. An unchecked box reads as outstanding work, and a declined item is not outstanding.
 
 ### Assigning the PR
 
