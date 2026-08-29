@@ -150,7 +150,7 @@ Follow the "Linking the PR to Plane" section below, then "Reconciling the Plane 
 
 ### 8. Report
 
-Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it". You are now on the feature branch.
+Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it", then the test line from "Reporting the test results". You are now on the feature branch.
 
 ---
 
@@ -234,7 +234,7 @@ Before running `gh pr create`, check whether a PR already exists for this branch
 gh pr view --json url,body --jq '.url, (.body // "" | split("\n")[0])' 2>/dev/null
 ```
 
-Two lines come back: the PR URL, then the first line of its body. If a PR URL is returned, use it - do not create a new PR. Save the body's first line as `<PR_FIRST_LINE>` for "Linking the PR to Plane". Assign it with `gh pr edit <PR_URL> --add-assignee @me`, which is a no-op if it's already assigned, then skip to Step 4.
+Two lines come back: the PR URL, then the first line of its body. If a PR URL is returned, use it - do not create a new PR. Save the body's first line as `<PR_FIRST_LINE>` for "Linking the PR to Plane". Assign it with `gh pr edit <PR_URL> --add-assignee @me`, which is a no-op if it's already assigned, set `<TEST_RESULTS>` to `not-run`, then skip to Step 4.
 
 Otherwise, follow "Running the tests" below, then create a PR with a proper summary (see "Writing the PR" section below). By the time `gh pr create` runs, the tests have already run. Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
 
@@ -246,7 +246,7 @@ Then follow "Reconciling the Plane state".
 
 ### 5. Report
 
-Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it". You remain on the feature branch.
+Print the PR URL, then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting it", then the test line from "Reporting the test results". You remain on the feature branch.
 
 If Step 1 found nothing new to push, say so above the PR URL. A run that only checked the link should not read like one that shipped work.
 
@@ -267,6 +267,15 @@ Never truncate a failing command's output with `head` - the summary is at the en
 The Test plan in the PR body is written independently of this, and thoroughly: it lists what a reviewer should verify, whether or not anything here can run it. This section only decides which of those boxes starts checked.
 
 That split matters because the checklist is the honest record. A box left unchecked with a reason beside it tells a reviewer what still needs doing; a checklist trimmed to only what the machine could run tells them nothing.
+
+### Reporting the test results
+
+One line, after the state line:
+
+- **`none-configured`**: `- No test commands are configured - nothing ran.`
+- **`not-run`**: `- Tests did not run - a pull request already existed for this branch.`
+- **Every command passed**: `- Ran <N> test command(s) - all passed.`
+- **One or more commands failed**: `- <command> failed - left unchecked in the Test plan.` Name every failing command; join more than one with a comma.
 
 ## Writing the PR
 
