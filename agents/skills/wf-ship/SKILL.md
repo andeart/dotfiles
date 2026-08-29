@@ -508,7 +508,7 @@ One line:
 
 The work item's criteria are task-list items in its description. Plane exposes the description as one field, so checking a box means writing the whole thing back.
 
-No identifier from "Recording the work item" - set `<AC_OUTCOME>` to `not-inferred` and skip the rest of this section.
+No identifier (resolved the way "Linking the PR to Plane" does) - set `<AC_OUTCOME>` to `not-inferred` and skip the rest of this section.
 
 **Nothing was pushed this run** (`<PUSHED_PATHS>` unset, from Step 1's fall-through) - set `<AC_OUTCOME>` to `none-matched` and skip the rest: a run that only re-checked a link produced no evidence.
 
