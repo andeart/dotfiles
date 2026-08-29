@@ -178,7 +178,7 @@ Save the URL as `PR_URL` and the body's first line as `<PR_FIRST_LINE>`.
 gh pr ready <PR_URL>
 ```
 
-If this fails, stop and report. Do not continue to the state write - a work item saying In Review over a PR still marked draft is worse than one left alone.
+If this fails, stop and report. Do not continue to the state write - a work item that says review has started, over a PR still marked draft, is worse than one left alone.
 
 ### 3. Reconcile and report
 
@@ -256,7 +256,7 @@ If Step 1 found nothing new to push, say so above the PR URL. A run that only ch
 
 Use `gh pr create` with a title, a body, and `--assignee @me`. Do NOT use `--fill`.
 
-Pass `--draft` when `<WF_CONFIG>`'s `ship.draft-by-default` is `true`. A draft is the default because the stage a PR is in is what `/wf-ship ready` later reads to move the work item to In Review - without the draft-then-ready split there is no event that distinguishes an initial push from a finalize. Set the key `false` in a repo where drafts are not wanted; nothing else in this skill changes.
+Pass `--draft` when `<WF_CONFIG>`'s `ship.draft-by-default` is `true`. A draft is the default because the stage a PR is in is what `/wf-ship ready` later reads to move the work item to its review state - without the draft-then-ready split there is no event that distinguishes an initial push from a finalize. Set the key `false` in a repo where drafts are not wanted; nothing else in this skill changes.
 
 **Title:** Lead with the work item identifier and a colon when one is known, then the subject. The identifier is whatever "Recording the work item" resolves - there is one per ship and it is decided there. When it resolves nothing, the title starts at the verb; no placeholder, and no bare colon.
 
