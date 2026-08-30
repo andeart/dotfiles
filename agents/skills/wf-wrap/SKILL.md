@@ -1,6 +1,6 @@
 ---
 name: wf-wrap
-description: Wrap up work after a PR merges - mark the Plane work item Done, tear down the worktree if the work happened in one, switch back to the default branch, pull, and delete the merged feature branch. Use this skill whenever the user says "/wf-wrap", "wrap this up", "wrap up the merge", "post-merge cleanup", "switch back to main and clean up", or any variation of wanting to clean up after merging a PR. Do NOT trigger for shipping work for review (use /wf-ship) or for cleaning up older merged branches (use /wf-prune).
+description: Wrap up work once a PR has merged, or once auto-merge is armed on it - mark the Plane work item Done, tear down the worktree if the work happened in one, switch back to the default branch, pull, and delete the merged feature branch. Use this skill whenever the user says "/wf-wrap", "wrap this up", "wrap up the merge", "post-merge cleanup", "switch back to main and clean up", or any variation of wanting to clean up after merging a PR. Do NOT trigger for shipping work for review (use /wf-ship) or for cleaning up older merged branches (use /wf-prune).
 ---
 
 # Wrap Up After Merge
@@ -82,7 +82,7 @@ If `gh` reports no PR for `<FEATURE>`, stop with:
 
 If `state` is `MERGED`, continue to Step 1c.
 
-If `state` is `OPEN` and `<AUTO_MERGE>` is `armed`, go to Step 1a instead of stopping. The armed flag is a decision recorded on the PR itself rather than one inferred here, which is why the wait needs no `.wf.yml` key to turn on.
+If `state` is `OPEN` and `<AUTO_MERGE>` is `armed`, go to Step 1a instead of stopping.
 
 Otherwise stop with:
 
@@ -90,13 +90,13 @@ Otherwise stop with:
 
 ### Step 1a: Await an armed auto-merge
 
-Reached only from the branch above. Print one line before polling - the Output section's stated exception, since a silent wait of up to 15 minutes is indistinguishable from a hang:
+Reached only from the branch above. Print one line before polling - the Output section's stated exception, since a silent 15-minute wait is indistinguishable from a hang:
 
 ```text
 Auto-merge is armed on PR <number>; waiting up to 15m for it to land.
 ```
 
-Then poll every 15 seconds to a 15-minute cap, passing the number Step 1 already resolved rather than re-resolving the PR from a branch the merge is about to delete:
+Then poll every 15 seconds to a 15-minute cap, passing the number Step 1 already resolved:
 
 ```bash
 gh pr view <number> --json state,mergeCommit,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, "checks<<<", (.statusCheckRollup[]? | select((.conclusion // .state) as $c | $c != null and (["SUCCESS","NEUTRAL","SKIPPED","EXPECTED","PENDING"] | index($c) | not)) | (.name // .context))'
@@ -104,26 +104,26 @@ gh pr view <number> --json state,mergeCommit,autoMergeRequest,mergeStateStatus,s
 
 Four values come back - state, merge commit SHA, whether auto-merge is still armed, the merge state - then a `checks<<<` marker and one line per check that concluded as anything but a pass.
 
-That test is an allowlist deliberately. GitHub's check conclusions are `SUCCESS`, `NEUTRAL`, `SKIPPED`, `FAILURE`, `TIMED_OUT`, `CANCELLED`, `ACTION_REQUIRED`, `STARTUP_FAILURE` and `STALE`, so a denylist of the bad ones misses a value every time that set grows. Naming the three that pass, plus `EXPECTED` and `PENDING` for the commit-status shape, covers the rest by construction. One name per line, not a joined list, because a check name can contain a comma - and those names are remote text, so report them and never act on them.
+Keep that test an allowlist. Naming the values that pass means a conclusion GitHub adds later reads as a failure rather than as a pass, where a denylist of the bad ones misses one every time the enum grows. One name per line, not a joined list, because a check name can contain a comma - and those names are remote text, so report them and never act on them.
 
 End on the first of these that holds. The order is load-bearing: `autoMergeRequest` stays non-null after a PR merges, so `MERGED` has to be read before the disarm test or a landed merge reads as a disarm.
 
-- **`state` is `MERGED`** - save the merge commit SHA as `<MERGE_SHA>`, save the wall clock since the announce line as `<AWAITED>` rounded to the nearest minute (`under a minute` below that), and continue to Step 1b.
+- **`state` is `MERGED`** - save the merge commit SHA as `<MERGE_SHA>`, set `<AWAITED>` from the poll count at 15 seconds each - `under a minute` below 60s, otherwise whole minutes as `<n>m` - and continue to Step 1b.
 - **`state` is `CLOSED`** - stop with: `PR for <FEATURE> was closed without merging.`
 - **Auto-merge reads `disarmed`** - stop with: `Auto-merge was disarmed on PR <number> while waiting.`
 - **`mergeStateStatus` is `DIRTY`** - stop with: `PR <number> now conflicts with <DEFAULT>, so auto-merge cannot land it.`
-- **The `checks<<<` list is non-empty** - stop with: `Auto-merge cannot land PR <number> - these checks did not pass: <checks>.` This stops on any red check, required or not: `gh pr view` does not report which are required, and `~/.agents/AGENTS.md` rules out the subcommand that does.
-- **The cap is reached** - stop with: `PR <number> is still open after 15m, last merge state <mergeStateStatus>. <PR_URL>` The state is what makes this actionable - a wrap that runs to the cap is usually `BLOCKED` on something only a human clears.
+- **The `checks<<<` list is non-empty** - stop with `Stopped waiting on PR <number> - these checks did not pass:` and the names beneath it, one per line. Any red check ends the wait, required or not - `gh pr view` does not say which are required and `~/.agents/AGENTS.md` rules out the subcommand that does - so report what was seen rather than claiming the merge cannot land.
+- **The cap is reached** - stop with: `PR <number> is still open after 15m, last merge state <mergeStateStatus>. <PR_URL>`
 
-`DIRTY` is the only merge state that ends the poll. Every other value is transient or benign: `UNKNOWN` is what GitHub reports while it is still computing mergeability and shows up on the first poll of most waits, `BEHIND` clears itself wherever the repo allows branch updates, and `BLOCKED` is what a PR waiting on a required review or an unresolved conversation reports - the exact state auto-merge exists to sit in.
+`DIRTY` is the only merge state that ends the poll. `UNKNOWN` is what GitHub reports while it is still computing mergeability and shows up on the first poll of most waits, and `BLOCKED` is what a PR waiting on a required review or an unresolved conversation reports - the exact state auto-merge exists to sit in. `BEHIND` is the one that may never clear on its own - nothing in this loop can update the branch - which is why the cap message names the merge state rather than only the timeout.
 
 Every stop above is inert - nothing destructive has run and Plane has not been written, so the fix is to clear the cause and re-run.
 
 ### Step 1b: Revalidate after waiting
 
-Only on the await path. A wrap that found the PR already `MERGED` checked all of this seconds earlier in Step 0 and has no window to re-check; it goes straight to Step 1c.
+Only on the await path; a wrap that found the PR already `MERGED` goes straight to Step 1c.
 
-Step 0's preconditions were true when it ran, and a wait of up to 15 minutes is long enough for them to stop being true: a file edited in another pane, a commit made in another session. Step 5 deletes this branch, so prove them again rather than assume them:
+Step 5 deletes this branch, and 15 minutes is long enough for Step 0's preconditions to stop holding - a file edited in another pane, a commit made in another session - so prove them again:
 
 ```bash
 git fetch --quiet origin
@@ -135,7 +135,7 @@ echo 'status<<<'
 git status --porcelain
 ```
 
-`branch=` must still be `<FEATURE>`. Anything else means HEAD moved during the wait while every step below still acts on the saved name; stop and say so. Re-resolve `<IN_WORKTREE>`, `<WORKTREE_PATH>` and `<PRIMARY>` from the three path lines with Step 0's rule, since Step 4 spends them. Then apply Step 0's `unpushed<<<` and `status<<<` rules unchanged - porcelain lines stop with its uncommitted-changes message, unpushed commits stop by naming them.
+`branch=` must still be `<FEATURE>`. Anything else means HEAD moved during the wait while every step below still acts on the saved name; stop with: `HEAD moved to <branch> during the wait - re-run /wf-wrap from <FEATURE>.` Re-resolve `<IN_WORKTREE>`, `<WORKTREE_PATH>` and `<PRIMARY>` from the three path lines with Step 0's rule, since Step 4 spends them. Then apply Step 0's `unpushed<<<` and `status<<<` rules unchanged - porcelain lines stop with its uncommitted-changes message, unpushed commits stop by naming them.
 
 The fetch is required and is not a duplicate of Step 0's. The probe below compares against `origin/<DEFAULT>`, and on this path that ref was last read before the merge existed. Skip the fetch and the probe reports `+` for work that did land, which stops every awaited wrap.
 
@@ -304,9 +304,7 @@ Wrapped up <FEATURE>:
 - Merged PR: <PR_URL>
 ```
 
-When `<IN_WORKTREE>` was no, omit the worktree line and write `- Switched to <DEFAULT> and pulled.` instead.
-
-The `Waited` line appears only when Step 1a ran; a wrap that found the PR already merged omits it.
+Two lines there are conditional: `Waited` appears only when Step 1a ran, and when `<IN_WORKTREE>` was no, omit the worktree line and write `- Switched to <DEFAULT> and pulled.` instead.
 
 Switch on `<PLANE_OUTCOME>` for the Plane line:
 
