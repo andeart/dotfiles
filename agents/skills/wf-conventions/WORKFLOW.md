@@ -8,7 +8,7 @@
 - **`/wf-ship`** - commits, pushes, opens a **draft** PR, runs `.wf.yml`'s test commands, links Plane, reconciles the state, checks off criteria with evidence.
 - **`/wf-ship ready`** - flips the draft, moves the item to In Review, hands back the cleanup command. Never inferred; you have to say `ready`.
 - *…you merge…*
-- **`/wf-wrap`** - marks it Done, tears down the worktree if there was one, returns to the default branch, pulls, deletes the branch, watches post-merge CI.
+- **`/wf-wrap`** - marks it Done, tears down the worktree if there was one, returns to the default branch, pulls, deletes the branch, watches post-merge CI. Where auto-merge is armed it waits for the merge to land rather than stopping.
 - **`/wf-prune`** - separately, whenever: clears older merged branches.
 
 **`/wf-status`** sits outside the sequence - run it any time to see where every thread stands, or `wf-status <repo paths>` from the shell for the git half alone.

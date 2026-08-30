@@ -71,18 +71,75 @@ Finally, resolve the worktree state from the three path lines. If `gitdir` and `
 Look up the PR for `<FEATURE>`. Read the state, number, URL, merge commit, and the top of the body in one call - Step 2 needs that body and `gh` is network-bound, so a second lookup is the most expensive duplicate this skill can make:
 
 ```bash
-gh pr view --json state,number,url,body,mergeCommit --jq '.state, .number, .url, (.mergeCommit.oid // ""), "body<<<", (.body // "" | split("\n")[0:3] | .[])'
+gh pr view --json state,number,url,body,mergeCommit,autoMergeRequest --jq '.state, .number, .url, (.mergeCommit.oid // ""), (if .autoMergeRequest == null then "auto-merge=no" else "auto-merge=yes" end), "body<<<", (.body // "" | split("\n")[0:3] | .[])'
 ```
 
-Four values come back in order - state, number, URL, merge commit SHA - then a `body<<<` marker and the body's first three lines. Save the URL as `<PR_URL>` for the final report, the merge commit SHA as `<MERGE_SHA>` for Step 6, and those body lines as `<PR_BODY_HEAD>` for Step 2.
+Five values come back in order - state, number, URL, merge commit SHA, whether auto-merge is armed - then a `body<<<` marker and the body's first three lines. Save the URL as `<PR_URL>` for the final report, the merge commit SHA as `<MERGE_SHA>` for Step 6, the auto-merge flag as `<AUTO_MERGE>` for the branch below, and those body lines as `<PR_BODY_HEAD>` for Step 2.
 
 If `gh` reports no PR for `<FEATURE>`, stop with:
 
 > No PR found for `<FEATURE>`. Did you mean `/wf-ship` first?
 
-If `state` is anything other than `MERGED`, stop with:
+If `state` is `MERGED`, continue to the content proof below.
+
+If `state` is `OPEN` and `<AUTO_MERGE>` is `yes`, go to Step 1a instead of stopping. The merge is already authorized and is waiting on its own conditions, and that armed flag is a decision recorded on the PR itself rather than one inferred here - which is why this needs no `.wf.yml` key to turn on.
+
+Otherwise stop with:
 
 > PR for `<FEATURE>` is `<state>`, not `MERGED`. Merge it before wrapping.
+
+That covers an open PR with nothing armed and a closed one alike. Only the armed-and-open case waits, and only on the flag `gh` reports; do not infer the intent from anything else.
+
+### Step 1a: Await an armed auto-merge
+
+Reached only from the branch above. Print one line before polling - the Output section's stated exception for a genuine surprise, since an otherwise silent wait of up to 15 minutes is indistinguishable from a hang:
+
+```text
+Auto-merge is armed on PR <number>; waiting up to 15m for it to land.
+```
+
+Then poll every 15 seconds to a 15-minute cap. Those are Step 6's numbers, reused rather than reinvented so there is one polling cadence in this skill:
+
+```bash
+gh pr view --json state,mergeCommit,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, ([.statusCheckRollup[]? | select(((.conclusion // .state) // "") as $c | $c == "FAILURE" or $c == "TIMED_OUT" or $c == "CANCELLED" or $c == "ERROR") | (.name // .context)] | join(","))'
+```
+
+Five values come back: state, merge commit SHA, whether auto-merge is still armed, the merge state, and a comma-joined list of checks that have concluded badly.
+
+End on the first of these that holds:
+
+- **`state` is `MERGED`** - save the merge commit SHA as `<MERGE_SHA>`, record how long the wait took as `<AWAITED>`, and continue to "Revalidate after waiting".
+- **`state` is `CLOSED`** - stop with: `PR for <FEATURE> was closed without merging.`
+- **Auto-merge reads `disarmed`** - stop with: `Auto-merge was disarmed on PR <number> while waiting.`
+- **`mergeStateStatus` is `DIRTY`** - stop with: `PR <number> now conflicts with <DEFAULT>, so auto-merge cannot land it.`
+- **The failing-check list is non-empty** - stop with: `Auto-merge cannot land PR <number> - these checks did not pass: <checks>.`
+- **The cap is reached** - stop with: `PR <number> is still open after 15m. <PR_URL>`
+
+`BLOCKED` is not terminal and never ends the poll. It is what a PR waiting on a required review reports, which is the exact state auto-merge exists to sit in; stopping there would defeat the point of waiting at all.
+
+Every stop above is inert. Nothing destructive has run, the branch and any worktree stand untouched, and Plane has not been written - the same recovery point Step 3 is ordered to preserve.
+
+### Revalidate after waiting
+
+Only on the await path. A wrap that found the PR already `MERGED` checked all of this seconds earlier in Step 0 and has no window to re-check.
+
+Step 0's preconditions were true when it ran, and a wait of up to 15 minutes is long enough for them to stop being true: a file edited in another pane, a commit made in another session. Step 5 deletes this branch, so prove them again rather than assume them:
+
+```bash
+git fetch --quiet origin
+echo 'unpushed<<<'
+git rev-parse --verify --quiet '@{upstream}' >/dev/null && git log '@{upstream}..HEAD' --oneline
+echo 'status<<<'
+git status --porcelain
+```
+
+Apply Step 0's rules to that output unchanged - porcelain lines stop with its uncommitted-changes message, unpushed commits stop by naming them.
+
+The fetch is required and is not a duplicate of Step 0's. The probe below compares against `origin/<DEFAULT>`, and on this path that ref was last read before the merge existed. Skip the fetch and the probe reports `+` for work that did land, which stops every awaited wrap.
+
+### Prove nothing is lost
+
+Both paths arrive here - the PR that was already merged and the one just awaited.
 
 `gh` reporting `MERGED` says the PR merged; it does not say the local branch holds nothing the default branch lacks. Prove that separately, because Step 4 may discard the branch:
 
@@ -245,6 +302,8 @@ Wrapped up <FEATURE>:
 ```
 
 When `<IN_WORKTREE>` was no, omit the worktree line and write `- Switched to <DEFAULT> and pulled.` instead.
+
+When Step 1a ran, add `- Waited <AWAITED> for auto-merge to land.` as the first line under the header. A wrap that blocked for minutes should not read like one that found the PR already merged.
 
 Switch on `<PLANE_OUTCOME>` for the Plane line:
 
