@@ -7,7 +7,7 @@
 - **`/wf-impl-review`** - same four reviewers over the branch's committed changes.
 - **`/wf-ship`** - commits, pushes, opens a **draft** PR, runs `.wf.yml`'s test commands, links Plane, reconciles the state, checks off criteria with evidence.
 - **`/wf-ship ready`** - flips the draft, moves the item to In Review, hands back the cleanup command. Never inferred; you have to say `ready`.
-- *…you merge…*
+- *…you merge, or arm auto-merge…*
 - **`/wf-wrap`** - marks it Done, tears down the worktree if there was one, returns to the default branch, pulls, deletes the branch, watches post-merge CI.
 - **`/wf-prune`** - separately, whenever: clears older merged branches.
 
