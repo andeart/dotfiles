@@ -11,8 +11,10 @@
 # Usage: wf-status [--porcelain] [repo-path ...]
 #
 # Exit codes:
-#   0   every repo-path reported.
-#   2   usage error, or a repo-path is not a git work tree.
+#   0   every repo-path resolved.
+#   1   partial sweep - at least one repo-path was not a git work tree, but
+#       at least one row printed.
+#   2   a usage error, or no repo-path resolved at all.
 
 set -euo pipefail
 
@@ -27,7 +29,9 @@ makes no Plane network call; gh is the only network dependency and it is
 optional.
 
 With no repo-path, reports the repository the script runs in. Each argument
-must be a git work tree (main or linked); a path that is not one is an error.
+must be a git work tree (main or linked); a path that is not one is named on
+stderr, after the report, rather than stopping the other paths - see Exit
+codes below for what that does to the exit status.
 
 Options:
   --porcelain   Tab-separated, one row per worktree, no header: repo,
@@ -48,6 +52,13 @@ Options:
 
 Without --porcelain, prints the same fields as an aligned table with a
 header.
+
+Exit codes:
+  0   every repo-path resolved.
+  1   partial sweep - at least one repo-path was not a git work tree, but at
+      least one row printed; the failed paths are named on stderr after the
+      report.
+  2   a usage error, or no repo-path resolved at all - nothing printed.
 EOF
 }
 
@@ -148,19 +159,31 @@ dirty_count() {
 }
 
 # ROWS accumulates one 7-field tab-separated row per worktree, across every
-# repo-path argument, before anything is printed - so a later repo-path that
-# fails validation (collect_rows's die) aborts before any output, rather than
-# a table half-printed around the error.
+# repo-path argument, before anything is printed - so the human table's
+# column widths, computed across all rows, are never skewed by a table
+# half-printed around a later failure. A repo-path that is not a git work
+# tree does not abort collection: collect_rows records it in FAILED_PATHS
+# and moves on to the next argument, the same property it already holds one
+# level down for a prunable worktree - one bad path costs only itself, never
+# another path's row.
 ROWS=()
+
+# FAILED_PATHS accumulates each repo-path argument collect_rows could not
+# resolve to a git work tree. Reported on stderr after ROWS is printed - see
+# main's exit-code contract in usage().
+FAILED_PATHS=()
 
 # collect_rows <repo-path>: resolve <repo-path> to its work tree, then append
 # one row to ROWS per worktree `git worktree list --porcelain` reports for
 # it - including a prunable one, whose directory is gone but whose branch
-# and PR state are still meaningful to report.
+# and PR state are still meaningful to report. A <repo-path> that is not a
+# git work tree is recorded in FAILED_PATHS instead of aborting the sweep.
 collect_rows() {
   local input="$1" root repo_path="" wt_path wt_branch wt_prunable dirty ident pr_state pr_url
-  root="$(git -C "$input" rev-parse --show-toplevel 2>/dev/null)" \
-    || die "not a git repository: $input"
+  root="$(git -C "$input" rev-parse --show-toplevel 2>/dev/null)" || {
+    FAILED_PATHS+=("$input")
+    return 0
+  }
   while IFS=$'\t' read -r wt_path wt_branch wt_prunable; do
     [ -n "$repo_path" ] || repo_path="$wt_path"
     if [ -n "$wt_prunable" ]; then
@@ -202,10 +225,27 @@ main() {
     collect_rows "$r"
   done
 
-  if [ "$porcelain" -eq 1 ]; then
-    printf '%s\n' "${ROWS[@]}"
+  if [ ${#ROWS[@]} -gt 0 ]; then
+    if [ "$porcelain" -eq 1 ]; then
+      printf '%s\n' "${ROWS[@]}"
+    else
+      print_table
+    fi
+  fi
+
+  local p
+  if [ ${#FAILED_PATHS[@]} -gt 0 ]; then
+    for p in "${FAILED_PATHS[@]}"; do
+      echo "wf-status: not a git repository: $p" >&2
+    done
+  fi
+
+  if [ ${#FAILED_PATHS[@]} -eq 0 ]; then
+    exit 0
+  elif [ ${#ROWS[@]} -gt 0 ]; then
+    exit 1
   else
-    print_table
+    exit 2
   fi
 }
 

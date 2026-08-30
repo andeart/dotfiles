@@ -120,6 +120,36 @@ fixture() {
   [ "$(printf '%s\n' "$output" | grep -c .)" -eq 2 ]
 }
 
+# A bad repo-path argument must not discard rows already collected from
+# earlier, valid ones - the same failure-isolation property a prunable
+# worktree already holds one level down, applied one level up. Partial
+# sweeps exit 1 so a caller can tell "some paths were unreadable" apart
+# from "every path resolved."
+@test "a valid path followed by an invalid one prints the valid row and exits 1" {
+  local good; good="$(fixture good)"
+  local bad="$BATS_TEST_TMPDIR/nonexistent"
+  run --separate-stderr bash "$WF_STATUS" --porcelain "$good" "$bad"
+  [ "$status" -eq 1 ]
+  [ "$(printf '%s\n' "$output" | grep -c .)" -eq 1 ]
+  [[ "$stderr" == *"$bad"* ]]
+}
+
+@test "every repo path invalid exits 2 with no output" {
+  local bad1="$BATS_TEST_TMPDIR/nope1" bad2="$BATS_TEST_TMPDIR/nope2"
+  run --separate-stderr bash "$WF_STATUS" --porcelain "$bad1" "$bad2"
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"$bad1"* ]]
+  [[ "$stderr" == *"$bad2"* ]]
+}
+
+@test "several valid repo paths still exit 0" {
+  local a b; a="$(fixture allgood-a)"; b="$(fixture allgood-b)"
+  run --separate-stderr bash "$WF_STATUS" --porcelain "$a" "$b"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+}
+
 # A worktree directory moved or deleted without `git worktree prune` is a
 # state git itself names (a `prunable` line in --porcelain output), not a
 # hypothetical. It must cost only its own row's detail, not the run: the main

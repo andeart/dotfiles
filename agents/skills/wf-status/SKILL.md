@@ -22,7 +22,7 @@ bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$
 
 The first call takes whatever repo paths the user named, substituted literally - or none for the current repo.
 
-`wf-status` exits `2` on a usage error or a repo path that is not a git work tree - stop and print its stderr.
+`wf-status` exits `0` when every repo path resolved. It exits `1` when at least one repo path was not a git work tree but at least one row still printed: use the rows you got, and report each named path from its stderr as unreadable, on its own line, the way this skill reports every other unobservable condition. It exits `2` on a usage error or when no repo path resolved at all - stop and print its stderr.
 
 The resolver exits `2` on a usage error or a missing `yq`, `3` on a `.wf.yml` that is present but wrong - either way stop and print its stderr. A broken config is the user's to fix, and guessing the state names would compare rows against names nobody configured.
 
