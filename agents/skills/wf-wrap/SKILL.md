@@ -1,6 +1,6 @@
 ---
 name: wf-wrap
-description: Wrap up work once a PR has merged, or once auto-merge is armed on it - mark the Plane work item Done, tear down the worktree if the work happened in one, switch back to the default branch, pull, and delete the merged feature branch. Use this skill whenever the user says "/wf-wrap", "wrap this up", "wrap up the merge", "post-merge cleanup", "switch back to main and clean up", or any variation of wanting to clean up after merging a PR. Do NOT trigger for shipping work for review (use /wf-ship) or for cleaning up older merged branches (use /wf-prune).
+description: Wrap up work once a PR has merged, or once auto-merge is armed on it - mark the Plane work item Done, tear down the worktree if the work happened in one, switch back to the default branch, pull, and delete the merged feature branch. Use this skill whenever the user says "/wf-wrap", "wrap this up", "wrap up the merge", "post-merge cleanup", "switch back to main and clean up", "auto-merge is armed - clean up once it lands", or any variation of wanting to clean up after a PR merges or once auto-merge will land it. Do NOT trigger for shipping work for review (use /wf-ship) or for cleaning up older merged branches (use /wf-prune).
 ---
 
 # Wrap Up After Merge
@@ -90,13 +90,13 @@ Otherwise stop with:
 
 ### Step 1a: Await an armed auto-merge
 
-Reached only from the branch above. Print one line before polling - the Output section's stated exception, since a silent 15-minute wait is indistinguishable from a hang:
+Print one line before polling - the Output section's stated exception, since a silent 15-minute wait is indistinguishable from a hang:
 
 ```text
 Auto-merge is armed on PR <number>; waiting up to 15m for it to land. Ctrl-C stops the wrap - nothing has been changed yet.
 ```
 
-Then poll every 15 seconds to a 15-minute cap, passing the number Step 1 already resolved:
+Then poll, passing the number Step 1 already resolved. Cadence is every 15 seconds for the first two minutes, then every 60 seconds, to a 15-minute cap - the tight window covers the wait that ends as CI goes green, and past it each iteration is a tool call spent waiting on a person:
 
 ```bash
 gh pr view <number> --json state,mergeCommit,headRefOid,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), .headRefOid, (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, "checks<<<", (.statusCheckRollup[]? | select((.conclusion // .state) as $c | $c != null and (["SUCCESS","NEUTRAL","SKIPPED","EXPECTED","PENDING"] | index($c) | not)) | (.name // .context))'
@@ -108,20 +108,18 @@ Keep that test an allowlist: naming the values that pass means a conclusion GitH
 
 End on the first of these that holds. The order is load-bearing: a PR that auto-merge lands keeps its `autoMergeRequest` non-null, where a hand-merged one does not, so `MERGED` has to be read before the disarm test or the merge this step waits for reads as a disarm.
 
-- **`state` is `MERGED`** - save the merge commit SHA as `<MERGE_SHA>` and the head tip as `<HEAD_OID>`, replacing Step 1's value with the one that actually merged, set `<AWAITED>` from the poll count at 15 seconds each - `under a minute` below 60s, otherwise whole minutes rounded down as `<n>m` - and continue to Step 1b.
+- **`state` is `MERGED`** - save the merge commit SHA as `<MERGE_SHA>` and the head tip as `<HEAD_OID>`, replacing Step 1's value with the one that actually merged, set `<AWAITED>` from the intervals actually waited - `under a minute` below 60s, otherwise whole minutes rounded down as `<n>m` - and continue to Step 1b.
 - **`state` is `CLOSED`** - stop with: `PR for <FEATURE> was closed without merging.`
 - **Auto-merge reads `disarmed`** - stop with: `Auto-merge was disarmed on PR <number> while waiting.`
 - **`mergeStateStatus` is `DIRTY`** - stop with: `PR <number> now conflicts with <DEFAULT>, so auto-merge cannot land it.`
 - **The `checks<<<` list is non-empty** - stop with `Stopped waiting on PR <number> - these checks did not pass:` and the names beneath it, one per line. Any red check ends the wait, required or not - `gh pr view` does not say which are required and `~/.agents/AGENTS.md` rules out the subcommand that does - so report what was seen rather than claiming the merge cannot land.
 - **The cap is reached** - stop with: `PR <number> is still open after 15m, last merge state <mergeStateStatus>. <PR_URL>`
 
-No other merge state ends the poll. `UNKNOWN` is what GitHub reports while it computes mergeability, so it shows up on the first poll of most waits, and `BLOCKED` is a PR waiting on a required review or an unresolved conversation. `BEHIND` may never clear on its own - nothing in this loop can update the branch - which is why the cap message names the merge state rather than only the timeout.
+No other merge state ends the poll. `UNKNOWN` is what GitHub reports while it computes mergeability, so it shows up on the first poll of most waits. `BEHIND` may never clear on its own - nothing in this loop can update the branch - which is why the cap message names the merge state rather than only the timeout.
 
 Every stop above is inert - nothing destructive has run and Plane has not been written, so the fix is to clear the cause and re-run.
 
 ### Step 1b: Revalidate after waiting
-
-Only on the await path; a wrap that found the PR already `MERGED` goes straight to Step 1c.
 
 Step 5 deletes this branch, and 15 minutes is long enough for Step 0's preconditions to stop holding - a file edited in another pane, a commit made in another session - so prove them again:
 
@@ -141,8 +139,6 @@ The fetch is required and is not a duplicate of Step 0's. The probe below compar
 
 ### Step 1c: Prove nothing is lost
 
-Both paths arrive here - the PR that was already merged and the one just awaited.
-
 `gh` reporting `MERGED` says the PR merged; it does not say the local branch holds nothing the default branch lacks. Prove that separately, because Step 4 may discard the branch:
 
 ```bash
@@ -154,9 +150,9 @@ git cherry origin/<DEFAULT> "$(git commit-tree "$(git rev-parse <FEATURE>^{tree}
 This squashes the branch's tree onto its own merge base and asks whether that patch is already upstream. A `head=` line comes back, then the probe's:
 
 - `- <sha>` - an equivalent patch is on the default branch. The squash landed everything; discarding the branch loses nothing. Proceed silently: this is the expected result on every wrap, and saying so turns the guard into noise.
-- `+ <sha>` - it did not, and `head=` says which of the two reasons this is. **Not equal to `<HEAD_OID>`** - the local branch is not what merged, so stop with: `Local <FEATURE> is at <head>, but PR <number> merged <HEAD_OID>. Pull before wrapping.` **Equal** - the branch really does hold work that never landed, so stop, show `git diff --stat $(git merge-base origin/<DEFAULT> <FEATURE>) <FEATURE>`, and say so. Either way, do not proceed.
+- `+ <sha>` - it did not. Show `git diff --stat $(git merge-base origin/<DEFAULT> <FEATURE>) <FEATURE>` in either case below, since that diff is the only thing that says what the branch is carrying and an unpushed commit produces a `+` under both. Then let `head=` name the case, and stop. **Equal to `<HEAD_OID>`** - the local branch is what merged, so the content should be upstream and is not. **Not equal** - the local branch is not what merged: `Local <FEATURE> is at <head>, PR <number> merged <HEAD_OID>. Fetch that tip with git fetch origin refs/pull/<number>/head before discarding anything.`
 
-Compare against `<HEAD_OID>` rather than `@{upstream}`. A plain fetch does not prune, so once the merge deletes the head branch the tracking ref freezes at whatever Step 0 last saw - and a push made during an armed wait, which is the whole window this check exists for, never reaches it.
+Compare against `<HEAD_OID>` rather than `@{upstream}`. A plain fetch does not prune, so once the merge deletes the head branch the tracking ref freezes at whatever Step 0 last saw - and a push made during an armed wait, which is the whole window this check exists for, never reaches it. That deletion is also why the recovery above names `refs/pull/<number>/head`: GitHub keeps that ref once the branch is gone, where `git pull` has nothing left to pull.
 
 The probe commit is dangling and gets garbage-collected; no ref moves. Do not substitute `git diff <FEATURE> origin/<DEFAULT>` - it looks equivalent, but reports a difference as soon as any unrelated commit lands on the default branch, blocking legitimate wraps and training you to override the one guard that matters.
 
@@ -309,7 +305,7 @@ Wrapped up <FEATURE>:
 - Merged PR: <PR_URL>
 ```
 
-Two lines there are conditional: `Waited` appears only when Step 1a ran, and when `<IN_WORKTREE>` was no, omit the worktree line and write `- Switched to <DEFAULT> and pulled.` instead.
+The block shows the common case. `Waited` appears only when Step 1a ran; when `<IN_WORKTREE>` was no, omit the worktree line and write `- Switched to <DEFAULT> and pulled.` instead; and the Plane, link and CI lines take the forms below.
 
 Switch on `<PLANE_OUTCOME>` for the Plane line:
 
