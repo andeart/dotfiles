@@ -174,3 +174,160 @@ fixture() {
   [[ "$output" == *"DX-30"* ]]
   [ "$(printf '%s\n' "$output" | awk -F'\t' '$3 == "dx-30-gone" {print $5}')" = "prunable" ]
 }
+
+# A detached worktree carries no branch. gh treats `pr view ""` as `pr view`
+# with no argument at all - it falls back to the current branch of whatever
+# repo it runs in - so a row with no branch must never reach gh, or it reports
+# a real but unrelated PR.
+@test "a detached worktree reports no branch, no identifier and no PR" {
+  local root; root="$(fixture detached)"
+  git -C "$root" worktree add -q --detach "$BATS_TEST_TMPDIR/detached-wt"
+  run --separate-stderr bash "$WF_STATUS" --porcelain "$root"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | grep -c .)" -eq 2 ]
+  # repo equals worktree only on the main tree, so $1 != $2 selects the linked
+  # row without depending on how the tmpdir path resolves.
+  [ "$(printf '%s\n' "$output" | awk -F'\t' '$1 != $2 {print $3}')" = "-" ]
+  [ "$(printf '%s\n' "$output" | awk -F'\t' '$1 != $2 {print $4}')" = "-" ]
+  [ "$(printf '%s\n' "$output" | awk -F'\t' '$1 != $2 {print $6}')" = "none" ]
+  [ "$(printf '%s\n' "$output" | awk -F'\t' '$1 != $2 {print $7}')" = "-" ]
+}
+
+# Binds the short-circuit where it matters: not that the row says none, but
+# that gh was never consulted for it. A gh that answers would answer about
+# some other branch entirely.
+@test "a detached worktree is never looked up in gh" {
+  local root; root="$(fixture nolookup)"
+  git -C "$root" worktree add -q --detach "$BATS_TEST_TMPDIR/nolookup-wt"
+  export CALLS="$BATS_TEST_TMPDIR/gh-calls"
+  : > "$CALLS"
+  run bash -c '
+    _WF_STATUS_LIB_ONLY=1 source "$1"
+    gh() { printf "%s\n" "$3" >> "$CALLS"; return 1; }
+    collect_rows "$2"
+  ' _ "$WF_STATUS" "$root"
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$CALLS" | tr -d ' ')" -eq 1 ]
+  [ "$(cat "$CALLS")" = "main" ]
+}
+
+# git reports a worktree that is both detached and prunable with no branch line
+# at all, so the field that can be empty and the field that must survive are in
+# the same row. Nothing may shift into the gap: dirty must still read prunable.
+@test "a worktree that is both detached and prunable still reports prunable" {
+  local root; root="$(fixture detached-prunable)"
+  git -C "$root" worktree add -q --detach "$BATS_TEST_TMPDIR/dp-wt"
+  mv "$BATS_TEST_TMPDIR/dp-wt" "$BATS_TEST_TMPDIR/dp-wt-moved"
+  run --separate-stderr bash "$WF_STATUS" --porcelain "$root"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | grep -c .)" -eq 2 ]
+  [ "$(printf '%s\n' "$output" | awk -F'\t' '$1 != $2 {print $3}')" = "-" ]
+  [ "$(printf '%s\n' "$output" | awk -F'\t' '$1 != $2 {print $5}')" = "prunable" ]
+  [ "$(printf '%s\n' "$output" | awk -F'\t' '$1 != $2 {print $6}')" = "none" ]
+}
+
+# repo is the repository's main worktree path whichever worktree the row
+# describes - and whichever worktree the argument named. Passing a linked
+# worktree is the only way to tell that apart from "the path we were given".
+@test "a linked worktree given as the argument still reports the main worktree as repo" {
+  local root; root="$(fixture arg-linked)"
+  local main_path; main_path="$(cd "$root" && pwd -P)"
+  git -C "$root" worktree add -q -b dx-88-arg "$BATS_TEST_TMPDIR/arg-linked-wt"
+  run --separate-stderr bash "$WF_STATUS" --porcelain "$BATS_TEST_TMPDIR/arg-linked-wt"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | grep -c .)" -eq 2 ]
+  [ "$(printf '%s\n' "$output" | awk -F'\t' '{print $1}' | sort -u)" = "$main_path" ]
+}
+
+# The aligned table is column -t over the porcelain rows, and column -t
+# collapses an empty field, shifting every column after it. Every row must
+# still carry seven whitespace-separated cells.
+@test "the aligned table keeps its columns on a detached worktree" {
+  local root; root="$(fixture table-detached)"
+  git -C "$root" worktree add -q --detach "$BATS_TEST_TMPDIR/table-detached-wt"
+  run --separate-stderr bash "$WF_STATUS" "$root"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | awk '{print NF}' | sort -u)" = "7" ]
+}
+
+# lookup_with_gh <state> <isDraft> <url> [branch]: pr_lookup with gh stubbed to
+# a canned `--json state,isDraft,url` response, so the state mapping is
+# exercised with no network call and no PR to point at.
+lookup_with_gh() {
+  export STUB_TSV
+  STUB_TSV="$(printf '%s\t%s\t%s' "$1" "$2" "$3")"
+  run bash -c '
+    _WF_STATUS_LIB_ONLY=1 source "$1"
+    gh() { printf "%s\n" "$STUB_TSV"; }
+    pr_lookup "$2" "$3"
+  ' _ "$WF_STATUS" "$BATS_TEST_TMPDIR" "${4-dx-1-thing}"
+}
+
+# pr_field <n>: field n of the tab-separated pr_lookup output `run` captured.
+pr_field() {
+  printf '%s\n' "$output" | cut -f"$1"
+}
+
+@test "pr_lookup maps a merged PR to merged" {
+  lookup_with_gh MERGED false https://example.com/pull/9
+  [ "$status" -eq 0 ]
+  [ "$(pr_field 1)" = "merged" ]
+  [ "$(pr_field 2)" = "https://example.com/pull/9" ]
+}
+
+@test "pr_lookup maps a closed PR to closed" {
+  lookup_with_gh CLOSED false https://example.com/pull/9
+  [ "$status" -eq 0 ]
+  [ "$(pr_field 1)" = "closed" ]
+  [ "$(pr_field 2)" = "https://example.com/pull/9" ]
+}
+
+@test "pr_lookup maps an open draft PR to draft" {
+  lookup_with_gh OPEN true https://example.com/pull/9
+  [ "$status" -eq 0 ]
+  [ "$(pr_field 1)" = "draft" ]
+  [ "$(pr_field 2)" = "https://example.com/pull/9" ]
+}
+
+@test "pr_lookup maps an open non-draft PR to ready" {
+  lookup_with_gh OPEN false https://example.com/pull/9
+  [ "$status" -eq 0 ]
+  [ "$(pr_field 1)" = "ready" ]
+  [ "$(pr_field 2)" = "https://example.com/pull/9" ]
+}
+
+# A state gh may grow later must degrade to none rather than be reported under
+# one of the five documented values.
+@test "pr_lookup reports none for a state it does not know" {
+  lookup_with_gh QUEUED false https://example.com/pull/9
+  [ "$status" -eq 0 ]
+  [ "$(pr_field 1)" = "none" ]
+  [ "$(pr_field 2)" = "-" ]
+}
+
+@test "pr_lookup reports none when gh answers with nothing" {
+  run bash -c '
+    _WF_STATUS_LIB_ONLY=1 source "$1"
+    gh() { printf ""; }
+    pr_lookup "$2" dx-1-thing
+  ' _ "$WF_STATUS" "$BATS_TEST_TMPDIR"
+  [ "$status" -eq 0 ]
+  [ "$(pr_field 1)" = "none" ]
+  [ "$(pr_field 2)" = "-" ]
+}
+
+# The unit-level half of the detached-worktree case: even with a gh that would
+# answer, an empty branch reports no PR and asks nothing.
+@test "pr_lookup reports none for an empty branch without calling gh" {
+  export CALLS="$BATS_TEST_TMPDIR/gh-calls"
+  : > "$CALLS"
+  run bash -c '
+    _WF_STATUS_LIB_ONLY=1 source "$1"
+    gh() { printf "called\n" >> "$CALLS"; printf "OPEN\tfalse\thttps://example.com/pull/9\n"; }
+    pr_lookup "$2" ""
+  ' _ "$WF_STATUS" "$BATS_TEST_TMPDIR"
+  [ "$status" -eq 0 ]
+  [ "$(pr_field 1)" = "none" ]
+  [ "$(pr_field 2)" = "-" ]
+  [ ! -s "$CALLS" ]
+}
