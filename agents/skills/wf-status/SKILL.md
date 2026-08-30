@@ -26,7 +26,7 @@ The first call takes whatever repo paths the user named, substituted literally -
 
 The resolver exits `2` on a usage error or a missing `yq`, `3` on a `.wf.yml` that is present but wrong - either way stop and print its stderr. A broken config is the user's to fix, and guessing the state names would compare rows against names nobody configured.
 
-Each porcelain row is seven tab-separated fields: `repo`, `worktree`, `branch`, `identifier`, `dirty`, `pr_state`, `pr_url`. `identifier` is `-` when the branch carries none. `pr_state` is one of `none`, `draft`, `ready`, `merged`, `closed`; `pr_url` is `-` when there is no PR. `dirty` is a file count, `prunable`, or `-` when it could not be observed.
+Each porcelain row is seven tab-separated fields: `repo`, `worktree`, `branch`, `identifier`, `dirty`, `pr_state`, `pr_url`. `branch` is `-` when the worktree has a detached HEAD, and such a row is never looked up in `gh` - so its `pr_state` is always `none`, which says nothing about whether a pull request exists. `identifier` is `-` when the branch carries none. `pr_state` is one of `none`, `draft`, `ready`, `merged`, `closed`; `pr_url` is `-` when there is no PR. `dirty` is a file count, `prunable`, or `-` when it could not be observed.
 
 ## Step 1: Resolve each work item
 
