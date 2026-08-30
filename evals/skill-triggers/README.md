@@ -32,6 +32,9 @@ Run this when a skill description changes, not on every commit.
 One tab-separated line in `cases.tsv`: id, expected skill, gate, prompt. Give the id a prefix
 that groups it with its siblings so `--case` can select the group.
 
+Expected may also be `(none)`, for a prompt no skill in this repo should claim. The runner
+records `(none)` when a probe fires nothing, so the comparison scores like any other.
+
 `gate` is `strict` or `observe`. A strict case scoring below 1.0 fails the run; an observe case
 is measured and printed but never fails it.
 

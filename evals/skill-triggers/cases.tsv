@@ -39,3 +39,9 @@ boundary-shape-vs-file	file-work-item	observe	let's start on a new bug for the r
 boundary-shape-vs-specrev	wf-spec-review	observe	let's pick up DX-57 - the spec is written, get the reviewers on it
 # wf-impl-review's Do-NOT clause points single-pass review at the built-in code-review skill; this is the other half of that pair.
 boundary-implrev-vs-codereview	code-review	observe	review the diff I've got right now
+# wf-status anchors - a cross-worktree sweep, phrased the way a person asks for one.
+status-anchor-standing	wf-status	observe	where does everything stand
+status-anchor-inflight	wf-status	observe	what's in flight right now
+# One work item's state is a Plane lookup, not a sweep, and no skill in this repo claims it -
+# so the informative outcome is that wf-status's Do-NOT clause holds it back and nothing fires.
+boundary-status-vs-single	(none)	observe	what state is DX-57 in

@@ -22,8 +22,7 @@ force an arbitrary owner.
 | `ship.test-commands` | list | none | `/wf-ship` |
 | `wrap.watch-post-merge-ci` | bool | `false` | `/wf-wrap` |
 
-`/wf-status` arrives with DX-57's PR 4, reading `states.*` alongside the skills
-already listed above.
+`/wf-status` reads `states.*` alongside the skills already listed above.
 
 The default `review.focus`:
 
@@ -57,6 +56,41 @@ The default `review.focus`:
   work item already in the `completed` or `cancelled` group. `/wf-wrap` guards
   only the `completed` group, and picks its own completion target from it
   rather than a name in `.wf.yml`.
+
+## The state correspondence
+
+`/wf-ship` decides a state from a push's file list and the pull request's
+state; `/wf-shape` writes `states.shaping` unconditionally, since nothing has
+been pushed yet when it runs. `/wf-status` reads a work item's current state
+and flags a condition that holds when it does not match, observed from a
+working tree and the pull request's current state. This table names only the
+correspondence, not a procedure - each consumer states its own way of
+observing a condition.
+
+| State key | The condition it corresponds to |
+| --- | --- |
+| `states.shaping` | The branch's whole change touches only `docs/` |
+| `states.implementing` | The branch's whole change touches anything outside `docs/` |
+| `states.in-review` | The pull request is open and not a draft |
+
+These two rows are read over the branch's whole divergence from the default
+branch, not over one push's file list. The window is part of the condition: a
+docs-only push onto a branch that already carries code does not make the change
+a spec again. `/wf-ship` currently observes the narrower window and so can
+disagree here - that is a defect in the writer, tracked separately, not licence
+for a reader to copy it.
+
+More than one row can hold at once - a ready pull request on a branch that
+touches code matches both `states.implementing` and `states.in-review`. Which
+one wins is the consumer's to state, not this table's; `/wf-ship` resolves it
+by checking the pull request first, so the later stage wins.
+
+Two of `/wf-status`'s checks have no writer and no `states.*` key, since
+"closed" is a group concept rather than a configured name (see Rules above):
+
+- The work item sits in the `completed` or `cancelled` group, and its branch
+  has not merged.
+- The identifier resolves to nothing in Plane.
 
 ## Reading it from a skill
 
