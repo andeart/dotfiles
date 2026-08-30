@@ -78,6 +78,8 @@ Flag the row when the names differ.
 
 ## Step 3: Report
 
-One line per worktree: identifier, repo, branch, Plane's state name, pull request state, and the `dirty` field whenever it is not `0`. A row whose identifier is `-` carries no state to report - print `-` for Plane's state name too, the same placeholder the identifier field itself uses, since Step 1 never attempts a lookup for it.
+One line per worktree: identifier, repo, branch, Plane's state name, the stage Step 2 inferred, pull request state, and the `dirty` field whenever it is not `0`. A row whose identifier is `-` carries no state to report - print `-` for Plane's state name too, the same placeholder the identifier field itself uses, since Step 1 never attempts a lookup for it.
+
+The inferred stage is the configured name of whichever correspondence row Step 2 resolved. Print `-` wherever Step 2 resolved none: a guarded row, a merged branch, a project that has not adopted these states, or a diff that could not be observed. Printing it beside Plane's own state name is what makes a flagged row legible - the two names sit next to each other and the disagreement below says which one the evidence backs.
 
 Then the disagreements, each on its own line, naming both sides - what Plane holds and what was observed. An identifier that resolved to nothing names the identifier and the branch it came from, not a Plane state. No disagreements: say so in one line.
