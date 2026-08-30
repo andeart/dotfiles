@@ -78,6 +78,6 @@ Flag the row when the names differ.
 
 ## Step 3: Report
 
-One line per worktree: identifier, repo, branch, Plane's state name, pull request state, and the `dirty` field whenever it is not `0`.
+One line per worktree: identifier, repo, branch, Plane's state name, pull request state, and the `dirty` field whenever it is not `0`. A row whose identifier is `-` carries no state to report - print `-` for Plane's state name too, the same placeholder the identifier field itself uses, since Step 1 never attempts a lookup for it.
 
 Then the disagreements, each on its own line, naming both sides - what Plane holds and what was observed. An identifier that resolved to nothing names the identifier and the branch it came from, not a Plane state. No disagreements: say so in one line.
