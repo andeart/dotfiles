@@ -41,13 +41,15 @@ Plane being unreachable for any reason other than the not-found case above does 
 
 ## Step 2: Check each row against the correspondence
 
-`agents/skills/wf-conventions/CONFIG.md` holds "## The state correspondence" - the table naming which state goes with which condition. Read it there rather than restating it here: `/wf-ship` writes states by deciding which row holds, and this skill reads the same rows, so a copy here would be a second place for the two to drift.
+`~/.agents/skills/wf-conventions/CONFIG.md` holds "## The state correspondence" - the table naming which state goes with which condition. Read it there rather than restating it here: `/wf-ship` writes states by deciding which row holds, and this skill reads the same rows, so a copy here would be a second place for the two to drift.
 
 Skip a row whose identifier is `-` or came back `identifier-not-found` from Step 1 - the second is already its own disagreement, and neither has a work item to compare against.
 
 **Check the guard first**, for every row that has one - the same guard `/wf-shape` and `/wf-ship` check before writing. If the work item's current state belongs to a state in that project's list whose `group` is `completed` or `cancelled`, this row's only check is the one condition that has no `states.*` key:
 
-- **The branch has not merged** - `pr_state` is anything but `merged`. A closed pull request counts as not-merged here, the same as `draft`, `ready`, or `none`: closing a pull request without merging it is exactly what an abandoned change looks like.
+- **The item completed but the branch has not merged** - the state's `group` is `completed` and `pr_state` is anything but `merged`. Work called done whose branch never landed is worth surfacing.
+
+  A `cancelled` item is not checked this way. An unmerged branch is what a cancelled item is *supposed* to look like, so both sides agree and there is nothing to flag; treating it as a disagreement would fire on every sweep for the life of the branch, and nothing clears it - `/wf-prune` only deletes branches that merged.
 
 Flag the row when that holds - Plane says the item is closed out, the branch says otherwise - and move to the next row. Do not also run the correspondence-row check below for a guarded row; the guard is why this condition has no key of its own.
 
@@ -69,6 +71,7 @@ Flag the row when that holds - Plane says the item is closed out, the branch say
 
    Otherwise: `git -C <worktree> diff --name-only origin/<default>...HEAD`.
 
+   - Lists no files at all - no row holds. An empty diff is an absence of evidence, not evidence of a spec, and `/wf-ship` refuses the same inference in its own fourth rule. Report the stage as `-` and flag nothing.
    - Touches only `docs/` - the docs-only row is the one that holds.
    - Touches anything outside `docs/` - the other row is the one that holds.
 
@@ -80,6 +83,6 @@ Flag the row when the names differ.
 
 One line per worktree: identifier, repo, branch, Plane's state name, the stage Step 2 inferred, pull request state, and the `dirty` field whenever it is not `0`. A row whose identifier is `-` carries no state to report - print `-` for Plane's state name too, the same placeholder the identifier field itself uses, since Step 1 never attempts a lookup for it.
 
-The inferred stage is the configured name of whichever correspondence row Step 2 resolved. Print `-` wherever Step 2 resolved none: a guarded row, a merged branch, a project that has not adopted these states, or a diff that could not be observed. Printing it beside Plane's own state name is what makes a flagged row legible - the two names sit next to each other and the disagreement below says which one the evidence backs.
+The inferred stage is the configured name of whichever correspondence row Step 2 resolved. Print `-` wherever Step 2 resolved none: a row with no identifier, a guarded row, a merged branch, a project that has not adopted these states, a diff that could not be observed, or a diff that listed no files. Printing it beside Plane's own state name is what makes a flagged row legible - the two names sit next to each other and the disagreement below says which one the evidence backs.
 
 Then the disagreements, each on its own line, naming both sides - what Plane holds and what was observed. An identifier that resolved to nothing names the identifier and the branch it came from, not a Plane state. No disagreements: say so in one line.

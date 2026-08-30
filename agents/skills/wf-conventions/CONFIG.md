@@ -22,8 +22,7 @@ force an arbitrary owner.
 | `ship.test-commands` | list | none | `/wf-ship` |
 | `wrap.watch-post-merge-ci` | bool | `false` | `/wf-wrap` |
 
-`/wf-status` arrives with DX-57's PR 4, reading `states.*` alongside the skills
-already listed above.
+`/wf-status` reads `states.*` alongside the skills already listed above.
 
 The default `review.focus`:
 
@@ -70,9 +69,16 @@ observing a condition.
 
 | State key | The condition it corresponds to |
 | --- | --- |
-| `states.shaping` | The change so far touches only `docs/` |
-| `states.implementing` | The change touches anything outside `docs/` |
+| `states.shaping` | The branch's whole change touches only `docs/` |
+| `states.implementing` | The branch's whole change touches anything outside `docs/` |
 | `states.in-review` | The pull request is open and not a draft |
+
+These two rows are read over the branch's whole divergence from the default
+branch, not over one push's file list. The window is part of the condition: a
+docs-only push onto a branch that already carries code does not make the change
+a spec again. `/wf-ship` currently observes the narrower window and so can
+disagree here - that is a defect in the writer, tracked separately, not licence
+for a reader to copy it.
 
 More than one row can hold at once - a ready pull request on a branch that
 touches code matches both `states.implementing` and `states.in-review`. Which
