@@ -134,6 +134,15 @@ fixture() {
   [[ "$stderr" == *"$bad"* ]]
 }
 
+@test "an invalid path followed by a valid one still prints the valid row" {
+  local bad="$BATS_TEST_TMPDIR/nonexistent"
+  local good; good="$(fixture good)"
+  run --separate-stderr bash "$WF_STATUS" --porcelain "$bad" "$good"
+  [ "$status" -eq 1 ]
+  [ "$(printf '%s\n' "$output" | grep -c .)" -eq 1 ]
+  [[ "$stderr" == *"$bad"* ]]
+}
+
 @test "every repo path invalid exits 2 with no output" {
   local bad1="$BATS_TEST_TMPDIR/nope1" bad2="$BATS_TEST_TMPDIR/nope2"
   run --separate-stderr bash "$WF_STATUS" --porcelain "$bad1" "$bad2"
