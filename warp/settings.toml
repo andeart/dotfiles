@@ -52,9 +52,9 @@ notebook_font_size = 14.0
 font_name = "JetBrainsMono Nerd Font Mono"
 font_size = 14.0
 line_height_ratio = 1.2000000476837158
-use_thin_strokes = "on_high_dpi_displays"
+use_thin_strokes = "always"
 ai_font_name = "JetBrainsMono Nerd Font Mono"
-ligature_rendering_enabled = false
+ligature_rendering_enabled = true
 enforce_minimum_contrast = "only_named_colors"
 
 [appearance.themes]
@@ -70,7 +70,7 @@ focus_pane_on_hover = true
 [appearance.window]
 left_panel_visibility_across_tabs = true
 override_opacity = 100
-zoom_level = 100
+zoom_level = 110
 open_windows_at_custom_size = false
 override_blur = 1
 
