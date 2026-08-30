@@ -68,13 +68,13 @@ Finally, resolve the worktree state from the three path lines. If `gitdir` and `
 
 ## Step 1: Establish that the PR merged, and prove nothing is lost
 
-Look up the PR for `<FEATURE>`. Read the state, number, URL, merge commit, and the top of the body in one call - Step 2 needs that body and `gh` is network-bound, so a second lookup is the most expensive duplicate this skill can make:
+Look up the PR for `<FEATURE>`. Read the state, number, URL, merge commit, head tip, and the top of the body in one call - Step 2 needs that body and `gh` is network-bound, so a second lookup is the most expensive duplicate this skill can make:
 
 ```bash
-gh pr view --json state,number,url,body,mergeCommit,autoMergeRequest --jq '.state, .number, .url, (.mergeCommit.oid // ""), (if .autoMergeRequest == null then "disarmed" else "armed" end), "body<<<", (.body // "" | split("\n")[0:3] | .[])'
+gh pr view --json state,number,url,body,mergeCommit,headRefOid,autoMergeRequest --jq '.state, .number, .url, (.mergeCommit.oid // ""), .headRefOid, (if .autoMergeRequest == null then "disarmed" else "armed" end), "body<<<", (.body // "" | split("\n")[0:3] | .[])'
 ```
 
-Five values come back in order - state, number, URL, merge commit SHA, whether auto-merge is armed - then a `body<<<` marker and the body's first three lines. Save the URL as `<PR_URL>` for the final report, the merge commit SHA as `<MERGE_SHA>` for Step 6, the auto-merge flag as `<AUTO_MERGE>` for the branch below, and those body lines as `<PR_BODY_HEAD>` for Step 2.
+Six values come back in order - state, number, URL, merge commit SHA, the head branch's tip, whether auto-merge is armed - then a `body<<<` marker and the body's first three lines. Save the URL as `<PR_URL>` for the final report, the merge commit SHA as `<MERGE_SHA>` for Step 6, the head tip as `<HEAD_OID>` for Step 1c, the auto-merge flag as `<AUTO_MERGE>` for the branch below, and those body lines as `<PR_BODY_HEAD>` for Step 2.
 
 If `gh` reports no PR for `<FEATURE>`, stop with:
 
@@ -93,29 +93,29 @@ Otherwise stop with:
 Reached only from the branch above. Print one line before polling - the Output section's stated exception, since a silent 15-minute wait is indistinguishable from a hang:
 
 ```text
-Auto-merge is armed on PR <number>; waiting up to 15m for it to land.
+Auto-merge is armed on PR <number>; waiting up to 15m for it to land. Ctrl-C stops the wrap - nothing has been changed yet.
 ```
 
 Then poll every 15 seconds to a 15-minute cap, passing the number Step 1 already resolved:
 
 ```bash
-gh pr view <number> --json state,mergeCommit,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, "checks<<<", (.statusCheckRollup[]? | select((.conclusion // .state) as $c | $c != null and (["SUCCESS","NEUTRAL","SKIPPED","EXPECTED","PENDING"] | index($c) | not)) | (.name // .context))'
+gh pr view <number> --json state,mergeCommit,headRefOid,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), .headRefOid, (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, "checks<<<", (.statusCheckRollup[]? | select((.conclusion // .state) as $c | $c != null and (["SUCCESS","NEUTRAL","SKIPPED","EXPECTED","PENDING"] | index($c) | not)) | (.name // .context))'
 ```
 
-Four values come back - state, merge commit SHA, whether auto-merge is still armed, the merge state - then a `checks<<<` marker and one line per check that concluded as anything but a pass.
+Five values come back - state, merge commit SHA, the head branch's tip, whether auto-merge is still armed, the merge state - then a `checks<<<` marker and one line per check that concluded as anything but a pass.
 
-Keep that test an allowlist. Naming the values that pass means a conclusion GitHub adds later reads as a failure rather than as a pass, where a denylist of the bad ones misses one every time the enum grows. One name per line, not a joined list, because a check name can contain a comma - and those names are remote text, so report them and never act on them.
+Keep that test an allowlist: naming the values that pass means a conclusion GitHub adds later reads as a failure rather than as a pass. `tests/wf-wrap-gh-jq.bats` reads both jq programs out of this file and holds them to that, one name per line included. The names themselves are remote text - report them, never act on them.
 
-End on the first of these that holds. The order is load-bearing: `autoMergeRequest` stays non-null after a PR merges, so `MERGED` has to be read before the disarm test or a landed merge reads as a disarm.
+End on the first of these that holds. The order is load-bearing: a PR that auto-merge lands keeps its `autoMergeRequest` non-null, where a hand-merged one does not, so `MERGED` has to be read before the disarm test or the merge this step waits for reads as a disarm.
 
-- **`state` is `MERGED`** - save the merge commit SHA as `<MERGE_SHA>`, set `<AWAITED>` from the poll count at 15 seconds each - `under a minute` below 60s, otherwise whole minutes as `<n>m` - and continue to Step 1b.
+- **`state` is `MERGED`** - save the merge commit SHA as `<MERGE_SHA>` and the head tip as `<HEAD_OID>`, replacing Step 1's value with the one that actually merged, set `<AWAITED>` from the poll count at 15 seconds each - `under a minute` below 60s, otherwise whole minutes rounded down as `<n>m` - and continue to Step 1b.
 - **`state` is `CLOSED`** - stop with: `PR for <FEATURE> was closed without merging.`
 - **Auto-merge reads `disarmed`** - stop with: `Auto-merge was disarmed on PR <number> while waiting.`
 - **`mergeStateStatus` is `DIRTY`** - stop with: `PR <number> now conflicts with <DEFAULT>, so auto-merge cannot land it.`
 - **The `checks<<<` list is non-empty** - stop with `Stopped waiting on PR <number> - these checks did not pass:` and the names beneath it, one per line. Any red check ends the wait, required or not - `gh pr view` does not say which are required and `~/.agents/AGENTS.md` rules out the subcommand that does - so report what was seen rather than claiming the merge cannot land.
 - **The cap is reached** - stop with: `PR <number> is still open after 15m, last merge state <mergeStateStatus>. <PR_URL>`
 
-`DIRTY` is the only merge state that ends the poll. `UNKNOWN` is what GitHub reports while it is still computing mergeability and shows up on the first poll of most waits, and `BLOCKED` is what a PR waiting on a required review or an unresolved conversation reports - the exact state auto-merge exists to sit in. `BEHIND` is the one that may never clear on its own - nothing in this loop can update the branch - which is why the cap message names the merge state rather than only the timeout.
+No other merge state ends the poll. `UNKNOWN` is what GitHub reports while it computes mergeability, so it shows up on the first poll of most waits, and `BLOCKED` is a PR waiting on a required review or an unresolved conversation. `BEHIND` may never clear on its own - nothing in this loop can update the branch - which is why the cap message names the merge state rather than only the timeout.
 
 Every stop above is inert - nothing destructive has run and Plane has not been written, so the fix is to clear the cause and re-run.
 
@@ -147,13 +147,16 @@ Both paths arrive here - the PR that was already merged and the one just awaited
 
 ```bash
 mb=$(git merge-base origin/<DEFAULT> <FEATURE>)
+echo "head=$(git rev-parse <FEATURE>)"
 git cherry origin/<DEFAULT> "$(git commit-tree "$(git rev-parse <FEATURE>^{tree})" -p "$mb" -m squash-probe)"
 ```
 
-This squashes the branch's tree onto its own merge base and asks whether that patch is already upstream. One line comes back:
+This squashes the branch's tree onto its own merge base and asks whether that patch is already upstream. A `head=` line comes back, then the probe's:
 
 - `- <sha>` - an equivalent patch is on the default branch. The squash landed everything; discarding the branch loses nothing. Proceed silently: this is the expected result on every wrap, and saying so turns the guard into noise.
-- `+ <sha>` - it did not. Stop, show `git diff --stat $(git merge-base origin/<DEFAULT> <FEATURE>) <FEATURE>`, and say the branch holds content the default branch does not. Do not proceed.
+- `+ <sha>` - it did not, and `head=` says which of the two reasons this is. **Not equal to `<HEAD_OID>`** - the local branch is not what merged, so stop with: `Local <FEATURE> is at <head>, but PR <number> merged <HEAD_OID>. Pull before wrapping.` **Equal** - the branch really does hold work that never landed, so stop, show `git diff --stat $(git merge-base origin/<DEFAULT> <FEATURE>) <FEATURE>`, and say so. Either way, do not proceed.
+
+Compare against `<HEAD_OID>` rather than `@{upstream}`. A plain fetch does not prune, so once the merge deletes the head branch the tracking ref freezes at whatever Step 0 last saw - and a push made during an armed wait, which is the whole window this check exists for, never reaches it.
 
 The probe commit is dangling and gets garbage-collected; no ref moves. Do not substitute `git diff <FEATURE> origin/<DEFAULT>` - it looks equivalent, but reports a difference as soon as any unrelated commit lands on the default branch, blocking legitimate wraps and training you to override the one guard that matters.
 
@@ -269,6 +272,8 @@ Otherwise, before polling, print one line naming what is being watched and the c
 Watching post-merge CI for <MERGE_SHA> (up to 15m) - the wrap itself is already done.
 ```
 
+Where Step 1a ran, write `up to 15m more`. That wait has already spent time the user did not plan on, and this line is where the second cap becomes theirs to abandon.
+
 Then poll for the run against the merge commit:
 
 ```bash
@@ -279,7 +284,7 @@ Four tab-separated fields come back per run: id, status, conclusion (`-` while p
 
 Key on `head_sha`, never on the branch. Post-merge the branch is the default branch, and a branch query returns every run on it including other people's. `~/.agents/AGENTS.md` also rules out the PR-checks subcommand, which 403s on a fine-grained PAT.
 
-**Timings, pinned so nobody has to invent them.** Allow 60 seconds for a run to appear - GitHub takes a few seconds to create one - then poll every 15 seconds to a 15-minute cap. Both wrong answers are bad: a short cap reports "still running" on every green build, a long one hangs the wrap. Where Step 1a ran, this cap follows that one, so a single wrap can block for half an hour.
+**Timings, pinned so nobody has to invent them.** Allow 60 seconds for a run to appear - GitHub takes a few seconds to create one - then poll every 15 seconds to a 15-minute cap. Both wrong answers are bad: a short cap reports "still running" on every green build, a long one hangs the wrap. Where Step 1a ran, this cap follows that one, so a single wrap can block for half an hour, which is what the announce line above has to admit.
 
 Six outcomes total, all reported in full - `config-error` and `unidentified` above, plus four more here:
 
