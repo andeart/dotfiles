@@ -1897,13 +1897,17 @@ EOF
     DOTFILES_MAPPING_OVERRIDE="agents/AGENTS.md|~/.agents/AGENTS.md" \
     "$DOTFILES_BIN" freeze
 
-  # Record the verdict, then put the real files back before asserting. A
-  # regression here writes to the developer's working tree, and a test that
-  # detects that must not also leave it that way.
+  # Record the verdict, then put back only what the freeze actually damaged,
+  # before asserting. A regression here writes to the developer's working tree,
+  # and a test that detects that must not also leave it that way - but the
+  # restore is conditional on the verdict above, so a passing run writes nothing
+  # at all. `tests/run.sh` executes the test files concurrently, and an
+  # unconditional copy would put a write into the shared working tree on every
+  # run rather than only when this regression fires. See AGENTS.md.
   ext_intact=0; cmp -s "$real_ext" "$stub_dir/extensions.bak" || ext_intact=1
   brew_intact=0; cmp -s "$real_brewfile" "$stub_dir/Brewfile.bak" || brew_intact=1
-  cp "$stub_dir/extensions.bak" "$real_ext"
-  cp "$stub_dir/Brewfile.bak" "$real_brewfile"
+  [ "$ext_intact" -eq 0 ] || cp "$stub_dir/extensions.bak" "$real_ext"
+  [ "$brew_intact" -eq 0 ] || cp "$stub_dir/Brewfile.bak" "$real_brewfile"
 
   [ "$status" -eq 0 ]
   [ "$ext_intact" -eq 0 ]
