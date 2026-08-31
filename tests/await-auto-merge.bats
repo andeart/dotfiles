@@ -86,6 +86,31 @@ GHEOF
   chmod +x "$STUB_BIN/gh"
 }
 
+# gh_flaky <n> <payload>: the first <n> calls exit non-zero with no output -
+# gh itself failing, not an empty-but-successful answer - then every call
+# after that answers <payload> the way gh_static does.
+gh_flaky() {
+  cat > "$STUB_BIN/gh" <<GHEOF
+#!/bin/sh
+shift 2
+jqf=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    --jq) jqf="\$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+countfile="$STUB_BIN/calls"
+n=\$(( \$(wc -l < "\$countfile" 2>/dev/null || echo 0) + 1 ))
+echo >> "\$countfile"
+if [ "\$n" -le $1 ]; then
+  exit 1
+fi
+printf '%s' '$2' | jq -r "\$jqf"
+GHEOF
+  chmod +x "$STUB_BIN/gh"
+}
+
 # rollup: one entry per value of GitHub's CheckConclusionState and
 # StatusState, plus every non-terminal CheckStatusState, a name carrying a
 # comma, and a conclusion GitHub has not defined yet. The member list is
@@ -234,6 +259,22 @@ rollup() {
   [[ "$output" == *"verdict=merged"* ]]
   # Proves more than one poll actually happened, not just a lucky first read.
   [[ "$output" == *"OPEN"* ]]
+}
+
+# ─── a gh call failing outright ────────────────────────────────────────────
+
+# await-auto-merge.sh is deliberately not `set -e`: a `gh` failure mid-poll
+# must fall through to the interval arithmetic and loop again, not read the
+# empty/partial output as any stop condition (MERGED, disarmed, DIRTY, and
+# checks-failed can all read false-empty as their opposite - only the string
+# actually seen decides). Only the later, successful call's payload can
+# produce this verdict, so reaching it proves the failed call was survived.
+@test "a gh call that fails outright is not read as a stop condition - the wait keeps polling" {
+  gh_flaky 1 \
+    '{"state":"MERGED","mergeCommit":{"oid":"deadbee"},"headRefOid":"f00","autoMergeRequest":{"enabledAt":"x"},"mergeStateStatus":"UNKNOWN","statusCheckRollup":[]}'
+  run_script 123 30
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"verdict=merged"* ]]
 }
 
 # ─── the cap ───────────────────────────────────────────────────────────────

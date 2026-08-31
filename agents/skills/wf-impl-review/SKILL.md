@@ -68,6 +68,8 @@ The snippet this skill comes from ends its setup the same way. A cycle is `<N>` 
 
 For each reviewer in roster order, one at a time. Never run two concurrently - each reads the previous one's revisions.
 
+The check-state paragraphs below, through the no-bullet-items gate after the prompt template, are identical in `wf-spec-review/SKILL.md`'s Step 4 by design - the check-state chain and the follow-through gate apply to both skills the same way. Keep the two in sync: a wording change to one belongs in the other too.
+
 **Establish the check state before the roster starts.** Run every `verify.commands` entry named in Step 0's resolver output, from the repo root and in order, and record the outcome with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
 
 **No `verify.commands` entries at all** - establish no check state; there is nothing to run and nothing to call green. Guessing a check command runs something arbitrary in a repo that never asked for it, the same reason `wf-ship`'s checks step declines to invent one.

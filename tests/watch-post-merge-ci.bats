@@ -86,6 +86,32 @@ GHEOF
   chmod +x "$STUB_BIN/gh"
 }
 
+# gh_runs_flaky <n> <runs-json>: the first <n> calls exit non-zero with no
+# output - gh itself failing, not an empty-but-successful answer - then every
+# call after that answers <runs-json> the way gh_runs_static does. No test
+# using this needs the jobs endpoint.
+gh_runs_flaky() {
+  cat > "$STUB_BIN/gh" <<GHEOF
+#!/bin/sh
+shift 2
+jqf=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    --jq) jqf="\$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+countfile="$STUB_BIN/calls"
+n=\$(( \$(wc -l < "\$countfile" 2>/dev/null || echo 0) + 1 ))
+echo >> "\$countfile"
+if [ "\$n" -le $1 ]; then
+  exit 1
+fi
+printf '%s' '$2' | jq -r "\$jqf"
+GHEOF
+  chmod +x "$STUB_BIN/gh"
+}
+
 # ─── usage ──────────────────────────────────────────────────────────────
 
 @test "no arguments exits 2" {
@@ -153,6 +179,20 @@ GHEOF
   [[ "$output" == *"verdict=red"* ]]
   [ "${lines[${#lines[@]}-1]}" = "$(printf 'https://x/1\ttest, flaky')" ]
   [[ "$output" != *$'\tbuild'* ]]
+}
+
+# ─── a gh call failing outright ────────────────────────────────────────────
+
+# watch-post-merge-ci.sh is deliberately not `set -e`, for the same reason as
+# await-auto-merge.sh: a failed call must fall through and retry, never read
+# as the successful-but-empty answer that means "no run appeared". Only the
+# later, successful call's payload can produce this verdict, so reaching it
+# proves the failed call was survived rather than misread as absent.
+@test "a gh call that fails outright is not read as 'no run appeared' - the wait keeps polling" {
+  gh_runs_flaky 1 '{"workflow_runs":[{"id":1,"status":"completed","conclusion":"success","html_url":"https://x/1"}]}'
+  run_script deadbee 30
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"verdict=green"* ]]
 }
 
 # ─── the cap ───────────────────────────────────────────────────────────────

@@ -24,6 +24,29 @@ fail_file() {
 EOF
 }
 
+# Two files where the second can only pass if the runner waited for the first
+# to fully exit before starting it. Under a cap of 1, `one.bats` (glob order
+# puts it first) has to finish its own sleep and write its marker before
+# `two.bats` is even launched; under an unenforced cap the runner would start
+# both back to back, and `two.bats` would run its check well inside that
+# window. This is what makes the two CPU-count-fallback cases below fail
+# reliably rather than racily if the fallback breaks - not a timing guess.
+make_serial_probe() {
+  MARKERS="$BATS_TEST_TMPDIR/markers"
+  mkdir -p "$MARKERS"
+  cat > "$SUITE/tests/one.bats" <<EOF
+@test "one" {
+  sleep 0.3
+  touch "$MARKERS/one-done"
+}
+EOF
+  cat > "$SUITE/tests/two.bats" <<EOF
+@test "two" {
+  [ -e "$MARKERS/one-done" ]
+}
+EOF
+}
+
 @test "exits zero when every file passes" {
   make_suite
   pass_file alpha
@@ -139,4 +162,41 @@ EOF
   run "$RUNNER" "$SUITE/tests/a/dup.bats" "$SUITE/tests/b/dup.bats"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Total: 1 passed, 1 failed, across 2 files"* ]]
+}
+
+# ─── the CPU-count fallback ────────────────────────────────────────────────
+
+# "Anything unusable falls back to 1: slower is the right trade for an
+# environment nobody measured, a crash is not" - stated in the header comment,
+# untested until now. Both cases below stub getconf to break in one of the
+# two ways the runner guards against, then use make_serial_probe to prove the
+# cap actually came out at 1 rather than merely not crashing.
+@test "falls back to a cap of 1 when getconf itself is unusable" {
+  make_suite
+  make_serial_probe
+  local stub_bin="$BATS_TEST_TMPDIR/stubs"
+  mkdir -p "$stub_bin"
+  cat > "$stub_bin/getconf" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+  chmod +x "$stub_bin/getconf"
+  DOTFILES_TESTS_DIR="$SUITE/tests" run env PATH="$stub_bin:$PATH" "$RUNNER"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Total: 2 passed, 0 failed, across 2 files"* ]]
+}
+
+@test "falls back to a cap of 1 when getconf answers with something other than a bare number" {
+  make_suite
+  make_serial_probe
+  local stub_bin="$BATS_TEST_TMPDIR/stubs"
+  mkdir -p "$stub_bin"
+  cat > "$stub_bin/getconf" <<'EOF'
+#!/bin/sh
+echo "undefined"
+EOF
+  chmod +x "$stub_bin/getconf"
+  DOTFILES_TESTS_DIR="$SUITE/tests" run env PATH="$stub_bin:$PATH" "$RUNNER"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Total: 2 passed, 0 failed, across 2 files"* ]]
 }

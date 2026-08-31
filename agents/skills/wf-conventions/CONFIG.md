@@ -109,7 +109,7 @@ default and prints no lines when unset:
 states.shaping=Shaping
 workspace.impl=base
 review.reviewers.1=Alia
-verify.commands.1=bats tests/
+verify.commands.1=tests/run.sh
 wrap.watch-post-merge-ci=true
 ```
 
