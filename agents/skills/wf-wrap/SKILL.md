@@ -96,10 +96,18 @@ Print one line before polling - the Output section's stated exception, since a s
 Auto-merge is armed on PR <number>; waiting up to 15m for it to land. Ctrl-C stops the wrap - nothing has been changed yet.
 ```
 
-Then poll, passing the number Step 1 already resolved. Cadence is every 15 seconds for the first two minutes, then every 60 seconds, to a 15-minute cap - the tight window covers the wait that ends as CI goes green, and past it each iteration is a tool call spent waiting on a person:
+Then poll, passing the number Step 1 already resolved. Cadence is every 15 seconds for the first two minutes, then every 60 seconds, to a 15-minute cap - the tight window covers the wait that ends as CI goes green, and past it each iteration is a tool call spent waiting on a person.
+
+Run this as one command. A wait driven one tool call per poll spends a model round trip on every iteration - measured at a 6.9s median - where the loop spends one for the whole wait.
 
 ```bash
-gh pr view <number> --json state,mergeCommit,headRefOid,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), .headRefOid, (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, "checks<<<", (.statusCheckRollup[]? | select((.conclusion // .state) as $c | $c != null and (["SUCCESS","NEUTRAL","SKIPPED","EXPECTED","PENDING"] | index($c) | not)) | (.name // .context))'
+end=$((SECONDS + 900))
+while [ $SECONDS -lt $end ]; do
+out=$(gh pr view <number> --json state,mergeCommit,headRefOid,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), .headRefOid, (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, "checks<<<", (.statusCheckRollup[]? | select((.conclusion // .state) as $c | $c != null and (["SUCCESS","NEUTRAL","SKIPPED","EXPECTED","PENDING"] | index($c) | not)) | (.name // .context))')
+  printf '%s\n---\n' "$out"
+  case "$out" in MERGED*|CLOSED*) break ;; esac
+  if [ $((SECONDS - (end - 900))) -lt 120 ]; then sleep 15; else sleep 60; fi
+done
 ```
 
 Five values come back - state, merge commit SHA, the head branch's tip, whether auto-merge is still armed, the merge state - then a `checks<<<` marker and one line per check that concluded as anything but a pass.
@@ -270,17 +278,26 @@ Watching post-merge CI for <MERGE_SHA> (up to 15m) - the wrap itself is already 
 
 Where Step 1a ran, write `up to 15m more`. That wait has already spent time the user did not plan on, and this line is where the second cap becomes theirs to abandon.
 
-Then poll for the run against the merge commit:
+Then poll for the run against the merge commit.
+
+Run this as one command. A wait driven one tool call per poll spends a model round trip on every iteration - measured at a 6.9s median - where the loop spends one for the whole wait.
 
 ```bash
-gh api "repos/:owner/:repo/actions/runs?head_sha=<MERGE_SHA>" --jq '.workflow_runs[] | "\(.id)\t\(.status)\t\(.conclusion // "-")\t\(.html_url)"'
+end=$((SECONDS + 900))
+sleep 60
+while [ $SECONDS -lt $end ]; do
+out=$(gh api "repos/:owner/:repo/actions/runs?head_sha=<MERGE_SHA>" --jq '.workflow_runs[] | "\(.id)\t\(.status)\t\(.conclusion // "-")\t\(.html_url)"')
+  printf '%s\n---\n' "$out"
+  if [ -z "$out" ] || ! cut -f2 <<<"$out" | grep -qv '^completed$'; then break; fi
+  if [ $((SECONDS - (end - 900))) -lt 120 ]; then sleep 15; else sleep 60; fi
+done
 ```
 
 Four tab-separated fields come back per run: id, status, conclusion (`-` while pending), and the run URL - the red and timeout report lines below print that URL.
 
 Key on `head_sha`, never on the branch. Post-merge the branch is the default branch, and a branch query returns every run on it including other people's. `~/.agents/AGENTS.md` also rules out the PR-checks subcommand, which 403s on a fine-grained PAT.
 
-**Timings, pinned so nobody has to invent them.** Allow 60 seconds for a run to appear - GitHub takes a few seconds to create one - then poll every 15 seconds to a 15-minute cap. Both wrong answers are bad: a short cap reports "still running" on every green build, a long one hangs the wrap. Where Step 1a ran, this cap follows that one, so a single wrap can block for half an hour, which is what the announce line above has to admit.
+**Timings, pinned so nobody has to invent them.** Allow 60 seconds for a run to appear - GitHub takes a few seconds to create one - then poll every 15 seconds for the first two minutes and every 60 seconds after, to a 15-minute cap. Both wrong answers are bad: a short cap reports "still running" on every green build, a long one hangs the wrap. Where Step 1a ran, this cap follows that one, so a single wrap can block for half an hour, which is what the announce line above has to admit.
 
 Six outcomes total, all reported in full - `config-error` and `unidentified` above, plus four more here:
 

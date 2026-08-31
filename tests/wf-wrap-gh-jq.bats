@@ -9,8 +9,18 @@ SKILL="$DOTFILES_ROOT/agents/skills/wf-wrap/SKILL.md"
 # Both jq programs are read out of SKILL.md rather than copied here. The skill
 # is the only place they exist - nothing executes that file - so a copy would
 # grade a stale expression and pass while the real one rotted.
+
+# The poll command lives inside a `while` loop in SKILL.md, so it is indented
+# and assigned to a variable. This used to anchor at column zero, which matches
+# nothing there and silently grades an empty program - hence the extraction
+# case below, which fails by name instead. Two patterns are tried so the same
+# extractor works on the bare, pre-loop shape and the indented, assigned one -
+# only one of the two ever exists in the file at a time.
 poll_jq() {
-  sed -n "s/^gh pr view <number> --json .*--jq '\(.*\)'\$/\1/p" "$SKILL"
+  sed -n \
+    -e "s/^gh pr view <number> --json .*--jq '\(.*\)'\$/\1/p" \
+    -e "s/^[[:space:]]*out=\$(gh pr view <number> --json [^ ]* --jq '\(.*\)')\$/\1/p" \
+    "$SKILL"
 }
 
 lookup_jq() {
@@ -21,11 +31,21 @@ lookup_jq() {
 # asked for and jq answers null for the rest, so the two halves of one command
 # can drift apart without either erroring.
 poll_json() {
-  sed -n "s/^gh pr view <number> --json \([^ ]*\) --jq .*/\1/p" "$SKILL"
+  sed -n \
+    -e "s/^gh pr view <number> --json \([^ ]*\) --jq .*/\1/p" \
+    -e "s/^[[:space:]]*out=\$(gh pr view <number> --json \([^ ]*\) --jq .*/\1/p" \
+    "$SKILL"
 }
 
 lookup_json() {
   sed -n "s/^gh pr view --json \([^ ]*\) --jq .*/\1/p" "$SKILL"
+}
+
+# Step 6's run-watch filter. Same reasoning as poll_jq: it moves into a loop in
+# SKILL.md, so it is indented and assigned, and an extractor anchored at column
+# zero would grade nothing.
+watch_jq() {
+  sed -n "s/^[[:space:]]*out=\$(gh api \"repos\/:owner\/:repo\/actions\/runs?head_sha=<MERGE_SHA>\" --jq '\(.*\)')\$/\1/p" "$SKILL"
 }
 
 # narrow <json> <field list>: the payload gh would actually hand back for that
@@ -87,6 +107,12 @@ lookup_payload() {
   printf '%s' '{"state":"MERGED","number":225,"url":"https://x/225","mergeCommit":{"oid":"deadbee"},"headRefOid":"f00","autoMergeRequest":null,"body":"one\ntwo\nthree\nfour"}'
 }
 
+# The Step 6 run-watch payload: one concluded run and one still pending, to
+# prove the null-conclusion dash.
+runs_payload() {
+  printf '%s' '{"workflow_runs":[{"id":111,"status":"completed","conclusion":"success","html_url":"https://x/111"},{"id":222,"status":"in_progress","conclusion":null,"html_url":"https://x/222"}]}'
+}
+
 # ─── the programs are still where the tests look for them ──────────────────
 
 @test "the poll's jq program is readable out of the skill" {
@@ -95,6 +121,18 @@ lookup_payload() {
 
 @test "the PR lookup's jq program is readable out of the skill" {
   [ -n "$(lookup_jq)" ]
+}
+
+# Each extractor must find its program in SKILL.md exactly once. Without this,
+# a restructure that breaks a pattern leaves the extractor returning an empty
+# string and the cases below grading nothing while still reporting green.
+@test "each jq program and field list is extracted exactly once" {
+  local out
+  for extractor in poll_jq lookup_jq poll_json lookup_json watch_jq; do
+    out="$("$extractor")"
+    [ -n "$out" ] || fail "$extractor matched nothing in $SKILL"
+    [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 1 ] || fail "$extractor matched more than once in $SKILL"
+  done
 }
 
 # ─── poll: leading values, in the order the prose promises ─────────────────
@@ -193,6 +231,16 @@ lookup_payload() {
 @test "lookup: a PR with no body still emits the marker, and a null body does not become the string null" {
   run_lookup '{"state":"OPEN","number":1,"url":"https://x/1","mergeCommit":null,"headRefOid":"f00","autoMergeRequest":null,"body":null}'
   [ "$output" = "$(printf 'OPEN\n1\nhttps://x/1\n\nf00\ndisarmed\nbody<<<')" ]
+}
+
+# ─── Step 6: the run-watch filter ───────────────────────────────────────────
+
+@test "watch: emits four tab-separated fields per run, a dash for a null conclusion" {
+  run jq -r "$(watch_jq)" <<<"$(runs_payload)"
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "$(printf '111\tcompleted\tsuccess\thttps://x/111')" ]
+  [ "${lines[1]}" = "$(printf '222\tin_progress\t-\thttps://x/222')" ]
+  [ "${#lines[@]}" -eq 2 ]
 }
 
 # ─── the --json list and the filter beside it still agree ──────────────────
