@@ -73,6 +73,19 @@ EOF
   done <<< "$output"
 }
 
+# The case above only exercises --list-only's glob, not the one that decides
+# what actually runs with no arguments. DOTFILES_TESTS_DIR repoints that real
+# path at a fixture suite instead of this repo's own tests/ - pointing it at
+# the real tests/ here would recurse into this very file.
+@test "with no arguments it runs the selected suite, not just lists it" {
+  make_suite
+  pass_file alpha
+  pass_file beta
+  DOTFILES_TESTS_DIR="$SUITE/tests" run "$RUNNER"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Total: 2 passed, 0 failed, across 2 files"* ]]
+}
+
 # A file that crashes before bats emits any TAP produces neither `ok` nor
 # `not ok` lines. Counting those alone would score it as a clean pass, so the
 # runner reads each file's exit status too.

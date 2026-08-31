@@ -17,7 +17,7 @@
 # the repo working tree. AGENTS.md carries that as a rule.
 set -uo pipefail
 
-# The cap tracks the host, it is not hardcoded. A3 points this same script at
+# The cap tracks the host, it is not hardcoded. This script is wired into
 # pre-commit's bats hook, which also runs in CI on a GitHub-hosted runner with
 # far fewer cores than the 12-core machine the timings above came from, where a
 # cap sized for 12 would contend rather than parallelise.
@@ -34,9 +34,13 @@ esac
 [ "$CAP" -ge 1 ] || CAP=1
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Overridable so tests/run.bats can point the no-args selection path at a
+# fixture directory instead of this real suite - the real suite includes this
+# very test file, and running it unpointed would recurse into itself.
+TESTS_DIR="${DOTFILES_TESTS_DIR:-$REPO_ROOT/tests}"
 
 if [ "$#" -gt 0 ] && [ "$1" = "--list-only" ]; then
-  for f in "$REPO_ROOT"/tests/*.bats; do
+  for f in "$TESTS_DIR"/*.bats; do
     printf '%s\n' "${f#"$REPO_ROOT"/}"
   done
   exit 0
@@ -45,15 +49,16 @@ fi
 if [ "$#" -gt 0 ]; then
   files=("$@")
 else
-  files=("$REPO_ROOT"/tests/*.bats)
+  files=("$TESTS_DIR"/*.bats)
 fi
 
 # mktemp, never a fixed or predictable name: two overlapping invocations (a
 # local run alongside a reviewer's verify.commands run in another worktree)
 # must not collide. The trap fires on interrupt too, not just the happy path -
-# this runs on every commit via A3 and inside every verify.commands call, so a
-# Ctrl-C or a cancelled CI job would otherwise leave a directory behind on each
-# attempt. A SIGKILL still slips past, but mktemp already makes that harmless.
+# this runs on every commit via pre-commit's bats hook and inside every
+# verify.commands call, so a Ctrl-C or a cancelled CI job would otherwise leave
+# a directory behind on each attempt. A SIGKILL still slips past, but mktemp
+# already makes that harmless.
 outdir="$(mktemp -d)"
 trap 'rm -rf "$outdir"' EXIT
 
