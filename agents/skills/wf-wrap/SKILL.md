@@ -105,11 +105,14 @@ end=$((SECONDS + 900))
 while [ $SECONDS -lt $end ]; do
 out=$(gh pr view <number> --json state,mergeCommit,headRefOid,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), .headRefOid, (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, "checks<<<", (.statusCheckRollup[]? | select((.conclusion // .state) as $c | $c != null and (["SUCCESS","NEUTRAL","SKIPPED","EXPECTED","PENDING"] | index($c) | not)) | (.name // .context))')
   printf '%s\n---\n' "$out"
-  mapfile -t poll_lines <<<"$out"
-  case "${poll_lines[0]}" in MERGED|CLOSED) break ;; esac
-  [ "${poll_lines[3]}" = disarmed ] && break
-  [ "${poll_lines[4]}" = DIRTY ] && break
-  [ "${#poll_lines[@]}" -gt 6 ] && break
+  st=$(printf '%s\n' "$out" | sed -n 1p)
+  am=$(printf '%s\n' "$out" | sed -n 4p)
+  ms=$(printf '%s\n' "$out" | sed -n 5p)
+  ck=$(printf '%s\n' "$out" | sed -n '7,$p')
+  case "$st" in MERGED|CLOSED) break ;; esac
+  [ "$am" = disarmed ] && break
+  [ "$ms" = DIRTY ] && break
+  [ -n "$ck" ] && break
   if [ $((SECONDS - (end - 900))) -lt 120 ]; then sleep 15; else sleep 60; fi
 done
 ```
