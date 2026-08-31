@@ -29,6 +29,9 @@ echo "origin=$origin"
 default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
 echo "default=$default"
 git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
+echo 'wfconfig<<<'
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+echo "resolver_exit=$?"
 ```
 
 - `repo=no` - stop and say this is not a git repository.
@@ -38,13 +41,11 @@ git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo '
 
 ## Step 1: Resolve the roster and focus
 
-```bash
-bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "<root>"
-```
+Step 0's block already ran the resolver; its output is the lines after the `wfconfig<<<` marker and `resolver_exit=` is its exit status.
 
 Read `review.reviewers.1`, `.2`, ... in order until a line is missing; that list is the roster and its length is the cycle count. Read `review.focus.1`, `.2`, ... the same way.
 
-If the call exits non-zero, stop and print its stderr - a broken `.wf.yml` is the user's to fix, and guessing a roster would run the wrong cycle.
+If `resolver_exit` is non-zero, stop and print its stderr - a broken `.wf.yml` is the user's to fix, and guessing a roster would run the wrong cycle.
 
 ## Step 2: Resolve the target and the identifier
 
