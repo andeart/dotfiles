@@ -28,6 +28,10 @@ set -uo pipefail
 # Not `set -e`, for the same reason as await-auto-merge.sh: a `gh` failure
 # mid-poll must fall through and retry, not abort the wait.
 
+# poll_sleep, shared with await-auto-merge.sh so the family's cadence is tuned
+# in one place.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/poll-cadence.sh"
+
 usage() {
   echo "Usage: watch-post-merge-ci.sh <merge-sha> <window-seconds>"
 }
@@ -73,10 +77,7 @@ while [ "$SECONDS" -lt "$end" ]; do
     broke=1
     break
   fi
-  if [ $((SECONDS - start)) -lt 120 ]; then iv=15; else iv=60; fi
-  rem=$((end - SECONDS))
-  [ "$iv" -gt "$rem" ] && iv=$rem
-  [ "$iv" -gt 0 ] && sleep "$iv"
+  poll_sleep "$start" "$end"
 done
 
 # The loop can end two ways: a break (some terminal state was read) or the

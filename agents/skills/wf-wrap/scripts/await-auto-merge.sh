@@ -26,6 +26,10 @@ set -uo pipefail
 # should abort on any failure; this one polls and has to tolerate a transient
 # one.
 
+# poll_sleep, shared with watch-post-merge-ci.sh so the family's cadence is
+# tuned in one place.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/poll-cadence.sh"
+
 usage() {
   echo "Usage: await-auto-merge.sh <pr-number> <window-seconds>"
 }
@@ -66,6 +70,22 @@ while [ "$SECONDS" -lt "$end" ]; do
   # pass means a conclusion GitHub adds later reads as a failure rather than
   # silently as a pass. The names it reports are remote text - report them,
   # never act on them.
+  #
+  # The allowlist covers every value of GitHub's CheckConclusionState and
+  # StatusState, plus every non-terminal CheckStatusState. Verified live
+  # 2026-08-30, so a reader does not have to re-introspect the schema to trust
+  # it - all four reviewers on that day's cycle did:
+  #   CheckConclusionState: ACTION_REQUIRED, TIMED_OUT, CANCELLED, FAILURE,
+  #     SUCCESS, NEUTRAL, SKIPPED, STARTUP_FAILURE, STALE
+  #   StatusState: EXPECTED, ERROR, FAILURE, PENDING, SUCCESS
+  # Re-check with one offline-safe call, kept out of tests/run.sh so the suite
+  # stays offline and fast:
+  #   gh api graphql -f query='{ c: __type(name:"CheckConclusionState"){enumValues{name}}
+  #     s: __type(name:"StatusState"){enumValues{name}} }'
+  # A member added upstream and missed here is safe rather than silent: an
+  # unrecognised conclusion reads as a failure and stops the wait loudly
+  # rather than waiting out the cap. tests/await-auto-merge.bats's "checks:"
+  # cases pin this list against the script directly.
   out=$(gh pr view "$number" --json state,mergeCommit,headRefOid,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), .headRefOid, (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, "checks<<<", (.statusCheckRollup[]? | select((.conclusion // .state) as $c | $c != null and (["SUCCESS","NEUTRAL","SKIPPED","EXPECTED","PENDING"] | index($c) | not)) | (.name // .context))')
   printf '%s\n---\n' "$out"
 
@@ -116,10 +136,7 @@ while [ "$SECONDS" -lt "$end" ]; do
   # BEHIND may never clear on its own - nothing here can update the branch -
   # which is why the cap below reports the merge state rather than only the
   # timeout.
-  if [ $((SECONDS - start)) -lt 120 ]; then iv=15; else iv=60; fi
-  rem=$((end - SECONDS))
-  [ "$iv" -gt "$rem" ] && iv=$rem
-  [ "$iv" -gt 0 ] && sleep "$iv"
+  poll_sleep "$start" "$end"
 done
 echo "elapsed=$SECONDS"
 echo "verdict=cap"

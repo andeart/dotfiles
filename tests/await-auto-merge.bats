@@ -29,6 +29,14 @@ run_script() {
   run env PATH="$STUB_BIN:$PATH" bash "$SCRIPT" "$@"
 }
 
+# after_marker <output>: the lines following the last `checks<<<` marker - the
+# one the final verdict block emits, not the one inside the raw poll dump this
+# script also prints, which carries the same list under the same marker.
+after_marker() {
+  local rest=${1##*checks<<<}
+  printf '%s\n' "${rest#$'\n'}"
+}
+
 # gh_static <payload-json>: a gh stub that answers every `pr view` call with
 # the same payload, run through the real --jq filter the script passes - so
 # tests exercise the filter actually written into the script, not a copy of
@@ -76,6 +84,15 @@ fi
 printf '%s' "\$payload" | jq -r "\$jqf"
 GHEOF
   chmod +x "$STUB_BIN/gh"
+}
+
+# rollup: one entry per value of GitHub's CheckConclusionState and
+# StatusState, plus every non-terminal CheckStatusState, a name carrying a
+# comma, and a conclusion GitHub has not defined yet. The member list is
+# pinned beside the allowlist itself in await-auto-merge.sh - keep this
+# fixture in step with it rather than letting the two drift apart.
+rollup() {
+  printf '%s' '{"state":"OPEN","mergeCommit":null,"headRefOid":"abc123","autoMergeRequest":{"enabledAt":"x"},"mergeStateStatus":"BLOCKED","statusCheckRollup":[{"name":"ok-success","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"ok-neutral","status":"COMPLETED","conclusion":"NEUTRAL"},{"name":"ok-skipped","status":"COMPLETED","conclusion":"SKIPPED"},{"name":"bad-failure","status":"COMPLETED","conclusion":"FAILURE"},{"name":"bad-timed-out","status":"COMPLETED","conclusion":"TIMED_OUT"},{"name":"bad-cancelled","status":"COMPLETED","conclusion":"CANCELLED"},{"name":"bad-action-required","status":"COMPLETED","conclusion":"ACTION_REQUIRED"},{"name":"bad-startup-failure","status":"COMPLETED","conclusion":"STARTUP_FAILURE"},{"name":"bad-stale","status":"COMPLETED","conclusion":"STALE"},{"name":"pending-queued","status":"QUEUED","conclusion":null},{"name":"pending-in-progress","status":"IN_PROGRESS","conclusion":null},{"name":"pending-waiting","status":"WAITING","conclusion":null},{"name":"pending-requested","status":"REQUESTED","conclusion":null},{"name":"pending-pending","status":"PENDING","conclusion":null},{"name":"bad, with a comma","status":"COMPLETED","conclusion":"FAILURE"},{"context":"ctx-success","state":"SUCCESS"},{"context":"ctx-expected","state":"EXPECTED"},{"context":"ctx-pending","state":"PENDING"},{"context":"ctx-error","state":"ERROR"},{"context":"ctx-failure","state":"FAILURE"},{"name":"future-conclusion","status":"COMPLETED","conclusion":"NOT_YET_INVENTED"}]}'
 }
 
 # ─── usage ──────────────────────────────────────────────────────────────
@@ -155,6 +172,55 @@ GHEOF
   # The passing check is never in the jq filter's own output at all - it is
   # an allowlist - so the last line is the final verdict block's one name.
   [ "${lines[${#lines[@]}-1]}" = "bad, with a comma" ]
+}
+
+# ─── checks: the allowlist against every enum member ─────────────────────
+
+@test "checks: every conclusion that is not a pass is reported, in order" {
+  gh_static "$(rollup)"
+  run_script 123 30
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"verdict=checks-failed"* ]]
+  run after_marker "$output"
+  [ "${lines[0]}" = "bad-failure" ]
+  [ "${lines[1]}" = "bad-timed-out" ]
+  [ "${lines[2]}" = "bad-cancelled" ]
+  [ "${lines[3]}" = "bad-action-required" ]
+  [ "${lines[4]}" = "bad-startup-failure" ]
+  [ "${lines[5]}" = "bad-stale" ]
+  [ "${lines[6]}" = "bad, with a comma" ]
+  [ "${lines[7]}" = "ctx-error" ]
+  [ "${lines[8]}" = "ctx-failure" ]
+  [ "${lines[9]}" = "future-conclusion" ]
+  [ "${#lines[@]}" -eq 10 ]
+}
+
+@test "checks: passing conclusions and states are never reported" {
+  gh_static "$(rollup)"
+  run_script 123 30
+  [[ "$output" != *"ok-success"* ]]
+  [[ "$output" != *"ok-neutral"* ]]
+  [[ "$output" != *"ok-skipped"* ]]
+  [[ "$output" != *"ctx-success"* ]]
+  [[ "$output" != *"ctx-expected"* ]]
+}
+
+@test "checks: a check still running is pending, not a failure" {
+  gh_static "$(rollup)"
+  run_script 123 30
+  [[ "$output" != *"pending-queued"* ]]
+  [[ "$output" != *"pending-in-progress"* ]]
+  [[ "$output" != *"pending-waiting"* ]]
+  [[ "$output" != *"pending-requested"* ]]
+  [[ "$output" != *"pending-pending"* ]]
+  [[ "$output" != *"ctx-pending"* ]]
+}
+
+@test "checks: a conclusion GitHub has not defined yet reads as a failure, not a pass" {
+  gh_static '{"state":"OPEN","mergeCommit":null,"headRefOid":"f00","autoMergeRequest":{"enabledAt":"x"},"mergeStateStatus":"CLEAN","statusCheckRollup":[{"name":"brand-new","status":"COMPLETED","conclusion":"NOT_YET_INVENTED"}]}'
+  run_script 123 30
+  [[ "$output" == *"verdict=checks-failed"* ]]
+  [[ "$output" == *"brand-new"* ]]
 }
 
 # ─── still pending: the wait keeps polling rather than stopping early ────

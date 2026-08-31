@@ -9,12 +9,11 @@ SKILL="$DOTFILES_ROOT/agents/skills/wf-wrap/SKILL.md"
 # The Step 1 lookup's jq program is read out of SKILL.md rather than copied
 # here. The skill is the only place it exists - nothing executes that file -
 # so a copy would grade a stale expression and pass while the real one
-# rotted. Step 1a's poll and Step 6's watch used to be extracted the same way,
-# but they moved into agents/skills/wf-wrap/scripts/await-auto-merge.sh and
-# watch-post-merge-ci.sh (see await-auto-merge.bats and
-# watch-post-merge-ci.bats), which are executable and can be tested by
-# running them - the fragile sed-out-of-markdown technique is only still
-# necessary for a one-shot command that has nowhere else to live.
+# rotted. This sed-out-of-markdown extraction is the one place that still
+# needs it: the lookup is a one-shot command with nowhere else to live, unlike
+# Step 1a's poll and Step 6's watch, which are executable scripts under
+# agents/skills/wf-wrap/scripts/ and get tested by running them directly (see
+# await-auto-merge.bats and watch-post-merge-ci.bats).
 
 lookup_jq() {
   sed -n "s/^gh pr view --json .*--jq '\(.*\)'\$/\1/p" "$SKILL"
