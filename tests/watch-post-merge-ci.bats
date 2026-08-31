@@ -187,6 +187,31 @@ GHEOF
   [[ "$output" != *$'\tbuild'* ]]
 }
 
+# A run gated on `if:` commonly concludes `neutral` or `skipped` on a merge
+# that just doesn't trigger it - that is routine, not a red build, the same
+# reading await-auto-merge.sh already gives NEUTRAL and SKIPPED check runs.
+@test "a run that concluded neutral or skipped is not read as red" {
+  gh_runs_static '{"workflow_runs":[{"id":1,"status":"completed","conclusion":"neutral","html_url":"https://x/1"},{"id":2,"status":"completed","conclusion":"skipped","html_url":"https://x/2"}]}'
+  run_script deadbee 30
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"verdict=green"* ]]
+}
+
+# The same allowlist has to hold at the job level, not just the run level, or
+# a run mixing a real failure with an unrelated skipped job would name the
+# skipped one alongside the failing one.
+@test "a job that concluded neutral or skipped is never named among the failing ones" {
+  gh_runs_static \
+    '{"workflow_runs":[{"id":1,"status":"completed","conclusion":"failure","html_url":"https://x/1"}]}' \
+    '{"jobs":[{"name":"deploy-only-on-release","conclusion":"skipped"},{"name":"lint-warnings","conclusion":"neutral"},{"name":"real failure","conclusion":"failure"}]}'
+  run_script deadbee 30
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"verdict=red"* ]]
+  [ "${lines[${#lines[@]}-1]}" = "$(printf 'https://x/1\treal failure')" ]
+  [[ "$output" != *"deploy-only-on-release"* ]]
+  [[ "$output" != *"lint-warnings"* ]]
+}
+
 # ─── a gh call failing outright ────────────────────────────────────────────
 
 # watch-post-merge-ci.sh is deliberately not `set -e`, for the same reason as
@@ -248,6 +273,18 @@ SLEEPEOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"verdict=timeout"* ]]
   [[ "$output" == *"https://x/1"* ]]
+  [[ "$output" == *"gh-unreachable=no"* ]]
+}
+
+# Before gh-unreachable existed, this looked identical to the case above:
+# verdict=timeout with an empty runs<<< block is exactly what "nothing has
+# appeared yet" also prints. gh-unreachable is what tells them apart.
+@test "cap: gh-unreachable is yes when no poll this call ever got a successful answer" {
+  stub gh 'exit 1'
+  run_script deadbee 2
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"verdict=timeout"* ]]
+  [[ "$output" == *"gh-unreachable=yes"* ]]
 }
 
 # ─── bash 3.2 compatibility ────────────────────────────────────────────────

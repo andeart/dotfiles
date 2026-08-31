@@ -60,6 +60,7 @@ esac
 end=$((SECONDS + window))
 start=$SECONDS
 ms=""
+ok_ever=0
 while [ "$SECONDS" -lt "$end" ]; do
   # Do not trim this field set. mergeStateStatus and statusCheckRollup back
   # two of the stop conditions below, and gh returns null for a field it was
@@ -100,6 +101,7 @@ while [ "$SECONDS" -lt "$end" ]; do
   # successful call left them as (or their initial empty value, on a first-
   # iteration failure) until a call actually succeeds.
   if [ "$gh_status" -eq 0 ]; then
+    ok_ever=1
     st=$(printf '%s\n' "$out" | sed -n 1p)
     mc=$(printf '%s\n' "$out" | sed -n 2p)
     ho=$(printf '%s\n' "$out" | sed -n 3p)
@@ -153,3 +155,12 @@ done
 echo "elapsed=$SECONDS"
 echo "verdict=cap"
 echo "merge-state-status=$ms"
+# A cap with $ms still empty is ambiguous on its own - it reads the same as a
+# PR that's genuinely still pending. gh-unreachable names the difference: no
+# poll this call made ever got a successful answer, so $ms was never set at
+# all rather than set and then stuck.
+if [ "$ok_ever" -eq 1 ]; then
+  echo "gh-unreachable=no"
+else
+  echo "gh-unreachable=yes"
+fi

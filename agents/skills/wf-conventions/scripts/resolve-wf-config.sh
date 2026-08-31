@@ -147,6 +147,10 @@ validate() {
       if is_known_shape "${key%.*}"; then
         invalid "${key%.*} must be a single value, not a list"
       fi
+      # Permanent, not a shim to pull out once the rename has propagated: a
+      # stale branch, an old override, or a forgotten local copy of .wf.yml
+      # can carry the retired key indefinitely, and this costs one string
+      # comparison in a function whose whole job is already a lookup.
       if [ "$shape" = "ship.test-commands.N" ] || [ "$key" = "ship.test-commands" ]; then
         invalid "ship.test-commands was renamed to verify.commands"
       fi

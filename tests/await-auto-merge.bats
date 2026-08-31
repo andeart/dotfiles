@@ -111,6 +111,38 @@ GHEOF
   chmod +x "$STUB_BIN/gh"
 }
 
+# gh_capturing <payload-json>: like gh_static, but also writes the --json
+# field list and --jq filter the script actually passed into
+# $STUB_BIN/captured-json and $STUB_BIN/captured-jq. Lets a test prove the
+# field list and the filter agree against the real, running call rather than
+# a second, separate scrape of the script's own source.
+gh_capturing() {
+  cat > "$STUB_BIN/gh" <<GHEOF
+#!/bin/sh
+shift 2
+jsonf=""
+jqf=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    --json) jsonf="\$2"; shift 2 ;;
+    --jq) jqf="\$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf '%s' "\$jsonf" > "$STUB_BIN/captured-json"
+printf '%s' "\$jqf" > "$STUB_BIN/captured-jq"
+printf '%s' '$1' | jq -r "\$jqf"
+GHEOF
+  chmod +x "$STUB_BIN/gh"
+}
+
+# narrow <json> <comma-separated-keys>: <json> restricted to only the given
+# top-level keys - the same helper tests/wf-wrap-gh-jq.bats uses to prove a
+# --json list and its --jq filter agree.
+narrow() {
+  jq -c --arg keys "$2" 'with_entries(select(.key as $k | ($keys | split(",")) | index($k)))' <<<"$1"
+}
+
 # rollup: one entry per value of GitHub's CheckConclusionState and
 # StatusState, plus every non-terminal CheckStatusState, a name carrying a
 # comma, and a conclusion GitHub has not defined yet. The member list is
@@ -291,6 +323,44 @@ rollup() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"verdict=cap"* ]]
   [[ "$output" == *"merge-state-status=UNKNOWN"* ]]
+  [[ "$output" == *"gh-unreachable=no"* ]]
+}
+
+# Before gh-unreachable existed, this case looked identical to the one above:
+# verdict=cap with merge-state-status= empty is exactly what a PR that's
+# merely still pending also prints on its very first poll, before gh has
+# reported anything else. gh-unreachable is what tells them apart.
+@test "cap: gh-unreachable is yes when no poll this call ever got a successful answer" {
+  stub gh 'exit 1'
+  run_script 123 2
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"verdict=cap"* ]]
+  [[ "$output" == *"merge-state-status="$'\n'* ]]
+  [[ "$output" == *"gh-unreachable=yes"* ]]
+}
+
+# ─── the --json list and the filter beside it still agree ─────────────────
+
+# Without this, dropping a field from the --json list (mergeStateStatus, say)
+# leaves the filter reading it as gh's literal null instead of erroring, and
+# every other case here still passes: they all hand-write a fixture that
+# still has the field, so they can't tell the requested --json list apart
+# from the filter's own assumptions about what it will get. This drove the
+# regression the header comment above the real `--json` list warns about -
+# confirmed by deliberately dropping mergeStateStatus from a copy of the
+# script and watching every other test in this file keep passing regardless.
+@test "poll: the --json list carries every field the filter reads" {
+  gh_capturing "$(rollup)"
+  run_script 123 30
+  [ "$status" -eq 0 ]
+  local jsonlist jqf full narrowed
+  jsonlist="$(cat "$STUB_BIN/captured-json")"
+  jqf="$(cat "$STUB_BIN/captured-jq")"
+  [ -n "$jsonlist" ]
+  [ -n "$jqf" ]
+  full="$(jq -r "$jqf" <<<"$(rollup)")"
+  narrowed="$(jq -r "$jqf" <<<"$(narrow "$(rollup)" "$jsonlist")")"
+  [ "$full" = "$narrowed" ]
 }
 
 # ─── bash 3.2 compatibility ────────────────────────────────────────────────

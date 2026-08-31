@@ -75,6 +75,7 @@ sleep "$grace"
 start=$SECONDS
 broke=0
 out=""
+ok_ever=0
 while [ "$SECONDS" -lt "$end" ]; do
   # Key on head_sha, never on the branch: post-merge the branch is the
   # default branch, and a branch query would return every run on it,
@@ -82,6 +83,7 @@ while [ "$SECONDS" -lt "$end" ]; do
   # PR-checks subcommand, which 403s on a fine-grained PAT.
   out=$(gh api "repos/:owner/:repo/actions/runs?head_sha=$sha" --jq '.workflow_runs[] | "\(.id)\t\(.status)\t\(.conclusion // "-")\t\(.html_url)"')
   gh_status=$?
+  [ "$gh_status" -eq 0 ] && ok_ever=1
   printf '%s\n---\n' "$out"
   # A non-zero gh_status means the call itself failed - a transient network or
   # API error, not an empty result - so the wait keeps polling instead of
@@ -102,6 +104,14 @@ if [ "$broke" -ne 1 ]; then
   echo "verdict=timeout"
   echo 'runs<<<'
   printf '%s\n' "$out"
+  # A timeout with an empty runs<<< block is ambiguous on its own - it reads
+  # the same as "nothing has appeared yet". gh-unreachable names the
+  # difference: no poll this call made ever got a successful answer.
+  if [ "$ok_ever" -eq 1 ]; then
+    echo "gh-unreachable=no"
+  else
+    echo "gh-unreachable=yes"
+  fi
   exit 0
 fi
 
@@ -111,7 +121,12 @@ if [ -z "$out" ]; then
   exit 0
 fi
 
-bad=$(printf '%s\n' "$out" | awk -F'\t' '$3 != "success" { print }')
+# success, neutral and skipped all read as passing here, matching the
+# allowlist await-auto-merge.sh already applies to check runs (see that
+# script's CheckConclusionState comment) - a workflow gated on `if:` commonly
+# concludes `skipped` on a merge that just doesn't trigger it, and that is not
+# a red build.
+bad=$(printf '%s\n' "$out" | awk -F'\t' '$3 != "success" && $3 != "neutral" && $3 != "skipped" { print }')
 
 if [ -z "$bad" ]; then
   echo "elapsed=$SECONDS"
@@ -124,7 +139,7 @@ echo "verdict=red"
 echo 'jobs<<<'
 printf '%s\n' "$bad" | while IFS=$'\t' read -r id run_status run_conclusion url; do
   [ -n "$id" ] || continue
-  gh api "repos/:owner/:repo/actions/runs/${id}/jobs" --jq '.jobs[] | select(.conclusion != "success") | .name' 2>/dev/null \
+  gh api "repos/:owner/:repo/actions/runs/${id}/jobs" --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped") | .name' 2>/dev/null \
     | while IFS= read -r name; do
         [ -n "$name" ] || continue
         printf '%s\t%s\n' "$url" "$name"
