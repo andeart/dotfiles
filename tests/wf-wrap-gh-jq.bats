@@ -74,6 +74,20 @@ run_lookup() {
 # One entry per value of GitHub's CheckConclusionState and StatusState, plus
 # every non-terminal CheckStatusState, a name carrying a comma, and a
 # conclusion GitHub has not defined yet.
+#
+# Verified live 2026-08-30, so a reader does not have to re-introspect the
+# schema to trust the list - all four reviewers on that day's cycle did:
+#   CheckConclusionState: ACTION_REQUIRED, TIMED_OUT, CANCELLED, FAILURE,
+#     SUCCESS, NEUTRAL, SKIPPED, STARTUP_FAILURE, STALE
+#   StatusState: EXPECTED, ERROR, FAILURE, PENDING, SUCCESS
+#
+# Re-check with one offline-safe call, kept out of the suite so `tests/run.sh`
+# stays offline and fast:
+#   gh api graphql -f query='{ c: __type(name:"CheckConclusionState"){enumValues{name}}
+#     s: __type(name:"StatusState"){enumValues{name}} }'
+#
+# A member added upstream and missed here is safe rather than silent: the poll's
+# allowlist reads an unrecognised conclusion as a failure and stops loudly.
 rollup() {
   cat <<'JSON'
 {"state":"OPEN","mergeCommit":null,"headRefOid":"abc123","autoMergeRequest":{"enabledAt":"x"},"mergeStateStatus":"BLOCKED","statusCheckRollup":[
