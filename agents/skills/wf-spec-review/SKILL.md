@@ -69,18 +69,21 @@ For each reviewer in roster order, one at a time. Never run two concurrently - e
 
 **Establish the check state before the roster starts.** Run every `verify.commands` entry from Step 0's resolver output, in order, and record the outcome with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
 
+**No `verify.commands` entries at all** - establish no check state; there is nothing to run and nothing to call green. Guessing a check command runs something arbitrary in a repo that never asked for it, the same reason `wf-ship`'s checks step declines to invent one.
+
 Carry that state into every reviewer's opening prompt as `<CHECK_STATE>`, using these literal sentences:
 
 - Every command passed - ``verify.commands is green at <SHA> - the exact command(s): <verify.commands.1>, <verify.commands.2>, ... - run them after you've changed something, not before.``
-- Any command failed - ``verify.commands is red at <SHA> (<failing command> failed) - the previous round did not leave the tree green.``
+- Any command failed - ``verify.commands is red at <SHA>, the commit you are starting from: <failing command> failed. The exact command(s): <verify.commands.1>, <verify.commands.2>, ... - it was already red before you started, so the failure is not from anything you did.``
+- No entries configured - ``this repo configures no verify.commands - there is nothing to run before or after your change.``
 
-Naming the commands matters as much as the state does: a reviewer left to discover the command for itself finds `bats tests/` and takes the 84s path instead of the 27s one.
+Naming the commands matters as much as the state does: a reviewer left to discover the command for itself finds `bats tests/` and takes the 84s path instead of the 26s one.
 
-**Re-establish it after any round that committed.** When a reviewer's follow-through produced a commit, re-run the commands at the new tip and carry the new state and sha forward. A round that committed nothing carries the previous state forward unchanged, with no re-run - the tree has not moved.
+**Re-establish it after any round that committed.** When a reviewer's follow-through produced a commit, re-run the commands at the new tip and carry the new state and sha forward. A round that committed nothing carries the previous state forward unchanged, with no re-run - the spec may have changed, but it changed somewhere the checks can't see: `docs/` is gitignored.
 
 A failing state is still handed forward. It is a fact the next reviewer needs more than a passing one, and hiding it would have the next reviewer attribute the failure to its own change.
 
-**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the spec path, the identifier, and the focus list. Give it nothing else about the review - no summary of earlier reviewers, no repo orientation, no account of what has already been found. The genericity of the prompt is what makes each pass holistic.
+**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the spec path, the identifier, the focus list, and `<CHECK_STATE>`. Give it nothing else about the review - no summary of earlier reviewers, no repo orientation, no account of what has already been found. The genericity of the prompt is what makes each pass holistic.
 
 The one exception is the check state below, and it is bounded deliberately: what crosses between reviewers is a fact about the tree, never a fact about the review. A reviewer learns that the checks pass at the commit it starts from; it does not learn who made them pass or what they thought.
 
@@ -105,7 +108,7 @@ You are reviewing as YourName. Focus your review of this on:
 
 **When that sub-agent finishes**, read its notes file and count the bullet items in it.
 
-**No bullet items at all** - skip the follow-through, and name the reviewer in the report as having raised nothing actionable. The opening prompt mandates a non-numbered bulleted list, so an absence of bullets means an absence of feedback. Count bullets and nothing else: a gate that judged whether a bullet was *actionable enough* could skip a revision that mattered, which would change what the cycle produces rather than only how long it takes.
+**No bullet items at all** - skip the follow-through, and name the reviewer in the report as having raised no bullet items. The opening prompt mandates a non-numbered bulleted list, so an absence of bullets means an absence of feedback. Count bullets and nothing else: a gate that judged whether a bullet was *actionable enough* could skip a revision that mattered, which would change what the cycle produces rather than only how long it takes.
 
 **One or more bullet items** - send this follow-through with SendMessage, so it revises with its own review still in context:
 
@@ -129,4 +132,4 @@ gh pr view --json url --jq '.url' 2>/dev/null
 
 A URL means a pull request already exists for this branch; the push updated it - report the URL. No output means there is none yet.
 
-Report, one line per reviewer: its name, whether it wrote its notes file, whether its follow-through ran or was skipped for raising nothing actionable, and whether it revised the spec. Then the check state the cycle ended on, and the push result.
+Report, one line per reviewer: its name, whether it wrote its notes file, whether its follow-through ran or was skipped for raising no bullet items, and whether it revised the spec. Then the check state the cycle ended on, and the push result.
