@@ -275,7 +275,7 @@ That split matters because the checklist is the honest record. A box left unchec
 One line, after the state line:
 
 - **`none-configured`**: `- No check commands are configured - nothing ran.`
-- **`not-run`**: `- Tests did not run - a pull request already existed for this branch.`
+- **`not-run`**: `- Checks did not run - a pull request already existed for this branch.`
 - **Every command passed**: `- Ran <N> check command(s) - all passed.`
 - **One or more commands failed**: `- <command> failed - left unchecked in the Test plan.` Name every failing command; join more than one with a comma.
 
