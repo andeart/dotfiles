@@ -12,9 +12,10 @@ SCRIPT="$DOTFILES_ROOT/agents/skills/wf-wrap/scripts/watch-post-merge-ci.sh"
 setup() {
   STUB_BIN="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$STUB_BIN"
-  # Fixed and short regardless of the argument: the script's own 60s grace is
-  # not scaled by the window the way its poll interval is, so a tiny window
-  # alone would not keep this suite fast - the grace has to be stubbed too.
+  # Fixed and short regardless of the argument: even with the grace now
+  # clamped to the window (see the "startup grace" tests below, which swap in
+  # a different stub to check the actual value requested), the default here
+  # just needs to be fast for every other case.
   stub sleep 'exec /bin/sleep 0.02'
 }
 
@@ -129,6 +130,11 @@ GHEOF
   [ "$status" -eq 2 ]
 }
 
+@test "a non-hex merge sha exits 2" {
+  run_script "not-a-sha!" 30
+  [ "$status" -eq 2 ]
+}
+
 @test "a non-numeric window exits 2" {
   run_script deadbee abc
   [ "$status" -eq 2 ]
@@ -193,6 +199,45 @@ GHEOF
   run_script deadbee 30
   [ "$status" -eq 0 ]
   [[ "$output" == *"verdict=green"* ]]
+}
+
+# ─── the startup grace ─────────────────────────────────────────────────────
+
+# record_sleep: replaces the suite's default no-op `sleep` stub with one that
+# logs every requested duration instead of actually sleeping, so a test can
+# tell the (now window-clamped) grace call apart from the poll cadence's own
+# sleeps that follow it. The default stub in setup() ignores its argument
+# entirely, which is exactly what would hide a regression here.
+record_sleep() {
+  cat > "$STUB_BIN/sleep" <<'SLEEPEOF'
+#!/bin/sh
+printf '%s\n' "$1" >> "$BATS_TEST_TMPDIR/sleep.log"
+SLEEPEOF
+  chmod +x "$STUB_BIN/sleep"
+}
+
+# Before this test existed, an unconditional `sleep 60` consumed the entire
+# window before the poll loop's own `SECONDS -lt end` check ever ran, so a
+# window at or under 60s always reported `verdict=timeout` with zero `gh`
+# calls made - even when a run would have answered on the very first poll.
+# The suite's default sleep stub (0.02s regardless of argument) could not
+# catch that: it hid the real 60s cost, so every existing case here kept
+# passing throughout. record_sleep exists specifically to close that gap.
+@test "the startup grace is clamped when the window is at or under 60s, so a poll is still attempted" {
+  record_sleep
+  gh_runs_static '{"workflow_runs":[{"id":1,"status":"completed","conclusion":"success","html_url":"https://x/1"}]}'
+  run_script deadbee 2
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"verdict=green"* ]]
+  [ "$(sed -n 1p "$BATS_TEST_TMPDIR/sleep.log")" = "1" ]
+}
+
+@test "the startup grace stays at 60s for a window above 60s, matching the documented call sites" {
+  record_sleep
+  gh_runs_static '{"workflow_runs":[{"id":1,"status":"completed","conclusion":"success","html_url":"https://x/1"}]}'
+  run_script deadbee 570
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 1p "$BATS_TEST_TMPDIR/sleep.log")" = "60" ]
 }
 
 # ─── the cap ───────────────────────────────────────────────────────────────

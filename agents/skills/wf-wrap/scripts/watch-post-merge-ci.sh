@@ -44,10 +44,12 @@ fi
 sha="$1"
 window="$2"
 
-if [ -z "$sha" ]; then
-  echo "watch-post-merge-ci: merge-sha must not be empty" >&2
-  exit 2
-fi
+case "$sha" in
+  ''|*[!0-9a-fA-F]*)
+    echo "watch-post-merge-ci: merge-sha must be a hex commit sha, not '$sha'" >&2
+    exit 2
+    ;;
+esac
 
 case "$window" in
   ''|*[!0-9]*)
@@ -57,7 +59,19 @@ case "$window" in
 esac
 
 end=$((SECONDS + window))
-sleep 60
+# The 60s grace leaves no room to poll when the window itself is at or under
+# 60s: an unconditional `sleep 60` would consume the whole window before the
+# loop below ever checks it, guaranteeing a zero-poll `verdict=timeout` even
+# when a run would have answered instantly. Reserve at least one second for a
+# poll attempt in that case. Both documented call sites (570s, then 330s on
+# retry) stay well above 60s, so this only matters for a window passed by
+# hand.
+grace=60
+if [ "$grace" -ge "$window" ]; then
+  grace=$((window - 1))
+  [ "$grace" -lt 0 ] && grace=0
+fi
+sleep "$grace"
 start=$SECONDS
 broke=0
 out=""

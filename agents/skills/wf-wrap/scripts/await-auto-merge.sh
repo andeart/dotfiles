@@ -24,7 +24,8 @@ set -uo pipefail
 # mid-poll must fall through to the interval arithmetic and loop again, not
 # kill the wait. resolve-wf-config.sh and superseded-probe.sh run once and
 # should abort on any failure; this one polls and has to tolerate a transient
-# one.
+# one. gh's exit status is captured explicitly below (gh_status) rather than
+# left implicit, the same way watch-post-merge-ci.sh already does.
 
 # poll_sleep, shared with watch-post-merge-ci.sh so the family's cadence is
 # tuned in one place.
@@ -42,10 +43,12 @@ fi
 number="$1"
 window="$2"
 
-if [ -z "$number" ]; then
-  echo "await-auto-merge: pr-number must not be empty" >&2
-  exit 2
-fi
+case "$number" in
+  ''|*[!0-9]*)
+    echo "await-auto-merge: pr-number must be a positive integer, not '$number'" >&2
+    exit 2
+    ;;
+esac
 
 case "$window" in
   ''|*[!0-9]*)
@@ -87,48 +90,57 @@ while [ "$SECONDS" -lt "$end" ]; do
   # rather than waiting out the cap. tests/await-auto-merge.bats's "checks:"
   # cases pin this list against the script directly.
   out=$(gh pr view "$number" --json state,mergeCommit,headRefOid,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), .headRefOid, (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, "checks<<<", (.statusCheckRollup[]? | select((.conclusion // .state) as $c | $c != null and (["SUCCESS","NEUTRAL","SKIPPED","EXPECTED","PENDING"] | index($c) | not)) | (.name // .context))')
+  gh_status=$?
   printf '%s\n---\n' "$out"
 
-  st=$(printf '%s\n' "$out" | sed -n 1p)
-  mc=$(printf '%s\n' "$out" | sed -n 2p)
-  ho=$(printf '%s\n' "$out" | sed -n 3p)
-  am=$(printf '%s\n' "$out" | sed -n 4p)
-  ms=$(printf '%s\n' "$out" | sed -n 5p)
-  ck=$(printf '%s\n' "$out" | sed -n '7,$p')
+  # A non-zero gh_status means the call itself failed - a transient network or
+  # API error, not a real answer - so the stop conditions below are skipped
+  # for this iteration rather than parsed out of a failed call's empty or
+  # partial output. st/mc/ho/am/ms/ck simply hold whatever the last
+  # successful call left them as (or their initial empty value, on a first-
+  # iteration failure) until a call actually succeeds.
+  if [ "$gh_status" -eq 0 ]; then
+    st=$(printf '%s\n' "$out" | sed -n 1p)
+    mc=$(printf '%s\n' "$out" | sed -n 2p)
+    ho=$(printf '%s\n' "$out" | sed -n 3p)
+    am=$(printf '%s\n' "$out" | sed -n 4p)
+    ms=$(printf '%s\n' "$out" | sed -n 5p)
+    ck=$(printf '%s\n' "$out" | sed -n '7,$p')
 
-  # Order is load-bearing: an auto-merged PR keeps autoMergeRequest non-null,
-  # so testing the disarm condition before MERGED would read the awaited
-  # merge as a disarm.
-  case "$st" in
-    MERGED)
+    # Order is load-bearing: an auto-merged PR keeps autoMergeRequest
+    # non-null, so testing the disarm condition before MERGED would read the
+    # awaited merge as a disarm.
+    case "$st" in
+      MERGED)
+        echo "elapsed=$SECONDS"
+        echo "verdict=merged"
+        echo "merge-sha=$mc"
+        echo "head-oid=$ho"
+        exit 0
+        ;;
+      CLOSED)
+        echo "elapsed=$SECONDS"
+        echo "verdict=closed"
+        exit 0
+        ;;
+    esac
+    if [ "$am" = disarmed ]; then
       echo "elapsed=$SECONDS"
-      echo "verdict=merged"
-      echo "merge-sha=$mc"
-      echo "head-oid=$ho"
+      echo "verdict=disarmed"
       exit 0
-      ;;
-    CLOSED)
+    fi
+    if [ "$ms" = DIRTY ]; then
       echo "elapsed=$SECONDS"
-      echo "verdict=closed"
+      echo "verdict=dirty"
       exit 0
-      ;;
-  esac
-  if [ "$am" = disarmed ]; then
-    echo "elapsed=$SECONDS"
-    echo "verdict=disarmed"
-    exit 0
-  fi
-  if [ "$ms" = DIRTY ]; then
-    echo "elapsed=$SECONDS"
-    echo "verdict=dirty"
-    exit 0
-  fi
-  if [ -n "$ck" ]; then
-    echo "elapsed=$SECONDS"
-    echo "verdict=checks-failed"
-    echo 'checks<<<'
-    printf '%s\n' "$ck"
-    exit 0
+    fi
+    if [ -n "$ck" ]; then
+      echo "elapsed=$SECONDS"
+      echo "verdict=checks-failed"
+      echo 'checks<<<'
+      printf '%s\n' "$ck"
+      exit 0
+    fi
   fi
 
   # No other merge state ends the wait. UNKNOWN is what GitHub reports while

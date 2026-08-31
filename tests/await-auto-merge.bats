@@ -137,6 +137,11 @@ rollup() {
   [ "$status" -eq 2 ]
 }
 
+@test "a non-numeric pr number exits 2" {
+  run_script abc 30
+  [ "$status" -eq 2 ]
+}
+
 @test "a non-numeric window exits 2" {
   run_script 123 abc
   [ "$status" -eq 2 ]
@@ -264,11 +269,12 @@ rollup() {
 # ─── a gh call failing outright ────────────────────────────────────────────
 
 # await-auto-merge.sh is deliberately not `set -e`: a `gh` failure mid-poll
-# must fall through to the interval arithmetic and loop again, not read the
-# empty/partial output as any stop condition (MERGED, disarmed, DIRTY, and
-# checks-failed can all read false-empty as their opposite - only the string
-# actually seen decides). Only the later, successful call's payload can
-# produce this verdict, so reaching it proves the failed call was survived.
+# must fall through to the interval arithmetic and loop again, not be read as
+# any stop condition. gh_status gates the stop-condition checks explicitly, so
+# a failed call's output is never parsed at all rather than merely failing to
+# match MERGED/disarmed/DIRTY/checks-failed by accident. Only the later,
+# successful call's payload can produce this verdict, so reaching it proves
+# the failed call was survived.
 @test "a gh call that fails outright is not read as a stop condition - the wait keeps polling" {
   gh_flaky 1 \
     '{"state":"MERGED","mergeCommit":{"oid":"deadbee"},"headRefOid":"f00","autoMergeRequest":{"enabledAt":"x"},"mergeStateStatus":"UNKNOWN","statusCheckRollup":[]}'
