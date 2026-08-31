@@ -57,6 +57,10 @@ fi
 outdir="$(mktemp -d)"
 trap 'rm -rf "$outdir"' EXIT
 
+# Logs and statuses are named by index, not by basename: two input files can
+# share a basename in different directories (the CLI takes arbitrary paths),
+# and basename-keyed names would let one overwrite the other's output.
+i=0
 for f in "${files[@]}"; do
   while [ "$(jobs -rp | wc -l)" -ge "$CAP" ]; do
     sleep 0.2
@@ -64,26 +68,47 @@ for f in "${files[@]}"; do
   # The exit status is captured per file, not just the TAP output. A file that
   # crashes before emitting any TAP produces neither `ok` nor `not ok` lines,
   # and counting those alone would score it as a clean pass.
-  ( bats "$f" > "$outdir/$(basename "$f").log" 2>&1; echo $? > "$outdir/$(basename "$f").status" ) &
+  ( bats "$f" > "$outdir/$i.log" 2>&1; echo $? > "$outdir/$i.status" ) &
+  i=$((i + 1))
 done
 wait
 
 passed=0
 failed=0
-failing_files=""
+failing_idx=()
+i=0
 for f in "${files[@]}"; do
-  log="$outdir/$(basename "$f").log"
+  log="$outdir/$i.log"
   p=$(grep -c '^ok ' "$log" 2>/dev/null || true)
   n=$(grep -c '^not ok' "$log" 2>/dev/null || true)
-  st=$(cat "$outdir/$(basename "$f").status" 2>/dev/null || true)
+  st=$(cat "$outdir/$i.status" 2>/dev/null || true)
   p=${p:-0}
   n=${n:-0}
   st=${st:-1}
+
+  # ok/not-ok counts and exit status alone still call a file a clean pass when
+  # it never ran anything: bats prints its `1..N` plan before any ok/not-ok
+  # line and exits 0 for a file with no @test blocks (the same TAP shape a
+  # permission-denied file produces), so a zero or missing plan, or a plan
+  # that doesn't match what actually ran, is scored a failure regardless of n
+  # and st.
+  plan=""
+  planline=$(grep -m1 -E '^[0-9]+\.\.[0-9]+$' "$log" 2>/dev/null)
+  if [ -n "$planline" ]; then
+    plan="${planline#*..}"
+  fi
+  if [ -z "$plan" ] || [ "$plan" -eq 0 ] || [ "$plan" -ne "$((p + n))" ]; then
+    plan_ok=0
+  else
+    plan_ok=1
+  fi
+
   passed=$((passed + p))
   failed=$((failed + n))
-  if [ "$n" -gt 0 ] || [ "$st" -ne 0 ]; then
-    failing_files="$failing_files $f"
+  if [ "$n" -gt 0 ] || [ "$st" -ne 0 ] || [ "$plan_ok" -eq 0 ]; then
+    failing_idx+=("$i")
   fi
+  i=$((i + 1))
 done
 
 printf 'Total: %d passed, %d failed, across %d files\n' "$passed" "$failed" "${#files[@]}"
@@ -91,10 +116,10 @@ printf 'Total: %d passed, %d failed, across %d files\n' "$passed" "$failed" "${#
 # The failing output goes last, deliberately. AGENTS.md forbids truncating a
 # runner's output with `head` precisely because the part worth reading is the
 # tail; that only stays true if the failures are the tail.
-if [ -n "$failing_files" ]; then
-  for f in $failing_files; do
-    printf '\n=== %s ===\n' "$f"
-    cat "$outdir/$(basename "$f").log"
+if [ "${#failing_idx[@]}" -gt 0 ]; then
+  for i in "${failing_idx[@]}"; do
+    printf '\n=== %s ===\n' "${files[$i]}"
+    cat "$outdir/$i.log"
   done
   exit 1
 fi

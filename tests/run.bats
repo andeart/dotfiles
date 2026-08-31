@@ -95,3 +95,35 @@ EOF
   run /bin/bash -n "$RUNNER"
   [ "$status" -eq 0 ]
 }
+
+# bats still exits 0 and prints a `1..0` plan for a file with no @test blocks
+# (the same shape a permission-denied file produces). Counting ok/not-ok lines
+# and the exit status alone lets that through as a clean pass.
+@test "a file whose plan is zero fails the run rather than scoring a clean pass" {
+  make_suite
+  pass_file alpha
+  cat > "$SUITE/tests/empty.bats" <<'EOF'
+#!/usr/bin/env bats
+EOF
+  run "$RUNNER" "$SUITE/tests/alpha.bats" "$SUITE/tests/empty.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"empty.bats"* ]]
+  [[ "$output" == *"Total: 1 passed, 0 failed, across 2 files"* ]]
+}
+
+# The documented `tests/run.sh <file>...` interface accepts arbitrary paths, so
+# two files sharing a basename in different directories must not collide on
+# their log/status names.
+@test "same-basename files in different directories don't collide" {
+  make_suite
+  mkdir -p "$SUITE/tests/a" "$SUITE/tests/b"
+  cat > "$SUITE/tests/a/dup.bats" <<'EOF'
+@test "passes" { true; }
+EOF
+  cat > "$SUITE/tests/b/dup.bats" <<'EOF'
+@test "fails" { false; }
+EOF
+  run "$RUNNER" "$SUITE/tests/a/dup.bats" "$SUITE/tests/b/dup.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Total: 1 passed, 1 failed, across 2 files"* ]]
+}
