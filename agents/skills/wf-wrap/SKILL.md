@@ -100,7 +100,7 @@ Then poll, passing the number Step 1 already resolved. Cadence is every 15 secon
 
 Run this as one command. A wait driven one tool call per poll spends a model round trip on every iteration - measured at a 6.9s median - where the loop spends one for the whole wait.
 
-Do not trim this field set. `mergeStateStatus` and `statusCheckRollup` are two of the stop conditions below, so a trim is not functionality-preserving whatever it costs. It does not even pay: six fields measured 0.58-0.83s against 0.38-0.46s for three (2026-08-30), about 0.3s a poll and roughly 6s across the whole 15-minute cap.
+Do not trim this field set. `mergeStateStatus` and `statusCheckRollup` are two of the stop conditions below, and `gh` returns `null` for a field it was not asked to fetch: drop `mergeStateStatus` and it reads back as the literal string `null`, never `DIRTY`; drop `statusCheckRollup` and `.statusCheckRollup[]?` over `null` yields nothing, so the checks list is permanently empty. Both stop conditions go dead with no jq error, and the loop spins to the 15-minute cap on every dirty-merge or failed-check case. It does not even pay: six fields measured 0.58-0.83s against 0.38-0.46s for three (2026-08-30), about 0.3s a poll and roughly 6s across the whole 15-minute cap.
 
 ```bash
 end=$((SECONDS + 900))

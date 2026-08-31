@@ -76,7 +76,7 @@ run_lookup() {
 # conclusion GitHub has not defined yet.
 #
 # Verified live 2026-08-30, so a reader does not have to re-introspect the
-# schema to trust the list - all four reviewers on that day's cycle did:
+# schema to trust the list:
 #   CheckConclusionState: ACTION_REQUIRED, TIMED_OUT, CANCELLED, FAILURE,
 #     SUCCESS, NEUTRAL, SKIPPED, STARTUP_FAILURE, STALE
 #   StatusState: EXPECTED, ERROR, FAILURE, PENDING, SUCCESS
