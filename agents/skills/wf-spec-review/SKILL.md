@@ -52,6 +52,8 @@ If `resolver_exit` is non-zero, stop and print its stderr - a broken `.wf.yml` i
 
 **The identifier** comes from the branch name's leading identifier, read the way `wf-wrap` reads it: strip a leading `worktree-` if present, then match the remainder against `^([a-zA-Z]+)-(\d+)` and uppercase the prefix (`dx-57-wf-authoring-skills` → `DX-57`). If the branch carries none and the user named none, ask for it - it names the review files and a wrong one writes into another work item's notes.
 
+**Whether the spec is tracked** decides whether a reviewer's revision gets committed. Run `git ls-files --error-unmatch <spec path>` from the repo root, discarding output; exit `0` sets `<SPEC_TRACKED>` to `yes`, anything else sets it to `no`. This repo gitignores all of `docs/`, so it is always `no` here; some repos in this family track `docs/superpowers/specs/` instead, where it is `yes`.
+
 ## Step 3: Pre-flight, then wait
 
 Print exactly this, filled in, and stop for the user's go-ahead:
@@ -67,7 +69,7 @@ The snippet this skill comes from ends its setup the same way. A cycle is `<N>` 
 
 For each reviewer in roster order, one at a time. Never run two concurrently - each reads the previous one's revisions.
 
-**Establish the check state before the roster starts.** Run every `verify.commands` entry from Step 0's resolver output, in order, and record the outcome with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
+**Establish the check state before the roster starts.** Run every `verify.commands` entry named in Step 0's resolver output, from the repo root and in order, and record the outcome with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
 
 **No `verify.commands` entries at all** - establish no check state; there is nothing to run and nothing to call green. Guessing a check command runs something arbitrary in a repo that never asked for it, the same reason `wf-ship`'s checks step declines to invent one.
 
@@ -79,7 +81,7 @@ Carry that state into every reviewer's opening prompt as `<CHECK_STATE>`, using 
 
 Naming the commands matters as much as the state does: a reviewer left to discover the command for itself finds `bats tests/` and takes the 84s path instead of the 26s one.
 
-**Re-establish it after any round that committed.** When a reviewer's follow-through produced a commit, re-run the commands at the new tip and carry the new state and sha forward. A round that committed nothing carries the previous state forward unchanged, with no re-run - the spec may have changed, but it changed somewhere the checks can't see: `docs/` is gitignored.
+**Re-establish it after any round that committed.** When a reviewer's follow-through produced a commit, re-run the commands at the new tip and carry the new state and sha forward. A round that committed nothing carries the previous state forward unchanged, with no re-run. That covers two cases: no revision was made, or one was made to a spec this repo doesn't track (`docs/` is gitignored here, so `<SPEC_TRACKED>` is `no` and nothing was committed to re-check) - either way, the checks have nothing new to see.
 
 A failing state is still handed forward. It is a fact the next reviewer needs more than a passing one, and hiding it would have the next reviewer attribute the failure to its own change.
 
@@ -110,13 +112,14 @@ You are reviewing as YourName. Focus your review of this on:
 
 **No bullet items at all** - skip the follow-through, and name the reviewer in the report as having raised no bullet items. The opening prompt mandates a non-numbered bulleted list, so an absence of bullets means an absence of feedback. Count bullets and nothing else: a gate that judged whether a bullet was *actionable enough* could skip a revision that mattered, which would change what the cycle produces rather than only how long it takes.
 
-**One or more bullet items** - send this follow-through with SendMessage, so it revises with its own review still in context:
+**One or more bullet items** - send this follow-through with SendMessage, so it revises with its own review still in context. Drop the `Run <verify.commands>` bullet when Step 1 found no `verify.commands` entries at all - the opening prompt already told it there is nothing to run. Include the commit bullet only when Step 2's `<SPEC_TRACKED>` is `yes`; when it is `no` the spec lives somewhere this repo doesn't track (`docs/` is gitignored here), and there is nothing to commit:
 
 ```text
 You're not obligated to, but you can now edit the spec on this branch. Let's follow through with your suggestions, as long as they don't reduce the quality of any of our other recent decisions on the branch.
 - This feature is not built yet and this cycle is not where it gets built. Confine your edits to the spec file.
 - The spec/design doc should not name another work item's state or hold an unowned TODO. An open question belongs on the work item that can act on it. Putting one here creates a claim nobody re-reads.
 - Run <verify.commands> (named in your opening prompt) and confirm it's still green; a spec-only change should not move it.
+- For any changes you make, once finalized, commit (but don't push) your changes on that branch.
 ```
 
 Then move to the next reviewer.

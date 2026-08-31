@@ -68,7 +68,7 @@ The snippet this skill comes from ends its setup the same way. A cycle is `<N>` 
 
 For each reviewer in roster order, one at a time. Never run two concurrently - each reads the previous one's revisions.
 
-**Establish the check state before the roster starts.** Run every `verify.commands` entry from Step 0's resolver output, in order, and record the outcome with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
+**Establish the check state before the roster starts.** Run every `verify.commands` entry named in Step 0's resolver output, from the repo root and in order, and record the outcome with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
 
 **No `verify.commands` entries at all** - establish no check state; there is nothing to run and nothing to call green. Guessing a check command runs something arbitrary in a repo that never asked for it, the same reason `wf-ship`'s checks step declines to invent one.
 
@@ -111,7 +111,7 @@ You are reviewing as YourName. Focus your review of this on:
 
 **No bullet items at all** - skip the follow-through, and name the reviewer in the report as having raised no bullet items. The opening prompt mandates a non-numbered bulleted list, so an absence of bullets means an absence of feedback. Count bullets and nothing else: a gate that judged whether a bullet was *actionable enough* could skip a revision that mattered, which would change what the cycle produces rather than only how long it takes.
 
-**One or more bullet items** - send this follow-through with SendMessage, so it revises with its own review still in context:
+**One or more bullet items** - send this follow-through with SendMessage, so it revises with its own review still in context. Drop the `Run <verify.commands>` bullet when Step 1 found no `verify.commands` entries at all - the opening prompt already told it there is nothing to run:
 
 ```text
 You're not obligated to, but you can now make changes on this branch. Let's follow through with your suggestions, as long as they don't reduce the quality of any of our other recent decisions on the branch.
