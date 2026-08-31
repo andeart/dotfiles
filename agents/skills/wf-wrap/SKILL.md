@@ -105,7 +105,11 @@ end=$((SECONDS + 900))
 while [ $SECONDS -lt $end ]; do
 out=$(gh pr view <number> --json state,mergeCommit,headRefOid,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), .headRefOid, (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, "checks<<<", (.statusCheckRollup[]? | select((.conclusion // .state) as $c | $c != null and (["SUCCESS","NEUTRAL","SKIPPED","EXPECTED","PENDING"] | index($c) | not)) | (.name // .context))')
   printf '%s\n---\n' "$out"
-  case "$out" in MERGED*|CLOSED*) break ;; esac
+  mapfile -t poll_lines <<<"$out"
+  case "${poll_lines[0]}" in MERGED|CLOSED) break ;; esac
+  [ "${poll_lines[3]}" = disarmed ] && break
+  [ "${poll_lines[4]}" = DIRTY ] && break
+  [ "${#poll_lines[@]}" -gt 6 ] && break
   if [ $((SECONDS - (end - 900))) -lt 120 ]; then sleep 15; else sleep 60; fi
 done
 ```
@@ -285,11 +289,12 @@ Run this as one command. A wait driven one tool call per poll spends a model rou
 ```bash
 end=$((SECONDS + 900))
 sleep 60
+start=$SECONDS
 while [ $SECONDS -lt $end ]; do
 out=$(gh api "repos/:owner/:repo/actions/runs?head_sha=<MERGE_SHA>" --jq '.workflow_runs[] | "\(.id)\t\(.status)\t\(.conclusion // "-")\t\(.html_url)"')
   printf '%s\n---\n' "$out"
   if [ -z "$out" ] || ! cut -f2 <<<"$out" | grep -qv '^completed$'; then break; fi
-  if [ $((SECONDS - (end - 900))) -lt 120 ]; then sleep 15; else sleep 60; fi
+  if [ $((SECONDS - start)) -lt 120 ]; then sleep 15; else sleep 60; fi
 done
 ```
 
