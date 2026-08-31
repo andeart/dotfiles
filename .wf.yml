@@ -6,8 +6,8 @@
 workspace:
   impl: base
 
-ship:
-  test-commands:
+verify:
+  commands:
     - bats tests/
     - pre-commit run --all-files
 
