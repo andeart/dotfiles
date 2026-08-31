@@ -8,8 +8,8 @@ workspace:
 
 verify:
   commands:
-    - bats tests/
-    - pre-commit run --all-files
+    - tests/run.sh
+    - SKIP=bats pre-commit run --all-files
 
 wrap:
   watch-post-merge-ci: true
