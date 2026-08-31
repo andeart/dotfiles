@@ -67,7 +67,24 @@ The snippet this skill comes from ends its setup the same way. A cycle is `<N>` 
 
 For each reviewer in roster order, one at a time. Never run two concurrently - each reads the previous one's revisions.
 
-**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the spec path, the identifier, and the focus list. Give it nothing else - no extra context, no summary of earlier reviewers, no repo orientation. The genericity of the prompt is what makes each pass holistic. The numbered focus list carries one line per `review.focus` entry, however many the repo configures; the four shown below are this repo's defaults.
+**Establish the check state before the roster starts.** Run every `verify.commands` entry from Step 0's resolver output, in order, and record the outcome with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
+
+Carry that state into every reviewer's opening prompt as `<CHECK_STATE>`, using these literal sentences:
+
+- Every command passed - ``verify.commands is green at <SHA> - the exact command(s): <verify.commands.1>, <verify.commands.2>, ... - run them after you've changed something, not before.``
+- Any command failed - ``verify.commands is red at <SHA> (<failing command> failed) - the previous round did not leave the tree green.``
+
+Naming the commands matters as much as the state does: a reviewer left to discover the command for itself finds `bats tests/` and takes the 84s path instead of the 27s one.
+
+**Re-establish it after any round that committed.** When a reviewer's follow-through produced a commit, re-run the commands at the new tip and carry the new state and sha forward. A round that committed nothing carries the previous state forward unchanged, with no re-run - the tree has not moved.
+
+A failing state is still handed forward. It is a fact the next reviewer needs more than a passing one, and hiding it would have the next reviewer attribute the failure to its own change.
+
+**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the spec path, the identifier, and the focus list. Give it nothing else about the review - no summary of earlier reviewers, no repo orientation, no account of what has already been found. The genericity of the prompt is what makes each pass holistic.
+
+The one exception is the check state below, and it is bounded deliberately: what crosses between reviewers is a fact about the tree, never a fact about the review. A reviewer learns that the checks pass at the commit it starts from; it does not learn who made them pass or what they thought.
+
+The numbered focus list carries one line per `review.focus` entry, however many the repo configures; the four shown below are this repo's defaults.
 
 ```text
 I have a spec written in my worktree at <ABSOLUTE SPEC PATH>. Review this spec holistically. Write your review feedback in normal markdown format to docs/reviews/<id>-spec-review-YourName.md within this branch. Note that docs/reviews/ is gitignored, which is fine. The spec file is the only deliverable. Every point you raise must be actionable as an edit to that spec. If a suggestion can only be carried out by writing implementation code, write it into the spec as a design note instead.
@@ -83,16 +100,20 @@ You are reviewing as YourName. Focus your review of this on:
 - If your feedback includes references to specific lines in files, make them local links to the local files with line numbers.
 - Keep single lines on single lines, don't split them to forcefully wrap them (editors are capable of wrapping them in the UI).
 - Do not make any other changes to this repo on your own, or run any write/deploy operations.
+- <CHECK_STATE>
 ```
 
-**When that sub-agent finishes**, send it this follow-through with SendMessage, so it revises with its own review still in context:
+**When that sub-agent finishes**, read its notes file and count the bullet items in it.
+
+**No bullet items at all** - skip the follow-through, and name the reviewer in the report as having raised nothing actionable. The opening prompt mandates a non-numbered bulleted list, so an absence of bullets means an absence of feedback. Count bullets and nothing else: a gate that judged whether a bullet was *actionable enough* could skip a revision that mattered, which would change what the cycle produces rather than only how long it takes.
+
+**One or more bullet items** - send this follow-through with SendMessage, so it revises with its own review still in context:
 
 ```text
 You're not obligated to, but you can now edit the spec on this branch. Let's follow through with your suggestions, as long as they don't reduce the quality of any of our other recent decisions on the branch.
 - This feature is not built yet and this cycle is not where it gets built. Confine your edits to the spec file.
 - The spec/design doc should not name another work item's state or hold an unowned TODO. An open question belongs on the work item that can act on it. Putting one here creates a claim nobody re-reads.
-- Run the repo's lint, typecheck, and test scripts and confirm they are still green; a spec-only change should not move them.
-- For any changes you may make, once finalized, commit (but don't push) your changes on that branch.
+- Run <verify.commands> (named in your opening prompt) and confirm it's still green; a spec-only change should not move it.
 ```
 
 Then move to the next reviewer.
@@ -108,4 +129,4 @@ gh pr view --json url --jq '.url' 2>/dev/null
 
 A URL means a pull request already exists for this branch; the push updated it - report the URL. No output means there is none yet.
 
-Report, one line per reviewer: its name, whether it wrote its notes file, and whether it committed a spec revision. Then the push result.
+Report, one line per reviewer: its name, whether it wrote its notes file, whether its follow-through ran or was skipped for raising nothing actionable, and whether it revised the spec. Then the check state the cycle ended on, and the push result.
