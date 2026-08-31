@@ -112,7 +112,7 @@ You are reviewing as YourName. Focus your review of this on:
 
 **No bullet items at all** - skip the follow-through, and name the reviewer in the report as having raised no bullet items. The opening prompt mandates a non-numbered bulleted list, so an absence of bullets means an absence of feedback. Count bullets and nothing else: a gate that judged whether a bullet was *actionable enough* could skip a revision that mattered, which would change what the cycle produces rather than only how long it takes.
 
-**One or more bullet items** - send this follow-through with SendMessage, so it revises with its own review still in context. Drop the `Run <verify.commands>` bullet when Step 1 found no `verify.commands` entries at all - the opening prompt already told it there is nothing to run. Include the commit bullet only when Step 2's `<SPEC_TRACKED>` is `yes`; when it is `no` the spec lives somewhere this repo doesn't track (`docs/` is gitignored here), and there is nothing to commit:
+**One or more bullet items** - send this follow-through with SendMessage, so it revises with its own review still in context. Drop the `Run <verify.commands>` bullet when no `verify.commands` entries were found above - the opening prompt already told it there is nothing to run. Include the commit bullet only when Step 2's `<SPEC_TRACKED>` is `yes`; when it is `no` the spec lives somewhere this repo doesn't track (`docs/` is gitignored here), and there is nothing to commit:
 
 ```text
 You're not obligated to, but you can now edit the spec on this branch. Let's follow through with your suggestions, as long as they don't reduce the quality of any of our other recent decisions on the branch.
