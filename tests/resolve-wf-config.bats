@@ -102,11 +102,24 @@ value() {
 # There is no sensible default test command, and guessing one would run
 # something arbitrary in a repo that never asked for it. Absent means the skill
 # runs nothing and says so.
-@test "ship.test-commands has no default members" {
+@test "verify.commands has no default members" {
   local root; root="$(repo bare-tests)"
   resolve "$root"
   [ "$status" -eq 0 ]
-  [[ "$output" != *"ship.test-commands"* ]]
+  [[ "$output" != *"verify.commands"* ]]
+}
+
+# The rename in DX-73. A repo still carrying the old name gets told the new one
+# rather than a bare "unknown key", because the resolver's error is the only
+# thing that will reach whoever is confused.
+@test "the old ship.test-commands name names its replacement" {
+  local root; root="$(repo renamed)"
+  config "$root" 'ship:
+  test-commands:
+    - bats tests/'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"verify.commands"* ]]
 }
 
 # Deliberate divergence from resolve-tracker.sh, which falls back to tmp/ for
@@ -177,12 +190,12 @@ value() {
 # truncate any command carrying a flag assignment.
 @test "a value containing an equals sign survives intact" {
   local root; root="$(repo equals)"
-  config "$root" 'ship:
-  test-commands:
+  config "$root" 'verify:
+  commands:
     - make TARGET=all test'
   resolve "$root"
   [ "$status" -eq 0 ]
-  [ "$(value ship.test-commands.1)" = "make TARGET=all test" ]
+  [ "$(value verify.commands.1)" = "make TARGET=all test" ]
 }
 
 # yq -o=props emits a comment as its own output line, unparsed. One containing
@@ -433,12 +446,13 @@ EOF
   impl: worktree
 ship:
   draft-by-default: false
-  test-commands:
+verify:
+  commands:
     - bats tests/'
   resolve "$root"
   [ "$status" -eq 0 ]
   [ "$(value ship.draft-by-default)" = "false" ]
-  [ "$(value ship.test-commands.1)" = "bats tests/" ]
+  [ "$(value verify.commands.1)" = "bats tests/" ]
 }
 
 # ─── this repo's own config ────────────────────────────────────────────────

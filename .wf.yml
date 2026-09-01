@@ -6,10 +6,10 @@
 workspace:
   impl: base
 
-ship:
-  test-commands:
-    - bats tests/
-    - pre-commit run --all-files
+verify:
+  commands:
+    - tests/run.sh
+    - SKIP=bats pre-commit run --all-files
 
 wrap:
   watch-post-merge-ci: true

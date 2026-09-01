@@ -39,7 +39,7 @@ repos:
 
       - id: bats
         name: bats
-        entry: bats tests/
+        entry: tests/run.sh
         language: system
         pass_filenames: false
         always_run: true

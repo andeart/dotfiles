@@ -30,7 +30,7 @@ Each porcelain row is seven tab-separated fields: `repo`, `worktree`, `branch`, 
 
 ## Step 1: Resolve each work item
 
-For every row whose `identifier` is not `-`, call `workitem` with `action: "retrieve_by_identifier"`. Save the current state UUID and the project id.
+For every row whose `identifier` is not `-`, call `workitem` with `action: "retrieve_by_identifier"`. **Issue all of them in one batch, not one at a time.** The rows are independent, so every lookup goes in a single turn and returns in one round trip rather than N; measured 2026-08-30 at a 6.9s median per `workitem` round trip, which is most of this step's cost. Do the same for the per-project `state list` calls once the projects are known: they are independent of each other too. Save the current state UUID and the project id.
 
 - **A 404 or any not-found error** is not an error here - it is one of the disagreements this skill reports. Mark the row `identifier-not-found` and move on; do not reach for a near miss.
 - **Found** - call `state` with `action: "list"` for that project id, and resolve the saved state UUID to its name and its `group`. Cache the state list per project - several rows usually share one.

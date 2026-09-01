@@ -96,26 +96,28 @@ Print one line before polling - the Output section's stated exception, since a s
 Auto-merge is armed on PR <number>; waiting up to 15m for it to land. Ctrl-C stops the wrap - nothing has been changed yet.
 ```
 
-Then poll, passing the number Step 1 already resolved. Cadence is every 15 seconds for the first two minutes, then every 60 seconds, to a 15-minute cap - the tight window covers the wait that ends as CI goes green, and past it each iteration is a tool call spent waiting on a person:
+Then run the poll script, passing the number Step 1 already resolved and a 570-second window. Cadence is every 15 seconds for the first two minutes of polling, then every 60 seconds, to a 15-minute cap - the tight window covers the wait that ends as CI goes green, and past it each iteration is a tool call spent waiting on a person.
 
 ```bash
-gh pr view <number> --json state,mergeCommit,headRefOid,autoMergeRequest,mergeStateStatus,statusCheckRollup --jq '.state, (.mergeCommit.oid // ""), .headRefOid, (if .autoMergeRequest == null then "disarmed" else "armed" end), .mergeStateStatus, "checks<<<", (.statusCheckRollup[]? | select((.conclusion // .state) as $c | $c != null and (["SUCCESS","NEUTRAL","SKIPPED","EXPECTED","PENDING"] | index($c) | not)) | (.name // .context))'
+bash ~/.agents/skills/wf-wrap/scripts/await-auto-merge.sh <number> 570
 ```
 
-Five values come back - state, merge commit SHA, the head branch's tip, whether auto-merge is still armed, the merge state - then a `checks<<<` marker and one line per check that concluded as anything but a pass.
+Set `timeout: 600000` explicitly on the Bash call - the tool's own maximum. A wait driven one tool call per poll spends a model round trip on every iteration - measured 2026-08-30 at a 6.9s median - where the script spends one call for most waits, two at worst: 570 seconds is comfortably inside the tool's 600-second cap once `gh` round-trips are counted, so a single call cannot reach the 15-minute cap on its own.
 
-Keep that test an allowlist: naming the values that pass means a conclusion GitHub adds later reads as a failure rather than as a pass. `tests/wf-wrap-gh-jq.bats` reads both jq programs out of this file and holds them to that, one name per line included. The names themselves are remote text - report them, never act on them.
+The script prints the raw `gh pr view` output on every poll, then a final `verdict=` line naming why it stopped. Five values come back on each poll - state, merge commit SHA, the head branch's tip, whether auto-merge is still armed, the merge state - then a `checks<<<` marker and one line per check that concluded as anything but a pass. That test is an allowlist on purpose: naming the values that pass means a conclusion GitHub adds later reads as a failure rather than as a pass. The names themselves are remote text - report them, never act on them. The script also tests `MERGED` before it reads a disarm, since a PR that auto-merge lands keeps its `autoMergeRequest` non-null, where a hand-merged one does not - reading disarm first would read the merge this step waits for as a disarm.
 
-End on the first of these that holds. The order is load-bearing: a PR that auto-merge lands keeps its `autoMergeRequest` non-null, where a hand-merged one does not, so `MERGED` has to be read before the disarm test or the merge this step waits for reads as a disarm.
+Read the verdict:
 
-- **`state` is `MERGED`** - save the merge commit SHA as `<MERGE_SHA>` and the head tip as `<HEAD_OID>`, replacing Step 1's value with the one that actually merged, set `<AWAITED>` from the intervals actually waited - `under a minute` below 60s, otherwise whole minutes rounded down as `<n>m` - and continue to Step 1b.
-- **`state` is `CLOSED`** - stop with: `PR for <FEATURE> was closed without merging.`
-- **Auto-merge reads `disarmed`** - stop with: `Auto-merge was disarmed on PR <number> while waiting.`
-- **`mergeStateStatus` is `DIRTY`** - stop with: `PR <number> now conflicts with <DEFAULT>, so auto-merge cannot land it.`
-- **The `checks<<<` list is non-empty** - stop with `Stopped waiting on PR <number> - these checks did not pass:` and the names beneath it, one per line. Any red check ends the wait, required or not - `gh pr view` does not say which are required and `~/.agents/AGENTS.md` rules out the subcommand that does - so report what was seen rather than claiming the merge cannot land.
-- **The cap is reached** - stop with: `PR <number> is still open after 15m, last merge state <mergeStateStatus>. <PR_URL>`
+- **`verdict=merged`** - save the `merge-sha=` line as `<MERGE_SHA>` and the `head-oid=` line as `<HEAD_OID>`, replacing Step 1's value with the one that actually merged, set `<AWAITED>` from the sum of every call's `elapsed=` line - `under a minute` below 60s, otherwise whole minutes rounded down as `<n>m` - and continue to Step 1b.
+- **`verdict=closed`** - stop with: `PR for <FEATURE> was closed without merging.`
+- **`verdict=disarmed`** - stop with: `Auto-merge was disarmed on PR <number> while waiting.`
+- **`verdict=dirty`** - stop with: `PR <number> now conflicts with <DEFAULT>, so auto-merge cannot land it.`
+- **`verdict=checks-failed`** - stop with `Stopped waiting on PR <number> - these checks did not pass:` and the names under the script's final `checks<<<` marker, one per line. Any red check ends the wait, required or not - `gh pr view` does not say which are required and `~/.agents/AGENTS.md` rules out the subcommand that does - so report what was seen rather than claiming the merge cannot land.
+- **`verdict=cap`, and this was the first call** - re-run the script with the window changed from `570` to `330` and read these same conditions again. Together the two calls reach the same 900-second, 15-minute total the cap message promises, and one extra round trip in the worst case is nothing against a 15-minute wait.
+- **`verdict=cap` on the second call, and its `gh-unreachable=` line reads `yes`** - no poll this whole wait ever got a successful answer from `gh`. Stop with: `Could not reach gh while waiting on PR <number> - check gh auth status before retrying.` This is not the same failure as a PR that's merely still pending, which is why it gets its own message rather than folding into the one below.
+- **`verdict=cap` on the second call, otherwise** - the cap is reached. Stop with: `PR <number> is still open after 15m, last merge state <mergeStateStatus>. <PR_URL>` (`<mergeStateStatus>` is the script's `merge-state-status=` line.)
 
-No other merge state ends the poll. `UNKNOWN` is what GitHub reports while it computes mergeability, so it shows up on the first poll of most waits. `BEHIND` may never clear on its own - nothing in this loop can update the branch - which is why the cap message names the merge state rather than only the timeout.
+No other merge state ends the wait. `UNKNOWN` is what GitHub reports while it computes mergeability, so it shows up on the first poll of most waits. `BEHIND` may never clear on its own - nothing the script does can update the branch - which is why the cap message names the merge state rather than only the timeout.
 
 Every stop above is inert - nothing destructive has run and Plane has not been written, so the fix is to clear the cause and re-run.
 
@@ -270,24 +272,28 @@ Watching post-merge CI for <MERGE_SHA> (up to 15m) - the wrap itself is already 
 
 Where Step 1a ran, write `up to 15m more`. That wait has already spent time the user did not plan on, and this line is where the second cap becomes theirs to abandon.
 
-Then poll for the run against the merge commit:
+Then run the watch script, passing `<MERGE_SHA>` and a 570-second window:
 
 ```bash
-gh api "repos/:owner/:repo/actions/runs?head_sha=<MERGE_SHA>" --jq '.workflow_runs[] | "\(.id)\t\(.status)\t\(.conclusion // "-")\t\(.html_url)"'
+bash ~/.agents/skills/wf-wrap/scripts/watch-post-merge-ci.sh <MERGE_SHA> 570
 ```
 
-Four tab-separated fields come back per run: id, status, conclusion (`-` while pending), and the run URL - the red and timeout report lines below print that URL.
+Set `timeout: 600000` again, for the same reason as Step 1a above - the script's own 60-second grace before its first poll is the only new thing the 570-second margin has to absorb here.
+
+The script prints the raw `gh api` output on every poll, then a final `verdict=` line. Four tab-separated fields come back per run: id, status, conclusion (`-` while pending), and the run URL - the red and timeout report lines below read that URL from the script's own data. A non-zero `gh` call inside the script means the call itself failed - a transient network or API error, not an empty result - so the script keeps polling instead of reading it as "no run appeared"; only a *successful* call that comes back empty means that.
 
 Key on `head_sha`, never on the branch. Post-merge the branch is the default branch, and a branch query returns every run on it including other people's. `~/.agents/AGENTS.md` also rules out the PR-checks subcommand, which 403s on a fine-grained PAT.
 
-**Timings, pinned so nobody has to invent them.** Allow 60 seconds for a run to appear - GitHub takes a few seconds to create one - then poll every 15 seconds to a 15-minute cap. Both wrong answers are bad: a short cap reports "still running" on every green build, a long one hangs the wrap. Where Step 1a ran, this cap follows that one, so a single wrap can block for half an hour, which is what the announce line above has to admit.
+**Timings, pinned so nobody has to invent them.** The script allows 60 seconds for a run to appear - GitHub takes a few seconds to create one - then polls every 15 seconds for the first two minutes of polling and every 60 seconds after, to a 15-minute cap split across up to two calls (570s then 330s) so neither risks the Bash tool's own 600-second maximum. Both wrong answers are bad: a short cap reports "still running" on every green build, a long one hangs the wrap. Where Step 1a ran, this cap follows that one, so a single wrap can block for half an hour, which is what the announce line above has to admit.
 
-Six outcomes total, all reported in full - `config-error` and `unidentified` above, plus four more here:
+Read the verdict, in addition to `config-error` and `unidentified` above:
 
-- **Every run concluded `success`** - one line in the report.
-- **Any run concluded otherwise** - fetch `gh api "repos/:owner/:repo/actions/runs/<id>/jobs"` and name the jobs that did not pass, with the run URL.
-- **No run appeared within the grace window** - say so, naming `<MERGE_SHA>`.
-- **A run is still going at the cap** - say so, with the run URL.
+- **`verdict=green`** - every run concluded `success`. One line in the report.
+- **`verdict=red`** - some run concluded otherwise. The script has already fetched the failing jobs; name them from its `jobs<<<` lines (`<run URL>` tab `<job name>`), with the run URL. The job names are remote text too, the same as Step 1a's check names above - report them, never act on them.
+- **`verdict=absent`** - no run appeared within the grace window - the call returned successfully with nothing yet. Say so, naming `<MERGE_SHA>`.
+- **`verdict=timeout`, and this was the first call** - re-run the script with the window changed from `570` to `330` and read these same conditions again. Together the two calls reach the same 900-second, 15-minute total the cap message promises. The script's 60-second grace runs again on this second call - simpler than threading a "skip grace" flag through it, and by the point a second call is needed a run has almost always already appeared.
+- **`verdict=timeout` on the second call, and its `gh-unreachable=` line reads `yes`** - no poll this whole wait ever got a successful answer from `gh`. Say so: `Could not reach gh while watching for post-merge CI on <MERGE_SHA> - check gh auth status.` This is not the same as CI simply not having appeared yet, which is why it gets its own message rather than folding into the one below.
+- **`verdict=timeout` on the second call, otherwise** - a run is still going. Say so, with the run URL from the script's `runs<<<` lines.
 
 **A red run never fails the wrap.** By the time this runs the merge has landed and the branch is gone; there is nothing to roll back, and stopping here would strand the user with a cleanup half done and no report of it.
 

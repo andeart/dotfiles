@@ -19,7 +19,7 @@ force an arbitrary owner.
 | `review.reviewers` | list | `Alia`, `Bheem`, `Cristo`, `Darius` | `/wf-spec-review`, `/wf-impl-review` |
 | `review.focus` | list | the four headings below | `/wf-spec-review`, `/wf-impl-review` |
 | `ship.draft-by-default` | bool | `true` | `/wf-ship` |
-| `ship.test-commands` | list | none | `/wf-ship` |
+| `verify.commands` | list | none | `/wf-ship`, `/wf-spec-review`, `/wf-impl-review` |
 | `wrap.watch-post-merge-ci` | bool | `false` | `/wf-wrap` |
 
 `/wf-status` reads `states.*` alongside the skills already listed above.
@@ -102,20 +102,20 @@ bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
 ```
 
 Every setting comes back as `key=value` with defaults filled in, in a fixed
-order, list members 1-indexed - except `ship.test-commands`, which has no
+order, list members 1-indexed - except `verify.commands`, which has no
 default and prints no lines when unset:
 
 ```bash
 states.shaping=Shaping
 workspace.impl=base
 review.reviewers.1=Alia
-ship.test-commands.1=bats tests/
+verify.commands.1=tests/run.sh
 wrap.watch-post-merge-ci=true
 ```
 
 To walk a list key, read `key.1`, `key.2`, ... until a line is missing; a list
 is absent when `key.1` is missing. That is how a skill detects that
-`ship.test-commands` is unset.
+`verify.commands` is unset.
 
 Exit `0` resolved, `2` usage error (also what a missing `yq` produces), `3` a
 config that is present but wrong, with the offending key named on stderr.

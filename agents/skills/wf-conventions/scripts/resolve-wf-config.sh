@@ -32,12 +32,12 @@ KNOWN_SHAPES=(
   review.reviewers.N
   review.focus.N
   ship.draft-by-default
-  ship.test-commands.N
+  verify.commands.N
   wrap.watch-post-merge-ci
 )
 
 # Defaults as newline-delimited `key=value`, not a map: bash 3.2 ships on macOS
-# and has no associative arrays. ship.test-commands is absent on purpose - see
+# and has no associative arrays. verify.commands is absent on purpose - see
 # the test that pins it.
 #
 # Kept as a bare here-doc, not wrapped in $( ): bash 3.2's parser mishandles an
@@ -146,6 +146,13 @@ validate() {
       fi
       if is_known_shape "${key%.*}"; then
         invalid "${key%.*} must be a single value, not a list"
+      fi
+      # Permanent, not a shim to pull out once the rename has propagated: a
+      # stale branch, an old override, or a forgotten local copy of .wf.yml
+      # can carry the retired key indefinitely, and this costs one string
+      # comparison in a function whose whole job is already a lookup.
+      if [ "$shape" = "ship.test-commands.N" ] || [ "$key" = "ship.test-commands" ]; then
+        invalid "ship.test-commands was renamed to verify.commands"
       fi
       invalid "unknown key: $key"
     fi

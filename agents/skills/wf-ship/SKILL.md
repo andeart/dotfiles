@@ -32,6 +32,9 @@ echo "default=$default"
 echo "upstream=$(git rev-parse --verify --quiet '@{upstream}')"
 echo 'status<<<'
 git status --porcelain
+echo 'wfconfig<<<'
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+echo "resolver_exit=$?"
 ```
 
 The fetch runs before the `@{upstream}` read so the upstream hash and every later `@{upstream}..HEAD` comparison reflect current remote state. Everything after the `status<<<` marker is porcelain output; no output there means a clean tree.
@@ -48,19 +51,15 @@ Read the results into the names the rest of this skill uses:
 
 ### Resolve the wf config
 
-One call, and every section below reads its output. Calling it per section would fork `yq` several times for one file that does not change mid-run:
+Step 0's block already ran the resolver; its output is the lines after the `wfconfig<<<` marker, and `resolver_exit=` is its exit status. Save the dump as `<WF_CONFIG>`. Folding it into Step 0 rather than calling it separately saves a round trip, measured 2026-08-30 at an 11.1s median between the Step 0 result and the resolver call that used to follow it. `/wf-shape` and `/wf-status` already resolve it this way.
 
-```bash
-bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
-```
-
-Save the whole dump as `<WF_CONFIG>`. The keys this skill reads:
+The keys this skill reads:
 
 - `ship.draft-by-default` - whether "Writing the PR" passes `--draft`.
-- `ship.test-commands.1`, `.2`, ... - what "Running the tests" runs. Absent means run nothing.
+- `verify.commands.1`, `.2`, ... - what "Running the checks" runs. Absent means run nothing.
 - `states.shaping`, `states.implementing`, `states.in-review` - the names "Reconciling the Plane state" matches against.
 
-Exit 3 means the repo's `.wf.yml` is present but wrong. Stop and print stderr: a broken config is the user's to fix, and guessing a draft setting would ship a PR in the wrong state. Exit 2 with `yq` missing is the same - say what is missing rather than proceeding on defaults.
+`resolver_exit=3` means the repo's `.wf.yml` is present but wrong. Stop and print stderr: a broken config is the user's to fix, and guessing a draft setting would ship a PR in the wrong state. `resolver_exit=2` with `yq` missing is the same - say what is missing rather than proceeding on defaults.
 
 ### Choosing the flow
 
@@ -134,7 +133,7 @@ Save the file list as `<PUSHED_PATHS>`.
 git push -u origin <branch-name>
 ```
 
-Follow "Running the tests" below, then create a PR with a proper summary (see "Writing the PR" section below). By the time `gh pr create` runs, the tests have already run. Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch, do NOT reset the default branch.
+Follow "Running the checks" below, then create a PR with a proper summary (see "Writing the PR" section below). By the time `gh pr create` runs, the checks have already run. Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch, do NOT reset the default branch.
 
 ### 6. Clean up the default branch
 
@@ -152,7 +151,7 @@ Follow the "Linking the PR to Plane" section below, then "Reconciling the Plane 
 
 ### 8. Report
 
-Print the PR URL, then the line from "Reporting the PR state", then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting the state outcome", then the test line from "Reporting the test results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You are now on the feature branch.
+Print the PR URL, then the line from "Reporting the PR state", then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting the state outcome", then the check line from "Reporting the check results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You are now on the feature branch.
 
 ---
 
@@ -173,7 +172,7 @@ After committing (or if there was nothing to commit), check whether there are un
 
 If nothing was committed AND the branch has an upstream AND there are no unpushed commits, there is nothing new to push - which is not the same as nothing to do. Run Step 3's PR lookup now and branch on it:
 
-- **A PR exists** - skip Step 2 entirely, then pick up Step 3 at its existing-PR branch: take `PR_URL` from the lookup, set `<PR_STATE>` from `isDraft`, run the `--add-assignee @me` no-op, set `<TEST_RESULTS>` to `not-run`, and continue into Step 4. The work item may still be missing its link: Plane can have been down on the ship that created the PR, the PR can predate the link step, or the link can have been removed by hand. Step 4 is the only thing that puts it back, and its duplicate check makes running it again free. Note that nothing was pushed, for the report.
+- **A PR exists** - skip Step 2 entirely, then pick up Step 3 at its existing-PR branch: take `PR_URL` from the lookup, set `<PR_STATE>` from `isDraft`, run the `--add-assignee @me` no-op, set `<VERIFY_RESULTS>` to `not-run`, and continue into Step 4. The work item may still be missing its link: Plane can have been down on the ship that created the PR, the PR can predate the link step, or the link can have been removed by hand. Step 4 is the only thing that puts it back, and its duplicate check makes running it again free. Note that nothing was pushed, for the report.
 - **No PR exists** - stop with "nothing to ship".
 
 The default-branch flow's equivalent stop stays absolute. There, no unpushed commits means there is no work to move off the default branch at all - no feature branch and no PR for one - so there is nothing for a fall-through to act on.
@@ -204,9 +203,9 @@ Before running `gh pr create`, check whether a PR already exists for this branch
 gh pr view --json url,body,isDraft --jq '.url, .isDraft, (.body // "" | split("\n")[0])' 2>/dev/null
 ```
 
-Three lines come back: the PR URL, whether it's a draft, then the first line of its body. If a PR URL is returned, use it - do not create a new PR. Set `<PR_STATE>` to `draft` or `ready` from the `isDraft` value - Step 1's fall-through sets it the same way, from this same lookup. Save the body's first line as `<PR_FIRST_LINE>` for "Linking the PR to Plane". Assign it with `gh pr edit <PR_URL> --add-assignee @me`, which is a no-op if it's already assigned, set `<TEST_RESULTS>` to `not-run`, then skip to Step 4.
+Three lines come back: the PR URL, whether it's a draft, then the first line of its body. If a PR URL is returned, use it - do not create a new PR. Set `<PR_STATE>` to `draft` or `ready` from the `isDraft` value - Step 1's fall-through sets it the same way, from this same lookup. Save the body's first line as `<PR_FIRST_LINE>` for "Linking the PR to Plane". Assign it with `gh pr edit <PR_URL> --add-assignee @me`, which is a no-op if it's already assigned, set `<VERIFY_RESULTS>` to `not-run`, then skip to Step 4.
 
-Otherwise, follow "Running the tests" below, then create a PR with a proper summary (see "Writing the PR" section below). By the time `gh pr create` runs, the tests have already run. Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
+Otherwise, follow "Running the checks" below, then create a PR with a proper summary (see "Writing the PR" section below). By the time `gh pr create` runs, the checks have already run. Capture the PR URL into a variable called `PR_URL` from the output of `gh pr create`. If `gh pr create` fails, stop immediately and report the error to the user - do NOT proceed to cleanup, do NOT delete the branch.
 
 ### 4. Link the PR to Plane, reconcile state, hand back cleanup, and check criteria
 
@@ -216,7 +215,7 @@ Then follow "Reconciling the Plane state", "Handing back the spec cleanup", and 
 
 ### 5. Report
 
-Print the PR URL, then the line from "Reporting the PR state", then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting the state outcome", then the test line from "Reporting the test results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You remain on the feature branch.
+Print the PR URL, then the line from "Reporting the PR state", then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting the state outcome", then the check line from "Reporting the check results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You remain on the feature branch.
 
 If Step 1 found nothing new to push, say so above the PR URL. A run that only checked the link should not read like one that shipped work.
 
@@ -254,11 +253,11 @@ Set `<PR_STATE>` to `ready`, then follow "Reconciling the Plane state", "Linking
 
 ---
 
-## Running the tests
+## Running the checks
 
-Read `ship.test-commands.1`, `.2`, ... from `<WF_CONFIG>` until a line is missing. Run each from the repo root, in order, and record its outcome in `<TEST_RESULTS>`: the command, whether it exited zero, and the last few lines of its output.
+Read `verify.commands.1`, `.2`, ... from `<WF_CONFIG>` until a line is missing. Run each from the repo root, in order, and record its outcome in `<VERIFY_RESULTS>`: the command, whether it exited zero, and the last few lines of its output.
 
-**No `ship.test-commands` at all** - run nothing, set `<TEST_RESULTS>` to `none-configured`, and say so in the Report step. Guessing a test command runs something arbitrary in a repo that never asked for it.
+**No `verify.commands` at all** - run nothing, set `<VERIFY_RESULTS>` to `none-configured`, and say so in the Report step. Guessing a check command runs something arbitrary in a repo that never asked for it.
 
 **A command fails** - do not stop the ship. The PR is the place a failure gets discussed, and a red suite that never reaches a PR gets fixed silently and forgotten. Record the failure, leave its box unchecked, and name it in the Report step.
 
@@ -270,13 +269,13 @@ The Test plan in the PR body is written independently of this, and thoroughly: i
 
 That split matters because the checklist is the honest record. A box left unchecked with a reason beside it tells a reviewer what still needs doing; a checklist trimmed to only what the machine could run tells them nothing.
 
-### Reporting the test results
+### Reporting the check results
 
 One line, after the state line:
 
-- **`none-configured`**: `- No test commands are configured - nothing ran.`
-- **`not-run`**: `- Tests did not run - a pull request already existed for this branch.`
-- **Every command passed**: `- Ran <N> test command(s) - all passed.`
+- **`none-configured`**: `- No check commands are configured - nothing ran.`
+- **`not-run`**: `- Checks did not run - a pull request already existed for this branch.`
+- **Every command passed**: `- Ran <N> check command(s) - all passed.`
 - **One or more commands failed**: `- <command> failed - left unchecked in the Test plan.` Name every failing command; join more than one with a comma.
 
 ## Writing the PR
@@ -312,7 +311,7 @@ Issue: [<ID>](https://app.plane.so/<workspace>/browse/<ID>/)
 
 Derive the summary from the commit messages and the conversation context (what was discussed, what the subagent built, what was tested).
 
-> The Test plan is a checklist, written independently of what this run could execute - list what a reviewer should verify. Then check off exactly the items `<TEST_RESULTS>` shows passing, and leave the rest unchecked with a short reason on the line. An item nothing here could run is not a gap in the plan; it is a box for a person.
+> The Test plan is a checklist, written independently of what this run could execute - list what a reviewer should verify. Then check off exactly the items `<VERIFY_RESULTS>` shows passing, and leave the rest unchecked with a short reason on the line. An item nothing here could run is not a gap in the plan; it is a box for a person.
 >
 > An item deliberately declined - something you decided not to run and are not asking anyone else to - does not belong in the checklist at all. State it in prose below the list. An unchecked box reads as outstanding work, and a declined item is not outstanding.
 
@@ -514,7 +513,7 @@ No identifier (resolved the way "Linking the PR to Plane" does) - set `<AC_OUTCO
 
 1. Call `workitem` with `action: "retrieve_by_identifier"` **immediately before writing** - not the copy any earlier section fetched. On a 404 or any not-found error, set `<AC_OUTCOME>` to `not-found` and stop. The whole description round-trips, so anything edited in the Plane UI between an earlier read and this write would be silently reverted. A fresh read shrinks that window to this step.
 2. In `description_html`, find every `<li data-type="taskItem" ...>` entry, regardless of its `data-checked` value. None at all - set `<AC_OUTCOME>` to `no-criteria` and skip the rest: there is nothing to check off. Otherwise take the ones with `data-checked="false"`.
-3. Flip `data-checked` to `"true"` only for criteria **this ship has evidence for** - something in `<PUSHED_PATHS>`, `<TEST_RESULTS>` or the PR itself demonstrates. A criterion you believe is met but cannot point at stays unchecked. The checklist is the work item's own record of what is done; a box checked on faith makes it a record of what someone hoped.
+3. Flip `data-checked` to `"true"` only for criteria **this ship has evidence for** - something in `<PUSHED_PATHS>`, `<VERIFY_RESULTS>` or the PR itself demonstrates. A criterion you believe is met but cannot point at stays unchecked. The checklist is the work item's own record of what is done; a box checked on faith makes it a record of what someone hoped.
 4. Change nothing else in the HTML - not the wording, not the ordering, not an already-checked box.
 5. Call `workitem` with `action: "update"` passing only `description_html`.
 
