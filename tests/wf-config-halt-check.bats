@@ -4,87 +4,127 @@ load helpers/setup
 
 bats_require_minimum_version 1.5.0
 
-# The halt check - check every key in the skill's list against the resolver's
-# dump, stop on one that is <unset>, and collapse the wording when the file
-# itself is absent - is one contract applied by five skills, so all five carry
-# the same paragraphs. Nothing enforced that: it is thirteen lines of prose in
-# five files, and a wording change to one is invisible until a skill halts
-# differently from its neighbours. This extracts every copy straight out of the
-# markdown and pins them against each other, the same way
-# tests/wf-review-check-state.bats pins the check-state block across the two
-# review skills and tests/wf-wrap-gh-jq.bats pins a jq program against the
-# SKILL.md it still lives in.
+RESOLVE="$DOTFILES_ROOT/agents/skills/wf-conventions/scripts/resolve-wf-config.sh"
+
+# The halt - stop when the repo's .wf.yml never declared a key the skill needs -
+# is one contract applied by five skills. It used to be thirteen lines of prose
+# in each of them, pinned against each other here because nothing else could:
+# a wording change in one was invisible until a skill halted differently from
+# its neighbours.
+#
+# It is now the resolver's `--require`, so the wording lives in one place and
+# this file's job changed with it. What is left to pin is the wiring: that each
+# skill still passes a list, that the list is spelled in keys the resolver
+# accepts, and that the one paragraph still explaining the halt has not drifted
+# between copies.
 #
 # It is deliberately not the same test as tests/wf-config-keys.bats: that one
-# pins each skill's key list against KNOWN_SHAPES, which is the halt check's
-# input. This pins the check that consumes it.
+# pins each skill's --require list against its prose and against KNOWN_SHAPES.
+# This pins the mechanism that consumes the list.
 
 HALTING_SKILLS=(wf-ship wf-status wf-shape wf-spec-review wf-impl-review)
 
-# halt_block <file>: the sync note through the closing <none> line. Those two
-# lines are the extraction anchors, so rewording either one empties the block
-# here even though the prose is still present - the first test below says so
-# when it fires. The one per-skill line - the example key in the "is unset"
-# message - is dropped, because it names a key that skill actually reads and is
-# deliberately not shared. `|| true` keeps an absent block an empty string
-# rather than a set -e abort, so the first test below reports it by name.
-halt_block() {
-  awk '/^The halt check below/,/^`<none>` is never a halt/' "$1" \
-    | grep -v 'is unset in' || true
+# require_line <file>: the --require argument from the skill's resolver call.
+# Anchored at the start of a continuation line so the prose that mentions
+# `--require` in backticks cannot match.
+require_line() {
+  sed -n 's/^[[:space:]]*--require \([a-z0-9.,_-]*\).*$/\1/p' "$1"
 }
 
-@test "every halting skill carries the halt-check block" {
-  local skill file
+# halt_para <file>: the one paragraph that still explains the halt. Its first
+# words are the extraction anchor, so rewording them empties the block here
+# even though the prose is still present - the first test below says so when it
+# fires.
+halt_para() {
+  grep -n '^Step 0 passes that list to the resolver as `--require`' "$1" \
+    | cut -d: -f2- || true
+}
+
+@test "every halting skill passes a --require list to the resolver" {
+  local skill file keys
   for skill in "${HALTING_SKILLS[@]}"; do
     file="$DOTFILES_ROOT/agents/skills/$skill/SKILL.md"
     [ -f "$file" ]
-    if [ -z "$(halt_block "$file")" ]; then
-      echo "$skill has no halt-check block - it is absent, or its first or last line was reworded away from the anchors halt_block matches on" >&2
+    keys="$(require_line "$file")"
+    if [ -z "$keys" ]; then
+      echo "$skill's resolver call carries no --require list, so it halts on nothing" >&2
       return 1
     fi
   done
 }
 
-# The whole point: five copies, one wording.
-@test "every copy of the halt-check block is identical" {
-  local first skill file block
-  first="$(halt_block "$DOTFILES_ROOT/agents/skills/${HALTING_SKILLS[0]}/SKILL.md")"
+# The strongest check available: hand each skill's list to the real script.
+# A typo fails nowhere in prose - `states.in_review` matches no dump line, so
+# the skill would report it unset forever and /wf-config could never fill it,
+# because it is not a key. The resolver rejects it as a usage error instead.
+@test "every key a skill requires is one the resolver accepts" {
+  local skill file keys
+  for skill in "${HALTING_SKILLS[@]}"; do
+    file="$DOTFILES_ROOT/agents/skills/$skill/SKILL.md"
+    keys="$(require_line "$file")"
+    run bash "$RESOLVE" --repo-root "$DOTFILES_ROOT" --require "$keys"
+    if [ "$status" -ne 0 ]; then
+      echo "$skill requires '$keys', which this repo's own complete .wf.yml does not satisfy:" >&2
+      echo "$output" >&2
+      return 1
+    fi
+  done
+}
+
+# This repo declares all nine keys, so the test above can only fail on a typo -
+# never on a key that is merely unset. Guard that premise rather than assume it.
+@test "this repo's own config satisfies every key in KNOWN_SHAPES" {
+  local shapes keys
+  shapes="$(bash -c '_WF_LIB_ONLY=1 source "$0"; printf "%s\n" "${KNOWN_SHAPES[@]}"' "$RESOLVE")"
+  [ -n "$shapes" ]
+  keys="$(printf '%s\n' "$shapes" | sed 's/\.N$//' | paste -sd, -)"
+  run bash "$RESOLVE" --repo-root "$DOTFILES_ROOT" --require "$keys"
+  [ "$status" -eq 0 ]
+}
+
+# One paragraph, five copies. Fewer than the thirteen lines it replaced, but
+# still duplicated, so still worth pinning against itself.
+@test "every copy of the halt paragraph is identical" {
+  local first skill file para
+  first="$(halt_para "$DOTFILES_ROOT/agents/skills/${HALTING_SKILLS[0]}/SKILL.md")"
   [ -n "$first" ]
   for skill in "${HALTING_SKILLS[@]}"; do
     file="$DOTFILES_ROOT/agents/skills/$skill/SKILL.md"
-    block="$(halt_block "$file")"
-    if [ "$block" != "$first" ]; then
-      echo "$skill's halt-check block has drifted from ${HALTING_SKILLS[0]}'s" >&2
-      diff <(printf '%s\n' "$first") <(printf '%s\n' "$block") >&2 || true
+    para="$(halt_para "$file")"
+    if [ -z "$para" ]; then
+      echo "$skill has no halt paragraph - it is absent, or its opening was reworded away from the anchor halt_para matches on" >&2
+      return 1
+    fi
+    if [ "$para" != "$first" ]; then
+      echo "$skill's halt paragraph has drifted from ${HALTING_SKILLS[0]}'s" >&2
+      diff <(printf '%s\n' "$first") <(printf '%s\n' "$para") >&2 || true
       return 1
     fi
   done
 }
 
-# The sync note is what tells an editor the copies are shared and where the
-# enforcement lives. A copy that loses it invites the drift this file exists to
-# stop, and a renamed test file leaves five stale pointers behind.
-@test "the block names this test as what pins it" {
-  local skill block
+# The paragraph is what tells an editor the copies are shared and where the
+# enforcement lives. A renamed test file otherwise leaves five stale pointers.
+@test "the halt paragraph names this test as what pins it" {
+  local skill para
   for skill in "${HALTING_SKILLS[@]}"; do
-    block="$(halt_block "$DOTFILES_ROOT/agents/skills/$skill/SKILL.md")"
-    if ! printf '%s\n' "$block" | grep -F 'tests/wf-config-halt-check.bats' >/dev/null; then
-      echo "$skill's halt-check block does not name tests/wf-config-halt-check.bats" >&2
+    para="$(halt_para "$DOTFILES_ROOT/agents/skills/$skill/SKILL.md")"
+    if ! printf '%s\n' "$para" | grep -F 'tests/wf-config-halt-check.bats' >/dev/null; then
+      echo "$skill's halt paragraph does not name tests/wf-config-halt-check.bats" >&2
       return 1
     fi
   done
 }
 
-# The halt message is the one line that legitimately differs, so it has to
-# still be there in every copy - dropping it is how the diff above would go
-# quiet on a real divergence.
-@test "every skill still carries an unset halt message naming a key" {
-  local skill file
-  for skill in "${HALTING_SKILLS[@]}"; do
-    file="$DOTFILES_ROOT/agents/skills/$skill/SKILL.md"
-    if ! grep -E '^> `[a-z.-]+` is unset in `\.wf\.yml`\.' "$file" >/dev/null; then
-      echo "$skill has no '<key> is unset in .wf.yml' halt message" >&2
-      return 1
-    fi
-  done
+# /wf-wrap is the documented exception: it reads a key but must never halt,
+# because by the step that reads it the worktree is gone and the branch deleted.
+# --require is opt-in precisely so that stays expressible.
+@test "wf-wrap requires nothing, so it cannot halt after its cleanup has run" {
+  local file
+  file="$DOTFILES_ROOT/agents/skills/wf-wrap/SKILL.md"
+  [ -f "$file" ]
+  if [ -n "$(require_line "$file")" ]; then
+    echo "wf-wrap passes --require, which would let it fail after the worktree is gone" >&2
+    return 1
+  fi
 }

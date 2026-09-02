@@ -34,10 +34,9 @@ echo "upstream=$(git rev-parse --verify --quiet '@{upstream}')"
 echo 'status<<<'
 git status --porcelain
 echo 'wfconfig<<<'
-bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root"
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root" \
+  --require states.shaping,states.implementing,states.in-review,ship.draft-by-default,verify.commands
 echo "resolver_exit=$?"
-[ -f "$root/.wf.yml" ] \
-  && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
 ```
 
 The fetch runs before the `@{upstream}` read so the upstream hash and every later `@{upstream}..HEAD` comparison reflect current remote state. Everything after the `status<<<` marker is porcelain output; no output there means a clean tree.
@@ -64,21 +63,7 @@ The keys this skill reads:
 
 `resolver_exit=3` means the repo's `.wf.yml` is present but wrong. Stop and print stderr: a broken config is the user's to fix, and guessing a draft setting would ship a PR in the wrong state. `resolver_exit=2` with `yq` missing is the same - say what is missing rather than proceeding. Both print no dump at all, so there is nothing below to check.
 
-The halt check below, through its closing `<none>` line, is identical in the other four halting skills and pinned by `tests/wf-config-halt-check.bats`; only the example key differs. Keep them in sync.
-
-Check every key in that list against the dump, with any trailing `.1`/`.2` dropped: a key is present when a line starts with `<key>=` or `<key>.`, and unset when that line is `<key>=<unset>`. On the happy path print nothing and continue.
-
-**Any key unset** - stop, naming them all in one line:
-
-> `states.in-review` is unset in `.wf.yml`. Run `/wf-config` to set it, then retry.
-
-**Every key in the list unset, and `wfconfig_file=no`** - collapse it instead:
-
-> No `.wf.yml` in this repo. Run `/wf-config` to create one.
-
-The probe is what separates an absent file from an incomplete one: both dump every key as `<unset>`, so `wfconfig_file` is what decides between naming the keys and naming the file.
-
-`<none>` is never a halt - it is a list the file declared empty, deliberately.
+Step 0 passes that list to the resolver as `--require`, so the halt is the resolver's: `resolver_exit=4` means a key it names is not declared, and its stderr is the message to print verbatim before stopping. Nothing here re-derives it from the dump. `<none>` is never a halt - it is a list the file declared empty, deliberately. `tests/wf-config-halt-check.bats` pins this paragraph and the `--require` list beside it.
 
 ### Choosing the flow
 

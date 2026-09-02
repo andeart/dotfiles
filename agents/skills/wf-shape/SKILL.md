@@ -57,10 +57,9 @@ Resolve the config and the default branch in one call:
 
 ```bash
 root=$(git rev-parse --show-toplevel)
-bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root"
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root" \
+  --require workspace.impl,states.shaping
 echo "resolver_exit=$?"
-[ -f "$root/.wf.yml" ] \
-  && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
 origin=$(git remote get-url origin 2>/dev/null)
 echo "origin=$origin"
 [ -n "$origin" ] && git fetch --quiet origin
@@ -75,21 +74,7 @@ The keys this skill reads:
 - `workspace.impl` - whether this step cuts a branch or enters a worktree.
 - `states.shaping` - the name Step 6 matches against the project's states.
 
-The halt check below, through its closing `<none>` line, is identical in the other four halting skills and pinned by `tests/wf-config-halt-check.bats`; only the example key differs. Keep them in sync.
-
-Check every key in that list against the dump, with any trailing `.1`/`.2` dropped: a key is present when a line starts with `<key>=` or `<key>.`, and unset when that line is `<key>=<unset>`. On the happy path print nothing and continue.
-
-**Any key unset** - stop, naming them all in one line:
-
-> `workspace.impl` is unset in `.wf.yml`. Run `/wf-config` to set it, then retry.
-
-**Every key in the list unset, and `wfconfig_file=no`** - collapse it instead:
-
-> No `.wf.yml` in this repo. Run `/wf-config` to create one.
-
-The probe is what separates an absent file from an incomplete one: both dump every key as `<unset>`, so `wfconfig_file` is what decides between naming the keys and naming the file.
-
-`<none>` is never a halt - it is a list the file declared empty, deliberately.
+Step 0 passes that list to the resolver as `--require`, so the halt is the resolver's: `resolver_exit=4` means a key it names is not declared, and its stderr is the message to print verbatim before stopping. Nothing here re-derives it from the dump. `<none>` is never a halt - it is a list the file declared empty, deliberately. `tests/wf-config-halt-check.bats` pins this paragraph and the `--require` list beside it.
 
 The list is fixed rather than re-derived per run, so a guarded run that never reaches Step 6 can still halt on `states.shaping`. That is the cheaper of the two errors: a conditional list is a second thing to keep in step with the branch structure, and the cost of being wrong is a `/wf-config` run rather than a wrong write.
 

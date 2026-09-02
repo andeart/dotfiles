@@ -121,11 +121,12 @@ Two of `/wf-status`'s checks have no writer and no `states.*` key, since
 
 ## Reading it from a skill
 
-One call, once per run:
+One call, once per run, naming the keys the skill cannot run without:
 
 ```bash
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
-  --repo-root "$(git rev-parse --show-toplevel)"
+  --repo-root "$(git rev-parse --show-toplevel)" \
+  --require states.shaping,workspace.impl
 ```
 
 Every key emits at least one line, in a fixed order, list members 1-indexed:
@@ -142,23 +143,36 @@ Two markers carry what a value cannot:
 
 | Marker | Means | What a skill does |
 | --- | --- | --- |
-| `key=<unset>` | The file did not declare it | Halt, naming the key and `/wf-config` |
+| `key=<unset>` | The file did not declare it | Nothing - `--require` has already halted the run if the skill named that key |
 | `key=<none>` | Declared as an empty list | Proceed with zero members |
 
-A key is present when a line starts with `key=` or `key.`, and unset when that
-line is `key=<unset>`. The prefix is what makes the rule work on a list, which
-arrives three ways - `key=<unset>`, `key=<none>`, or `key.1=` and up. To walk a
-list's members, read `key.1`, `key.2`, ... until a line is missing.
+**`--require` is the halt.** Name every key the skill cannot run without,
+comma-separated; the resolver exits `4` and prints the line the skill shows the
+user verbatim. Naming a key the resolver does not know is a usage error rather
+than a halt, since a halt on something that is not a key could never be cleared
+by running `/wf-config`. The flag is opt-in because `/wf-wrap` must not gain a
+way to fail - by the step that reads its key the worktree is gone and the branch
+deleted - so it passes none and treats `<unset>` as an outcome instead.
+`/wf-config` passes none either, for the opposite reason: a file short of keys
+is the input it exists to fix.
+
+A skill that needs a value still walks the dump: a key is present when a line
+starts with `key=` or `key.`, and a list arrives three ways - `key=<unset>`,
+`key=<none>`, or `key.1=` and up. To walk a list's members, read `key.1`,
+`key.2`, ... until a line is missing.
 
 The markers are in-band, so a skill consumes the dump verbatim - read and
 matched, never re-expanded. `yq -o=props` escapes a newline in a value to a
 literal `\n` and keeps the value on one line, but zsh's `echo` would turn that
 back into two, which is enough to forge a `wrap.watch-post-merge-ci=true` line
-that walks straight past a halt. `AGENTS.md` already requires these blocks to
-be portable across `/bin/bash` 3.2, bash 5 and zsh; this is the same rule seen
-from the other side.
+that a skill then reads as the repo's own setting. `AGENTS.md` already requires
+these blocks to be portable across `/bin/bash` 3.2, bash 5 and zsh; this is the
+same rule seen from the other side. The `--require` halt is out of reach of
+that: it is computed inside the script from the parsed document, never from the
+dump a caller re-expands.
 
 Exit `0` resolved, `2` usage error (also what a missing `yq` produces), `3` a
-config that is present but wrong, with the offending key named on stderr. An
-unset key is not exit 3: the file is incomplete rather than malformed, and
-`/wf-wrap` needs to tell those apart while treating both as non-fatal.
+config that is present but wrong, with the offending key named on stderr, `4` a
+`--require` key the file never declared. An unset key is not exit 3: the file is
+incomplete rather than malformed, and `/wf-wrap` needs to tell those apart while
+treating both as non-fatal.

@@ -7,12 +7,13 @@
 # `key=<none>` for a list it emptied, and `key=<unset>` for a key it did not
 # declare. Reasons go to stderr.
 #
-# Usage: resolve-wf-config.sh [--repo-root DIR]
+# Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]]
 #
 # Exit codes:
 #   0   resolved; stdout holds every setting.
 #   2   usage error.
 #   3   a .wf.yml is present but wrong; stderr names the offending key.
+#   4   a --require key the file never declared; stderr carries the halt message.
 #
 # Reads .wf.yml and nothing else: no writes, no network, and one yq fork per
 # run. tests/resolve-wf-config.bats pins that.
@@ -23,6 +24,11 @@ set -euo pipefail
 # invocation. An unset key is neither: the file is incomplete rather than
 # malformed, so it resolves at 0 with `<unset>` and each consumer decides.
 EXIT_INVALID=3
+
+# Opt-in, and only reachable through --require. A caller that names no key never
+# sees it, which is what lets /wf-wrap read a key without gaining a way to fail
+# after its cleanup has already run.
+EXIT_UNSET=4
 
 # Every key the family understands, in the order the dump prints them. A `.N`
 # suffix marks a list, whose members the file may set to any length. The values
@@ -52,8 +58,16 @@ invalid() {
   exit "$EXIT_INVALID"
 }
 
+# halt <message>: a --require key the file never declared. Unprefixed, unlike
+# die() and invalid(): a skill prints this line to the user verbatim, and the
+# script's own name in front of it would read as a crash rather than an answer.
+halt() {
+  echo "$*" >&2
+  exit "$EXIT_UNSET"
+}
+
 usage() {
-  echo "Usage: resolve-wf-config.sh [--repo-root DIR]"
+  echo "Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]]"
 }
 
 # config_path <root>: print the config path, or nothing. Root only - there is no
@@ -66,6 +80,14 @@ config_path() {
 
 # read_props <file>: the single yq fork. Emits `key=value`, normalising yq's
 # " = " separator and its 0-based list indices.
+#
+# The parse is unbounded: nested YAML aliases expand multiplicatively, so a
+# .wf.yml well under a kilobyte can hold yq past any wall clock. Left that way
+# deliberately. A cap on size or depth does not reach the case - 283 bytes is
+# enough - and every skill that runs this against an unfamiliar repo also runs
+# that repo's verify.commands verbatim, so a hang is the least of what an
+# untrusted file already does. /wf-config is the one caller where that is not
+# true, since it never runs a command: there, a hang is the whole of it.
 #
 # The expression rewrites every empty sequence to a one-member sentinel first.
 # yq -o=props drops an empty sequence entirely, so `reviewers: []` would emit no
@@ -131,6 +153,13 @@ validate() {
     esac
 
     if ! is_known_shape "$shape"; then
+      # A root-level sequence indexes straight to a bare number, so reporting it
+      # as an unknown key would name a `0` the file never spelled and send the
+      # reader looking for it.
+      case "$key" in
+        ''|*[!0-9]*) ;;
+        *) invalid "the document's root is a list; .wf.yml must be a mapping of keys" ;;
+      esac
       # A list written as a scalar, or the reverse, reaches here too. Both are
       # real mistakes with a clearer name than "unknown key".
       if is_known_shape "$key.N"; then
@@ -209,19 +238,24 @@ EOF
 # list the file set replaces whatever the template holds rather than appending,
 # so a two-name roster means two cycles and not six.
 emit() {
-  local kv="$1" shape prefix line found n first oldifs
+  local kv="$1" shape prefix line found n first oldifs hadf
   # One split instead of two forks per key. `set -f` is load-bearing: with IFS
   # at newline the whole `key=value` line is one word, so a value like
   # `grep -r * .` does not expand, but one that makes its line match a filename
   # would - `verify.commands: ["*"]` resolved beside a file named
-  # `verify.commands.1=a` splits one dump line into two. `set +f` restores
-  # globbing unconditionally, which is correct only while nothing here sets
-  # `-f` at top level.
+  # `verify.commands.1=a` splits one dump line into two. The restore reads the
+  # caller's flag rather than assuming it: sourced as a library (_WF_LIB_ONLY),
+  # a bare `set +f` hands a caller that had globbing off a shell where it is on.
+  case $- in
+    *f*) hadf=yes ;;
+    *) hadf=no ;;
+  esac
   oldifs="$IFS"
   set -f; IFS='
 '
   set -- $kv
-  IFS="$oldifs"; set +f
+  IFS="$oldifs"
+  [ "$hadf" = yes ] || set +f
 
   for shape in "${KNOWN_SHAPES[@]}"; do
     case "$shape" in
@@ -264,22 +298,92 @@ emit() {
   done
 }
 
-# resolve <root>: the whole decision. See the exit codes above.
+# bare_key <key>: a key with any trailing list index dropped. A skill names a
+# list member (`review.reviewers.1`) as readily as the list, and the dump's
+# <unset> line carries the bare key either way.
+bare_key() {
+  case "${1##*.}" in
+    ''|*[!0-9]*) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "${1%.*}" ;;
+  esac
+}
+
+# require <dump> <present> <csv>: halt on any named key the dump reports
+# <unset>. The halt lives here rather than in five SKILL.md copies of the same
+# thirteen lines: the message is one string, the comparison is not a judgment,
+# and a skill already forks this script once.
+#
+# Naming a key the script does not know is a usage error, not a halt - it is a
+# typo in the caller, and reporting it as "unset" would be a halt that no
+# /wf-config run could ever clear.
+require() {
+  local dump="$1" present="$2" csv="$3" key shape missing="" n=0 total=0 oldifs hadf
+  # Same flag discipline as emit(): restore what the caller had rather than
+  # assuming globbing was on.
+  case $- in
+    *f*) hadf=yes ;;
+    *) hadf=no ;;
+  esac
+  oldifs="$IFS"; IFS=','
+  set -f
+  set -- $csv
+  IFS="$oldifs"
+  [ "$hadf" = yes ] || set +f
+  for key in "$@"; do
+    [ -n "$key" ] || continue
+    key="$(bare_key "$key")"
+    case "${key##*.}" in
+      ''|*[!0-9]*) shape="$key" ;;
+      *) shape="${key%.*}.N" ;;
+    esac
+    is_known_shape "$shape" || is_known_shape "$key.N" \
+      || die "--require names $key, which is not a key this script knows"
+    total=$((total + 1))
+    # Anchored on a leading newline so one key cannot match inside another's
+    # line; the dump is newline-separated and every line starts with its key.
+    case "
+$dump" in
+      *"
+$key=<unset>"*)
+        missing="$missing, $key"
+        n=$((n + 1)) ;;
+    esac
+  done
+  [ "$n" -gt 0 ] || return 0
+  missing="${missing#, }"
+  # Every named key unset AND no file at all is one condition with one cause,
+  # and naming nine keys for it would bury the cause under its symptoms.
+  if [ "$n" -eq "$total" ] && [ "$present" = no ]; then
+    halt "No .wf.yml in this repo. Run /wf-config to create one."
+  fi
+  if [ "$n" -eq 1 ]; then
+    halt "$missing is unset in .wf.yml. Run /wf-config to set it, then retry."
+  fi
+  halt "$missing are unset in .wf.yml. Run /wf-config to set them, then retry."
+}
+
+# resolve <root> <csv>: the whole decision. See the exit codes above.
 resolve() {
-  local root="$1" file kv
+  local root="$1" csv="$2" file kv dump present
   [ -d "$root" ] || die "no such directory: $root"
   file="$(config_path "$root")"
   if [ -z "$file" ]; then
-    emit ""
-    return 0
+    present=no
+    dump="$(emit "")"
+  else
+    present=yes
+    kv="$(read_props "$file")"
+    validate "$kv"
+    dump="$(emit "$kv")"
   fi
-  kv="$(read_props "$file")"
-  validate "$kv"
-  emit "$kv"
+  # Before the dump, not after: a halted skill reads stderr and stops, and a
+  # dump printed alongside the halt invites it to carry on with the rest.
+  [ -z "$csv" ] || require "$dump" "$present" "$csv"
+  printf '%s\n' "$dump"
 }
 
 main() {
-  local repo_root="."
+  local repo_root="." require=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --repo-root)
@@ -287,6 +391,11 @@ main() {
         # working directory, which is not what an explicit flag asked for.
         { [ $# -ge 2 ] && [ -n "$2" ]; } || die "--repo-root needs a value"
         repo_root="$2"; shift 2 ;;
+      --require)
+        { [ $# -ge 2 ] && [ -n "$2" ]; } || die "--require needs a value"
+        # Repeats accumulate rather than replace, so a caller can build the
+        # list up without the last flag silently winning.
+        require="${require:+$require,}$2"; shift 2 ;;
       -h|--help)
         usage; exit 0 ;;
       *)
@@ -294,7 +403,7 @@ main() {
     esac
   done
 
-  resolve "$repo_root"
+  resolve "$repo_root" "$require"
 }
 
 # Sourced with _WF_LIB_ONLY=1 (by tests): define functions and stop before

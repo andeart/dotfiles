@@ -52,6 +52,8 @@ echo "resolver_exit=$rc"
 
 `rc` is captured before anything else runs, and the `tag` call is guarded by it: a rejected config writes nothing below, so its shape is read only to be discarded, and on a malformed file an unguarded `yq` prints a second error the user then has to reconcile with the resolver's.
 
+No `--require` on this call, unlike the five skills that consume the config. They name their keys so an undeclared one halts them at exit 4; here an undeclared key is the input, and halting on it would stop the skill that exists to fill it.
+
 **`resolver_exit=2` or `3`** - print the resolver's stderr, ask the user to fix the file, and write nothing. A rejection emits no dump at all, so there are no keys to read as unset, and reading that silence as "everything is missing" answers the wrong question: the file is not short of keys, it has something wrong in it, and filling keys will not fix what the resolver just named. There is nothing for the merge to merge into either.
 
 **`resolver_exit=0`** - the `yq 'tag'` line picks the path:
@@ -68,11 +70,13 @@ The dump cannot pick between these: an empty file, a comments-only one and `revi
 
 A `!!null` file has nothing for the merge to fill - `select(fi==1)` selects nothing and the expression emits zero bytes at exit 0, so the fill would report nine keys written and leave an empty file behind. A root-level `{}` does merge, but into flow style, so it takes the copy path rather than handing back a one-line file.
 
-`!!str` **stops.** A file whose whole content is `hello` reaches exit 0 with every key `<unset>`, because `read_props`'s awk drops any props line without a ` = ` separator - so it arrives here looking like an ordinary incomplete file, and the merge below then fails with `cannot multiply !!map with !!str`. Say the file's whole content is a bare scalar rather than a mapping, and ask the user to fix or delete it.
+`!!str` **stops.** A bare scalar reaches exit 0 with every key `<unset>`, so it arrives looking like an ordinary incomplete file, and the merge below would fail with `cannot multiply !!map with !!str`. Say the file's whole content is a scalar rather than a mapping, and ask the user to fix or delete it.
 
-**More than one line** means more than one document, and it **stops.** `yq 'tag'` prints one line per document, so a two-document file answers `!!map` twice and matches no single-value row above. It gets here because the resolver only rejects a multi-document file when a key repeats across the documents - one whose documents share no key resolves at exit 0 with a clean dump. The merge would then make it worse rather than fixing it: `select(fi==1)` selects both documents and emits two mappings with no `---` between them, which re-reads as one document with duplicate keys, and there the template's value wins over the user's. Say the file holds more than one YAML document and ask the user to collapse it to one.
+**More than one line** means more than one document, and it **stops.** It reaches here because the resolver rejects a multi-document file only when a key repeats across the documents. The merge would make it worse rather than fixing it: `select(fi==1)` emits both mappings with no `---` between them, which re-reads as one document with duplicate keys, and there the template's value wins over the user's. Say the file holds more than one YAML document and ask the user to collapse it to one.
 
-A root-level list never reaches this table: the sentinel rewrite gives a root `[]` the key `0`, which the resolver rejects as `unknown key: 0` at exit 3.
+A root-level list never reaches this table - the resolver rejects it at exit 3.
+
+Every row above is a claim about how `yq` behaves, pinned by `tests/wf-config-scaffolder.bats`. A failure there means this table needs rewriting.
 
 ## Writing a new file
 
@@ -84,6 +88,8 @@ On yes:
 root=$(git rev-parse --show-toplevel)
 cp ~/.agents/skills/wf-conventions/wf.yml.template "$root/.wf.yml"
 ```
+
+No mode is set here, deliberately: a file that did not exist has none to preserve, so the user's umask decides it the way it decides every other file they create. The fill path below is the one that has a mode to keep.
 
 Then go to "Sign-off".
 
@@ -100,9 +106,9 @@ On yes, merge with the template underneath - never append:
 ```bash
 root=$(git rev-parse --show-toplevel)
 tmp=$(mktemp) \
+  && cp -p "$root/.wf.yml" "$tmp" \
   && yq ea 'select(fi==0) * select(fi==1)' \
        ~/.agents/skills/wf-conventions/wf.yml.template "$root/.wf.yml" > "$tmp" \
-  && chmod 644 "$tmp" \
   && mv "$tmp" "$root/.wf.yml"
 ```
 
@@ -110,7 +116,7 @@ A duplicate YAML key is not an error yq reports - a second `states:` block wins 
 
 **`mktemp` and `mv`, never a redirect and never `-i`.** Both shorthands destroy something, silently, at exit 0. `yq ea ... > .wf.yml` truncates the file before yq opens it. `yq ea -i` writes the *first* file, so it leaves `.wf.yml` untouched and overwrites the shipped template instead - which `dotfiles freeze`'s pre-commit hook then harvests, making one repo's config everyone else's template.
 
-The `chmod` is not decoration. `mktemp` creates at `600` and `mv` carries that mode onto `.wf.yml`, so without it a fill quietly narrows a `644` config to owner-only - and git tracks no mode but the exec bit, so nothing in a diff or a `git status` would ever show it. `644` is what the `cp` path above produces from the template. A failed run leaves the temp file behind, which is deliberate: an `rm` on the failure arm would trip this repo's own deletion hook when the skill ran.
+**The `cp -p` is there for the mode, not the content.** `mktemp` creates at `600` and `mv` carries that mode onto `.wf.yml`, so without it a fill quietly narrows a `644` config to owner-only - and git tracks no mode but the exec bit, so nothing in a diff or a `git status` would ever show it. Seeding the temp file from the one being filled preserves whatever mode the user chose, and preserves it in both directions: a hard-coded `644` would just as silently widen a config someone deliberately set to `600`. The redirect overwrites the copied content immediately, so only the mode survives the copy. A failed run leaves the temp file behind, which is deliberate: an `rm` on the failure arm would trip this repo's own deletion hook when the skill ran.
 
 Three consequences worth stating rather than discovering: the result is written in the template's key order, it replaces the file rather than appending to it, and yq reflows what it rewrites - comments survive and land with their keys, but blank lines between sections do not, and the template's header comment is prepended to the file. So the promise is not "never overwrite" but **the user's declared values always win**. A shorter list in the file replaces the template's outright rather than merging by index, which is the same rule the resolver applies.
 

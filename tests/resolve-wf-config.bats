@@ -675,6 +675,140 @@ EOF
   [ "$output" = "$expected" ]
 }
 
+# ─── --require ─────────────────────────────────────────────────────────────
+
+# --require is the halt the five consuming skills used to spell out in thirteen
+# lines of prose each. It is opt-in: a caller that names no key cannot reach
+# exit 4, which is what lets /wf-wrap read a key without gaining a way to fail
+# after its cleanup has already run.
+
+FULL="states:
+  shaping: Shaping
+  implementing: Implementing
+  in-review: In Review
+workspace:
+  impl: base
+review:
+  reviewers: [Ana]
+  focus: [Speed]
+ship:
+  draft-by-default: true
+verify:
+  commands: [make test]
+wrap:
+  watch-post-merge-ci: false"
+
+@test "--require is satisfied by a complete config" {
+  local root; root="$(repo full)"
+  config "$root" "$FULL"
+  resolve "$root" --require states.shaping,workspace.impl
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+}
+
+@test "--require still prints the whole dump when satisfied" {
+  local root; root="$(repo dump)"
+  config "$root" "$FULL"
+  resolve "$root" --require states.shaping
+  [ "$status" -eq 0 ]
+  [ "$(value states.shaping)" = "Shaping" ]
+  [ "$(value wrap.watch-post-merge-ci)" = "false" ]
+}
+
+@test "--require exits 4 naming the one key the file leaves out" {
+  local root; root="$(repo one)"
+  config "$root" "states:
+  shaping: Shaping"
+  resolve "$root" --require states.shaping,states.in-review
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "states.in-review is unset in .wf.yml. Run /wf-config to set it, then retry." ]
+}
+
+# "them", not "it" - the message is read out verbatim by the skill that halted.
+@test "--require names every missing key in one line, pluralised" {
+  local root; root="$(repo many)"
+  config "$root" "states:
+  shaping: Shaping"
+  resolve "$root" --require states.in-review,workspace.impl
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "states.in-review, workspace.impl are unset in .wf.yml. Run /wf-config to set them, then retry." ]
+}
+
+# An absent file dumps every key <unset> exactly as an incomplete one does, so
+# the collapse is what separates "fill these keys" from "there is no file".
+@test "--require collapses to the absent-file message when there is no config" {
+  local root; root="$(repo absent)"
+  resolve "$root" --require states.shaping,states.in-review
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "No .wf.yml in this repo. Run /wf-config to create one." ]
+}
+
+# The collapse is about the file, not the count: a present file missing every
+# named key still names them, because /wf-config fills rather than creates.
+@test "--require does not collapse when the file exists but lacks every named key" {
+  local root; root="$(repo present)"
+  config "$root" "states:
+  shaping: Shaping"
+  resolve "$root" --require workspace.impl
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "workspace.impl is unset in .wf.yml. Run /wf-config to set it, then retry." ]
+}
+
+# <none> is a declared empty list. Halting on it would make `reviewers: []`
+# impossible to state, which is the whole point of the marker.
+@test "--require does not halt on a list the file declared empty" {
+  local root; root="$(repo none)"
+  config "$root" "review:
+  reviewers: []"
+  resolve "$root" --require review.reviewers
+  [ "$status" -eq 0 ]
+  [ "$(value review.reviewers)" = "<none>" ]
+}
+
+@test "--require accepts a list member spelling and reads it as the list" {
+  local root; root="$(repo member)"
+  config "$root" "review:
+  reviewers: []"
+  resolve "$root" --require review.reviewers.1
+  [ "$status" -eq 0 ]
+}
+
+# A typo in a caller's key list is a usage error, not a halt: reported as unset
+# it would be a halt that no /wf-config run could ever clear.
+@test "--require rejects a key the script does not know as a usage error" {
+  local root; root="$(repo typo)"
+  config "$root" "$FULL"
+  resolve "$root" --require states.in_review
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"not a key this script knows"* ]]
+}
+
+@test "--require needs a value" {
+  local root; root="$(repo noval)"
+  run --separate-stderr bash "$RESOLVE" --repo-root "$root" --require
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"--require needs a value"* ]]
+}
+
+@test "repeated --require flags accumulate rather than replace" {
+  local root; root="$(repo repeat)"
+  config "$root" "states:
+  shaping: Shaping"
+  resolve "$root" --require states.shaping --require states.in-review
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *"states.in-review is unset"* ]]
+}
+
+# A broken config outranks an unset key: there is nothing to fill into a file
+# that does not parse, and exit 3 names the fault the user has to fix first.
+@test "a rejected config reports exit 3 even when --require names a missing key" {
+  local root; root="$(repo broken)"
+  config "$root" "bogus: 1"
+  resolve "$root" --require states.shaping
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"unknown key: bogus"* ]]
+}
+
 # ─── bash 3.2 compatibility ────────────────────────────────────────────────
 
 # The script's shebang resolves to bash 5.x on this machine's PATH, so a

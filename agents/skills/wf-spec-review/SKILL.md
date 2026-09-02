@@ -28,10 +28,9 @@ echo "origin=$origin"
 [ -n "$origin" ] && git fetch --quiet origin
 git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
 echo 'wfconfig<<<'
-bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root"
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root" \
+  --require review.reviewers,review.focus,verify.commands
 echo "resolver_exit=$?"
-[ -f "$root/.wf.yml" ] \
-  && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
 echo 'specs<<<'
 ls -t "$root"/docs/superpowers/specs/*.md 2>/dev/null
 ```
@@ -44,7 +43,7 @@ ls -t "$root"/docs/superpowers/specs/*.md 2>/dev/null
 
 Step 0's block already ran the resolver; its output is the lines after the `wfconfig<<<` marker and `resolver_exit=` is its exit status.
 
-If `resolver_exit` is non-zero, stop and print its stderr - a broken `.wf.yml` is the user's to fix, and guessing a roster would run the wrong cycle. Exit 2 and exit 3 print no dump at all, so there is nothing below to check.
+`resolver_exit=2` (a usage error or a missing `yq`) or `resolver_exit=3` (a `.wf.yml` that is present but wrong) - stop and print its stderr. A broken config is the user's to fix, and guessing a roster would run the wrong cycle. Neither prints a dump, so there is nothing below to check.
 
 The keys this skill reads:
 
@@ -52,21 +51,7 @@ The keys this skill reads:
 - `review.focus.1`, `.2`, ... - the topics each reviewer's opening prompt names.
 - `verify.commands.1`, `.2`, ... - what Step 4 runs to establish the check state.
 
-The halt check below, through its closing `<none>` line, is identical in the other four halting skills and pinned by `tests/wf-config-halt-check.bats`; only the example key differs. Keep them in sync.
-
-Check every key in that list against the dump, with any trailing `.1`/`.2` dropped: a key is present when a line starts with `<key>=` or `<key>.`, and unset when that line is `<key>=<unset>`. On the happy path print nothing and continue.
-
-**Any key unset** - stop, naming them all in one line:
-
-> `review.reviewers` is unset in `.wf.yml`. Run `/wf-config` to set it, then retry.
-
-**Every key in the list unset, and `wfconfig_file=no`** - collapse it instead:
-
-> No `.wf.yml` in this repo. Run `/wf-config` to create one.
-
-The probe is what separates an absent file from an incomplete one: both dump every key as `<unset>`, so `wfconfig_file` is what decides between naming the keys and naming the file.
-
-`<none>` is never a halt - it is a list the file declared empty, deliberately.
+Step 0 passes that list to the resolver as `--require`, so the halt is the resolver's: `resolver_exit=4` means a key it names is not declared, and its stderr is the message to print verbatim before stopping. Nothing here re-derives it from the dump. `<none>` is never a halt - it is a list the file declared empty, deliberately. `tests/wf-config-halt-check.bats` pins this paragraph and the `--require` list beside it.
 
 Read the roster and the focus list from the dump, `key.1`, `key.2`, ... in order until a line is missing.
 
