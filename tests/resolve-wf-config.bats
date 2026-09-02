@@ -68,45 +68,26 @@ value() {
 
 # ─── no config at all ──────────────────────────────────────────────────────
 
-@test "a repo with no .wf.yml resolves every default" {
+@test "a repo with no .wf.yml resolves every key to <unset>" {
   local root; root="$(repo bare)"
   resolve "$root"
   [ "$status" -eq 0 ]
-  [ "$(value states.shaping)" = "Shaping" ]
-  [ "$(value states.implementing)" = "Implementing" ]
-  [ "$(value states.in-review)" = "In Review" ]
-  [ "$(value workspace.impl)" = "base" ]
-  [ "$(value ship.draft-by-default)" = "true" ]
-  [ "$(value wrap.watch-post-merge-ci)" = "false" ]
+  [ "$(value states.shaping)" = "<unset>" ]
+  [ "$(value states.implementing)" = "<unset>" ]
+  [ "$(value states.in-review)" = "<unset>" ]
+  [ "$(value workspace.impl)" = "<unset>" ]
+  [ "$(value ship.draft-by-default)" = "<unset>" ]
+  [ "$(value wrap.watch-post-merge-ci)" = "<unset>" ]
 }
 
-@test "the default roster is the four reviewers, in order" {
-  local root; root="$(repo bare-roster)"
-  resolve "$root"
-  [ "$status" -eq 0 ]
-  [ "$(value review.reviewers.1)" = "Alia" ]
-  [ "$(value review.reviewers.2)" = "Bheem" ]
-  [ "$(value review.reviewers.3)" = "Cristo" ]
-  [ "$(value review.reviewers.4)" = "Darius" ]
-  [ -z "$(value review.reviewers.5)" ]
-}
-
-@test "the default focus list carries the four headings" {
-  local root; root="$(repo bare-focus)"
-  resolve "$root"
-  [ "$status" -eq 0 ]
-  [ "$(value review.focus.1)" = "Security hardening" ]
-  [ "$(value review.focus.4)" = "Succinct documentation that's not unnecessarily elaborate" ]
-}
-
-# There is no sensible default test command, and guessing one would run
-# something arbitrary in a repo that never asked for it. Absent means the skill
-# runs nothing and says so.
-@test "verify.commands has no default members" {
+# The one key that never had a default now has the same shape as every other:
+# undeclared is <unset>, and an explicit [] is <none>. The two are different
+# answers, and only the second is one a skill acts on.
+@test "an undeclared verify.commands is <unset>, not <none>" {
   local root; root="$(repo bare-tests)"
   resolve "$root"
   [ "$status" -eq 0 ]
-  [[ "$output" != *"verify.commands"* ]]
+  [ "$(value verify.commands)" = "<unset>" ]
 }
 
 # The rename in DX-73. A repo still carrying the old name gets told the new one
@@ -132,7 +113,7 @@ value() {
   printf 'states:\n  shaping: FromTmp\n' > "$root/tmp/.wf.yml"
   resolve "$root"
   [ "$status" -eq 0 ]
-  [ "$(value states.shaping)" = "Shaping" ]
+  [ "$(value states.shaping)" = "<unset>" ]
 }
 
 # ─── library mode ──────────────────────────────────────────────────────────
@@ -143,8 +124,12 @@ value() {
   [ -z "$output" ]
 }
 
+# shape_of writes SHAPE instead of printing: the command substitution was the
+# cost, not the sed. Read it immediately after the call - it holds the previous
+# call's value until then.
 @test "shape_of replaces a trailing list index with N" {
-  call shape_of review.reviewers.3
+  run bash -c '_WF_LIB_ONLY=1 source "$0"; shape_of "$1"; printf "%s\n" "$SHAPE"' \
+    "$RESOLVE" review.reviewers.3
   [ "$status" -eq 0 ]
   [ "$output" = "review.reviewers.N" ]
 }
@@ -158,7 +143,7 @@ value() {
 
 # ─── reading a config ──────────────────────────────────────────────────────
 
-@test "a scalar in the file wins over its default" {
+@test "a scalar in the file resolves to its value" {
   local root; root="$(repo scalar-override)"
   config "$root" 'states:
   shaping: Designing'
@@ -167,14 +152,14 @@ value() {
   [ "$(value states.shaping)" = "Designing" ]
 }
 
-@test "keys the file leaves out still resolve to their defaults" {
+@test "keys the file leaves out resolve to <unset>" {
   local root; root="$(repo partial)"
   config "$root" 'states:
   shaping: Designing'
   resolve "$root"
   [ "$status" -eq 0 ]
-  [ "$(value states.implementing)" = "Implementing" ]
-  [ "$(value workspace.impl)" = "base" ]
+  [ "$(value states.implementing)" = "<unset>" ]
+  [ "$(value workspace.impl)" = "<unset>" ]
 }
 
 @test "a value containing spaces survives intact" {
@@ -234,8 +219,8 @@ value() {
   [ "$(value review.reviewers.2)" = "Bo" ]
 }
 
-# Merging instead would mean a two-name roster silently ran six cycles.
-@test "a list in the file replaces the default rather than appending to it" {
+# Merging against anything would mean a two-name roster silently ran six cycles.
+@test "a list in the file is the whole list" {
   local root; root="$(repo list-replace)"
   config "$root" 'review:
   reviewers: [Ana, Bo]'
@@ -255,21 +240,23 @@ value() {
   [[ "$output" != *"review.reviewers.0="* ]]
 }
 
-@test "an empty .wf.yml resolves every default" {
+@test "an empty .wf.yml resolves every key to <unset>" {
   local root; root="$(repo empty-file)"
   : > "$root/.wf.yml"
   resolve "$root"
   [ "$status" -eq 0 ]
-  [ "$(value states.shaping)" = "Shaping" ]
-  [ "$(value review.reviewers.4)" = "Darius" ]
+  [ "$(value states.shaping)" = "<unset>" ]
+  [ "$(value review.reviewers)" = "<unset>" ]
 }
 
-@test "an empty section resolves that section's defaults" {
+# An empty map is the one shape the sentinel rewrite does not reach, so a
+# section written `{}` reads exactly like an absent one.
+@test "an empty section leaves its keys <unset>" {
   local root; root="$(repo empty-section)"
   config "$root" 'review: {}'
   resolve "$root"
   [ "$status" -eq 0 ]
-  [ "$(value review.reviewers.1)" = "Alia" ]
+  [ "$(value review.reviewers)" = "<unset>" ]
 }
 
 # The dump is an interface: a skill reads it and bats asserts on it, so the
@@ -291,29 +278,44 @@ states:
 
 # The two-line check above pins the ends; this pins the whole dump, so a
 # reordering inside KNOWN_SHAPES fails a test instead of shipping unnoticed.
+# Nine keys, nine lines: every key emits one even when the file is absent.
 @test "the no-config dump matches KNOWN_SHAPES order exactly" {
   local root; root="$(repo full-dump)"
   resolve "$root"
   [ "$status" -eq 0 ]
   local expected
   expected="$(cat <<'EOF'
-states.shaping=Shaping
-states.implementing=Implementing
-states.in-review=In Review
-workspace.impl=base
-review.reviewers.1=Alia
-review.reviewers.2=Bheem
-review.reviewers.3=Cristo
-review.reviewers.4=Darius
-review.focus.1=Security hardening
-review.focus.2=Performance
-review.focus.3=Cleanliness and maintainability of code
-review.focus.4=Succinct documentation that's not unnecessarily elaborate
-ship.draft-by-default=true
-wrap.watch-post-merge-ci=false
+states.shaping=<unset>
+states.implementing=<unset>
+states.in-review=<unset>
+workspace.impl=<unset>
+review.reviewers=<unset>
+review.focus=<unset>
+ship.draft-by-default=<unset>
+verify.commands=<unset>
+wrap.watch-post-merge-ci=<unset>
 EOF
 )"
   [ "$output" = "$expected" ]
+}
+
+# yq -o=props drops an empty sequence entirely, so `[]` and an absent key are
+# indistinguishable at the props layer. read_props rewrites every empty
+# sequence to a one-member sentinel before the conversion; this is what pins
+# that the two stay different answers.
+@test "an empty list resolves to <none> on every list key" {
+  local root; root="$(repo empty-lists)"
+  config "$root" 'review:
+  reviewers: []
+  focus: []
+verify:
+  commands: []'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(value review.reviewers)" = "<none>" ]
+  [ "$(value review.focus)" = "<none>" ]
+  [ "$(value verify.commands)" = "<none>" ]
+  [ -z "$(value review.reviewers.1)" ]
 }
 
 # ─── validation ────────────────────────────────────────────────────────────
@@ -372,8 +374,8 @@ EOF
   [[ "$stderr" == *"workspace.impl must be a single value"* ]]
 }
 
-# A key written with no value reads as deliberate, so taking the default would
-# quietly do something other than what the file says.
+# A key written with no value reads as deliberate, so resolving it as a value
+# would quietly do something other than what the file says.
 @test "a key present with an empty value exits 3" {
   local root; root="$(repo empty-value)"
   config "$root" 'states:
@@ -455,6 +457,157 @@ verify:
   [ "$(value verify.commands.1)" = "bats tests/" ]
 }
 
+# The markers are in-band, so nothing legitimate may produce one. <unset> means
+# a key the file never declared; a file that writes it is claiming a state it
+# cannot be in.
+@test "a scalar set to <unset> exits 3" {
+  local root; root="$(repo unset-scalar)"
+  config "$root" 'states:
+  shaping: <unset>'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"states.shaping"* ]]
+}
+
+@test "a scalar set to <none> exits 3" {
+  local root; root="$(repo none-scalar)"
+  config "$root" 'states:
+  shaping: <none>'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"states.shaping"* ]]
+}
+
+@test "a list member set to <unset> exits 3" {
+  local root; root="$(repo unset-member)"
+  config "$root" 'review:
+  reviewers: [Ana, "<unset>"]'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"review.reviewers"* ]]
+}
+
+# <none> beside other members would reach /wf-ship's checks step as a command.
+# The sole-member case is exactly what [] produces and is the legitimate one.
+@test "a list carrying <none> beside other members exits 3" {
+  local root; root="$(repo none-beside)"
+  config "$root" 'review:
+  reviewers: [Ana, "<none>"]'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"review.reviewers"* ]]
+}
+
+@test "a list whose first member is <none> beside another exits 3" {
+  local root; root="$(repo none-first)"
+  config "$root" 'review:
+  reviewers: ["<none>", Ana]'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"review.reviewers"* ]]
+}
+
+# The markers only mean anything while no value can forge a dump line. This
+# guards a property of yq's output format rather than of this script, so
+# nothing here would catch it changing.
+@test "a value carrying a newline emits exactly one dump line" {
+  local root; root="$(repo newline-dq)"
+  config "$root" 'states:
+  shaping: "A\nwrap.watch-post-merge-ci=true"'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | wc -l | tr -d ' ')" -eq 9 ]
+  [ "$(value wrap.watch-post-merge-ci)" = "<unset>" ]
+}
+
+@test "a block scalar carrying a newline emits exactly one dump line" {
+  local root; root="$(repo newline-block)"
+  config "$root" 'states:
+  shaping: |-
+    A
+    wrap.watch-post-merge-ci=true'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | wc -l | tr -d ' ')" -eq 9 ]
+  [ "$(value wrap.watch-post-merge-ci)" = "<unset>" ]
+}
+
+# The other forgery path, and this one is ours rather than yq's: emit splits on
+# newline, so a value that makes its whole line match a filename would expand
+# into two lines without `set -f`. The newline cases above stay green if it is
+# removed; this one does not.
+@test "a list value of * emits exactly the members the file declared" {
+  local root; root="$(repo star)"
+  config "$root" 'verify:
+  commands: ["*"]'
+  local world="$BATS_TEST_TMPDIR/star-cwd"
+  mkdir -p "$world"
+  : > "$world/verify.commands.1=a"
+  : > "$world/verify.commands.1=b"
+  run --separate-stderr bash -c 'cd "$1" || exit 1; bash "$2" --repo-root "$3"' \
+    _ "$world" "$RESOLVE" "$root"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | awk '/^verify[.]commands[.]/' | wc -l | tr -d ' ')" -eq 1 ]
+  [ "$(value verify.commands.1)" = "*" ]
+}
+
+# Both resolved at exit 0 before the sentinel rewrite: `bogus: []` escaped the
+# unknown-key rejection entirely, and a scalar written as an empty list took a
+# default. The rewrite gives each a line, and validate rejects it.
+@test "an unknown key written as an empty list names the key, not its index" {
+  local root; root="$(repo bogus-empty-list)"
+  config "$root" 'bogus: []'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"unknown key: bogus"* ]]
+  [[ "$stderr" != *"bogus.1"* ]]
+}
+
+@test "a scalar key written as an empty list says it must be a single value" {
+  local root; root="$(repo impl-empty-list)"
+  config "$root" 'workspace:
+  impl: []'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"workspace.impl must be a single value"* ]]
+}
+
+# yq collapses duplicate keys inside one document, so a multi-document file is
+# the only way to put a second `key=` line in front of the skill-side check -
+# and it also breaks the rule that a list replaces rather than appends.
+@test "a key set in two documents exits 3 and names it" {
+  local root; root="$(repo two-docs)"
+  config "$root" 'states:
+  shaping: A
+---
+states:
+  shaping: B'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"states.shaping"* ]]
+}
+
+# The script's header claims one yq fork per run and points here. A shim first
+# on PATH counts the calls and delegates, which makes the claim an assertion.
+@test "read_props makes exactly one yq fork" {
+  local root; root="$(repo one-fork)"
+  config "$root" 'states:
+  shaping: Designing'
+  local bin="$BATS_TEST_TMPDIR/bin" log="$BATS_TEST_TMPDIR/yq-calls" real
+  real="$(command -v yq)"
+  mkdir -p "$bin"
+  cat > "$bin/yq" <<EOF
+#!/usr/bin/env bash
+echo call >> "$log"
+exec "$real" "\$@"
+EOF
+  chmod +x "$bin/yq"
+  : > "$log"
+  run --separate-stderr env "PATH=$bin:$PATH" bash "$RESOLVE" --repo-root "$root"
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$log" | tr -d ' ')" -eq 1 ]
+}
+
 # ─── this repo's own config ────────────────────────────────────────────────
 
 # The resolver's rejection paths are only useful if the file they guard is
@@ -465,6 +618,42 @@ verify:
   [ -z "$stderr" ]
   [ "$(value workspace.impl)" = "base" ]
   [ "$(value wrap.watch-post-merge-ci)" = "true" ]
+}
+
+# ─── the shipped template ──────────────────────────────────────────────────
+
+# The template is the only place the shipped values live now that DEFAULTS is
+# gone, so this is what stops a key reaching KNOWN_SHAPES without a matching
+# template entry - and it is what carries the four reviewer names and four
+# focus headings the two deleted default cases used to assert. An
+# exit-0-and-no-<unset> assertion would not: it passes on a template whose
+# reviewers were renamed.
+@test "the shipped template round-trips to a complete dump" {
+  local root; root="$(repo template)"
+  cp "$DOTFILES_ROOT/agents/skills/wf-conventions/wf.yml.template" "$root/.wf.yml"
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  local expected
+  expected="$(cat <<'EOF'
+states.shaping=Shaping
+states.implementing=Implementing
+states.in-review=In Review
+workspace.impl=base
+review.reviewers.1=Alia
+review.reviewers.2=Bheem
+review.reviewers.3=Cristo
+review.reviewers.4=Darius
+review.focus.1=Security hardening
+review.focus.2=Performance
+review.focus.3=Cleanliness and maintainability of code
+review.focus.4=Succinct documentation that's not unnecessarily elaborate
+ship.draft-by-default=true
+verify.commands=<none>
+wrap.watch-post-merge-ci=false
+EOF
+)"
+  [ "$output" = "$expected" ]
 }
 
 # ─── bash 3.2 compatibility ────────────────────────────────────────────────

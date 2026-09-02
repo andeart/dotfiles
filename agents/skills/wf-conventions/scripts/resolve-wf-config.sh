@@ -2,8 +2,10 @@
 #
 # Resolve the wf-* skill family's settings for a repository.
 #
-# Every setting goes to stdout as one `key=value` line, defaults filled in, in a
-# fixed order, with list members carrying a 1-based index. Reasons go to stderr.
+# Every key the family understands emits at least one line, in a fixed order:
+# `key=value` for a value the file set, `key.1=`/`key.2=` for a list it set,
+# `key=<none>` for a list it emptied, and `key=<unset>` for a key it did not
+# declare. Reasons go to stderr.
 #
 # Usage: resolve-wf-config.sh [--repo-root DIR]
 #
@@ -18,12 +20,14 @@
 set -euo pipefail
 
 # Distinct from 2 so a caller can tell a broken config apart from a broken
-# invocation. There is no analogue of resolve-tracker.sh's exit 10 here: every
-# question this script answers has a default, so it never has to ask.
+# invocation. An unset key is neither: the file is incomplete rather than
+# malformed, so it resolves at 0 with `<unset>` and each consumer decides.
 EXIT_INVALID=3
 
 # Every key the family understands, in the order the dump prints them. A `.N`
-# suffix marks a list, whose members the file may set to any length.
+# suffix marks a list, whose members the file may set to any length. The values
+# a repo starts from live in wf.yml.template beside this script; nothing here
+# falls back.
 KNOWN_SHAPES=(
   states.shaping
   states.implementing
@@ -35,30 +39,6 @@ KNOWN_SHAPES=(
   verify.commands.N
   wrap.watch-post-merge-ci
 )
-
-# Defaults as newline-delimited `key=value`, not a map: bash 3.2 ships on macOS
-# and has no associative arrays. verify.commands is absent on purpose - see
-# the test that pins it.
-#
-# Kept as a bare here-doc, not wrapped in $( ): bash 3.2's parser mishandles an
-# apostrophe inside a quoted here-doc once it sits inside command substitution.
-# Do not "tidy" this back into DEFAULTS=$(cat <<'EOF' ...).
-IFS= read -r -d '' DEFAULTS <<'EOF' || true
-states.shaping=Shaping
-states.implementing=Implementing
-states.in-review=In Review
-workspace.impl=base
-review.reviewers.1=Alia
-review.reviewers.2=Bheem
-review.reviewers.3=Cristo
-review.reviewers.4=Darius
-review.focus.1=Security hardening
-review.focus.2=Performance
-review.focus.3=Cleanliness and maintainability of code
-review.focus.4=Succinct documentation that's not unnecessarily elaborate
-ship.draft-by-default=true
-wrap.watch-post-merge-ci=false
-EOF
 
 die() {
   echo "resolve-wf-config: $*" >&2
@@ -86,10 +66,18 @@ config_path() {
 
 # read_props <file>: the single yq fork. Emits `key=value`, normalising yq's
 # " = " separator and its 0-based list indices.
+#
+# The expression rewrites every empty sequence to a one-member sentinel first.
+# yq -o=props drops an empty sequence entirely, so `reviewers: []` would emit no
+# lines and be indistinguishable from an absent key. Traversing the whole
+# document rather than the known keys also gives `bogus: []` and a scalar
+# written as `[]` a line to be rejected on. It does not reach an empty map:
+# `{}` is still dropped, so a list mistyped as a map reports <unset>.
 read_props() {
   local file="$1" out
   command -v yq >/dev/null 2>&1 || die "yq is required to read .wf.yml"
-  out="$(yq -o=props -- "$file")" || invalid "could not parse $file as YAML"
+  out="$(yq -o=props '(.. | select(tag == "!!seq" and length == 0)) |= ["<none>"]' -- "$file")" \
+    || invalid "could not parse $file as YAML"
   printf '%s\n' "$out" | awk '
     {
       # yq -o=props emits YAML comments verbatim as their own lines. Skip them
@@ -112,9 +100,18 @@ read_props() {
   '
 }
 
-# shape_of <key>: the key with a trailing list index replaced by N.
+# shape_of <key>: sets SHAPE to the key with a trailing list index replaced by
+# N. An out-parameter rather than stdout - the command substitution was the
+# whole cost. SHAPE holds the previous call's value until the next one, so read
+# it immediately after the call and nowhere else; a stale read here is a wrong
+# answer rather than an error.
 shape_of() {
-  printf '%s\n' "$1" | sed 's/\.[0-9][0-9]*$/.N/'
+  # Test the last segment rather than globbing digits, which would silently cap
+  # the index length the sed this replaced handled.
+  case "${1##*.}" in
+    ''|*[!0-9]*) SHAPE="$1" ;;
+    *) SHAPE="${1%.*}.N" ;;
+  esac
 }
 
 # is_known_shape <shape>: exact match, one entry at a time. Testing against the
@@ -130,15 +127,18 @@ is_known_shape() {
 }
 
 # validate <kv>: reject anything the family does not understand, naming the key.
+# Stays separate from read_props's awk: emit walks KNOWN_SHAPES, so an unknown
+# key never survives it, and merging the two would retire the unknown-key
+# rejection along with it.
 validate() {
-  local line key val shape
+  local line key val seen="|" none_prefix=""
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     key="${line%%=*}"
     val="${line#*=}"
-    shape="$(shape_of "$key")"
+    shape_of "$key"
 
-    if ! is_known_shape "$shape"; then
+    if ! is_known_shape "$SHAPE"; then
       # A list written as a scalar, or the reverse, reaches here too. Both are
       # real mistakes with a clearer name than "unknown key".
       if is_known_shape "$key.N"; then
@@ -151,14 +151,49 @@ validate() {
       # stale branch, an old override, or a forgotten local copy of .wf.yml
       # can carry the retired key indefinitely, and this costs one string
       # comparison in a function whose whole job is already a lookup.
-      if [ "$shape" = "ship.test-commands.N" ] || [ "$key" = "ship.test-commands" ]; then
+      if [ "$SHAPE" = "ship.test-commands.N" ] || [ "$key" = "ship.test-commands" ]; then
         invalid "ship.test-commands was renamed to verify.commands"
       fi
+      # The sentinel rewrite hands an unknown `bogus: []` the key `bogus.1`, an
+      # index the file never had. Key on the shape rather than on the sentinel,
+      # so `bogus: [Ana]` - the same mistake - reports the same name.
+      case "$SHAPE" in
+        *.N) invalid "unknown key: ${key%.*}" ;;
+      esac
       invalid "unknown key: $key"
     fi
 
+    # yq collapses duplicate keys inside one document, so only a multi-document
+    # file reaches here - flattened by -o=props into two lines for one key,
+    # which would put a second `key=` line in front of every skill-side check.
+    # `|`-delimited because bash 3.2 has no associative arrays; only known keys
+    # reach it, and none of them contains a `|`.
+    case "$seen" in
+      *"|$key|"*) invalid "$key is set more than once" ;;
+    esac
+    seen="$seen$key|"
+
+    # Set by the <none> arm below when a list's first member is the marker.
+    # props keeps document order, so a further member under the same prefix
+    # arrives after it.
+    if [ -n "$none_prefix" ]; then
+      case "$key" in
+        "$none_prefix".*) invalid "$none_prefix lists <none> beside other members" ;;
+      esac
+    fi
+
     case "$val" in
-      ""|"null"|"~") invalid "$key is empty; remove the key to take its default" ;;
+      ""|"null"|"~") invalid "$key is empty; run /wf-config to set it" ;;
+      "<unset>") invalid "$key must not be set to <unset>; that marker means a key the file does not declare" ;;
+      "<none>")
+        case "$SHAPE" in
+          *.N) ;;
+          *) invalid "$key must not be set to <none>; that marker means an empty list, and $key is a single value" ;;
+        esac
+        case "$key" in
+          *.1) none_prefix="${key%.*}" ;;
+          *) invalid "${key%.*} lists <none> beside other members" ;;
+        esac ;;
     esac
 
     case "$key" in
@@ -178,40 +213,62 @@ $1
 EOF
 }
 
-# lines_under <kv> <prefix>: every `prefix.<n>=` line, in the order given.
-lines_under() {
-  printf '%s\n' "$1" | awk -v p="$2." 'index($0, p) == 1'
-}
-
-# line_for <kv> <key>: the single `key=` line, or nothing.
-line_for() {
-  printf '%s\n' "$1" | awk -v k="$2=" 'index($0, k) == 1'
-}
-
-# emit <kv>: print every setting in KNOWN_SHAPES order, file values winning over
-# defaults. A list set in the file replaces its default outright rather than
-# appending, so a two-name roster means two cycles and not six.
+# emit <kv>: print every key in KNOWN_SHAPES order, one line minimum each. A
+# list the file set replaces whatever the template holds rather than appending,
+# so a two-name roster means two cycles and not six.
 emit() {
-  local kv="$1" shape prefix found
+  local kv="$1" shape prefix line found n first oldifs
+  # One split instead of two forks per key. `set -f` is load-bearing: with IFS
+  # at newline the whole `key=value` line is one word, so a value like
+  # `grep -r * .` does not expand, but one that makes its line match a filename
+  # would - `verify.commands: ["*"]` resolved beside a file named
+  # `verify.commands.1=a` splits one dump line into two. `set +f` restores
+  # globbing unconditionally, which is correct only while nothing here sets
+  # `-f` at top level.
+  oldifs="$IFS"
+  set -f; IFS='
+'
+  set -- $kv
+  IFS="$oldifs"; set +f
+
   for shape in "${KNOWN_SHAPES[@]}"; do
     case "$shape" in
       *.N)
         prefix="${shape%.N}"
-        found="$(lines_under "$kv" "$prefix")"
-        if [ -z "$found" ]; then
-          found="$(lines_under "$DEFAULTS" "$prefix")"
-        fi
-        ;;
+        n=0; first=""
+        for line in "$@"; do
+          case "$line" in
+            "$prefix".*)
+              n=$((n + 1))
+              if [ "$n" -eq 1 ]; then first="$line"; fi ;;
+          esac
+        done
+        if [ "$n" -eq 0 ]; then
+          printf '%s=<unset>\n' "$prefix"
+        elif [ "$n" -eq 1 ] && [ "$first" = "$prefix.1=<none>" ]; then
+          # validate has already rejected <none> beside other members, so a
+          # sole <none> is exactly what `[]` produced and means the same thing.
+          printf '%s=<none>\n' "$prefix"
+        else
+          for line in "$@"; do
+            case "$line" in
+              "$prefix".*) printf '%s\n' "$line" ;;
+            esac
+          done
+        fi ;;
       *)
-        found="$(line_for "$kv" "$shape")"
+        found=""
+        for line in "$@"; do
+          case "$line" in
+            "$shape"=*) found="$line" ;;
+          esac
+        done
         if [ -z "$found" ]; then
-          found="$(line_for "$DEFAULTS" "$shape")"
-        fi
-        ;;
+          printf '%s=<unset>\n' "$shape"
+        else
+          printf '%s\n' "$found"
+        fi ;;
     esac
-    if [ -n "$found" ]; then
-      printf '%s\n' "$found"
-    fi
   done
 }
 
