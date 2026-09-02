@@ -1,0 +1,35 @@
+# Settings for the wf-* skill family, documented in
+# agents/skills/wf-conventions/CONFIG.md. Every key below is required: a key
+# this file leaves out halts the skill that reads it. A list that should do
+# nothing is written [], which means none, deliberately.
+
+states:
+  shaping: Shaping
+  implementing: Implementing
+  in-review: In Review
+
+workspace:
+  impl: base
+
+review:
+  reviewers:
+    - Alia
+    - Bheem
+    - Cristo
+    - Darius
+  focus:
+    - Security hardening
+    - Performance
+    - Cleanliness and maintainability of code
+    - Succinct documentation that's not unnecessarily elaborate
+
+ship:
+  draft-by-default: true
+
+verify:
+  # Before adding one, check the commands here for overlapping work - see the
+  # overlap rule in CONFIG.md.
+  commands: []
+
+wrap:
+  watch-post-merge-ci: false
