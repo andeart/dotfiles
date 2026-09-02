@@ -24,8 +24,10 @@ echo "root=$root"
 [ -f ~/.agents/skills/wf-conventions/wf.yml.template ] \
   && echo 'template=yes' || echo 'template=no'
 echo 'workitems<<<'
-ls "$root"/.workitems.*.yml 2>/dev/null
+find "$root" -maxdepth 1 -name '.workitems.*.yml'
 ```
+
+`find` with a quoted pattern rather than a shell glob: under zsh an unmatched glob is a shell-level error that `2>/dev/null` on the command does not catch, so `ls "$root"/.workitems.*.yml` prints "no matches found" into the block's output right where the marker says a filename would be.
 
 - `repo=no` - stop and tell the user this is not a git repository.
 - `template=no` - **stop.** Say the shipped template is not on disk at `~/.agents/skills/wf-conventions/wf.yml.template`, and that `dotfiles push` puts it there. Never write the nine keys from memory: the template is the only place the shipped values live, and a skill that can reconstruct them is the guessing this contract exists to delete.
