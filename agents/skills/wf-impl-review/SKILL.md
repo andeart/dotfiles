@@ -32,6 +32,8 @@ git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo '
 echo 'wfconfig<<<'
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
 echo "resolver_exit=$?"
+[ -f "$(git rev-parse --show-toplevel)/.wf.yml" ] \
+  && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
 ```
 
 - `repo=no` - stop and say this is not a git repository.
@@ -43,9 +45,31 @@ echo "resolver_exit=$?"
 
 Step 0's block already ran the resolver; its output is the lines after the `wfconfig<<<` marker and `resolver_exit=` is its exit status.
 
-Read `review.reviewers.1`, `.2`, ... in order until a line is missing; that list is the roster and its length is the cycle count. Read `review.focus.1`, `.2`, ... the same way.
+If `resolver_exit` is non-zero, stop and print its stderr - a broken `.wf.yml` is the user's to fix, and guessing a roster would run the wrong cycle. Exit 2 and exit 3 print no dump at all, so there is nothing below to check.
 
-If `resolver_exit` is non-zero, stop and print its stderr - a broken `.wf.yml` is the user's to fix, and guessing a roster would run the wrong cycle.
+The keys this skill reads:
+
+- `review.reviewers.1`, `.2`, ... - the roster, in order; its length is the cycle count.
+- `review.focus.1`, `.2`, ... - the topics each reviewer's opening prompt names.
+- `verify.commands.1`, `.2`, ... - what Step 4 runs to establish the check state.
+
+Check every key in that list against the dump, with any trailing `.1`/`.2` dropped: a key is present when a line starts with `<key>=` or `<key>.`, and unset when that line is `<key>=<unset>`. On the happy path print nothing and continue.
+
+**Any key unset** - stop, naming them all in one line:
+
+> `review.reviewers` is unset in `.wf.yml`. Run `/wf-config` to set it, then retry.
+
+**Every key in the list unset, and `wfconfig_file=no`** - collapse it instead:
+
+> No `.wf.yml` in this repo. Run `/wf-config` to create one.
+
+The probe is what earns the collapsed wording. An empty `.wf.yml`, a comments-only one and `review: {}` all resolve at exit 0 with every key `<unset>`, exactly as an absent file does, and the dump alone cannot tell them apart; `wfconfig_file=yes` names the keys instead.
+
+`<none>` is never a halt - it is a list the file declared empty, deliberately.
+
+Read the roster and the focus list from the dump, `key.1`, `key.2`, ... in order until a line is missing.
+
+`review.reviewers=<none>` - the repo configures no reviewers. Say so in one line and stop; zero cycles is what the file asked for, and there is nothing to spend a pre-flight on.
 
 ## Step 2: Resolve the target and the identifier
 
@@ -58,6 +82,7 @@ If `resolver_exit` is non-zero, stop and print its stderr - a broken `.wf.yml` i
 Print exactly this, filled in, and stop for the user's go-ahead:
 
 > Reviewing this branch's committed changes against `<default>` with `<N>` reviewers: `<names>`.
+> Focus: `<focus list, comma-separated, or "none - holistic">`.
 > Notes land in `docs/reviews/<id>-impl-review-<Name>.md` (gitignored).
 > Each reviewer revises the branch before the next one starts. I'll push once at the end.
 > Any concerns before we start the cycle?
@@ -72,7 +97,7 @@ The check-state paragraphs below, through the no-bullet-items gate after the pro
 
 **Establish the check state before the roster starts.** Run every `verify.commands` entry named in Step 0's resolver output, from the repo root and in order, and record the outcome with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
 
-**No `verify.commands` entries at all** - establish no check state; there is nothing to run and nothing to call green. Guessing a check command runs something arbitrary in a repo that never asked for it, the same reason `wf-ship`'s checks step declines to invent one.
+**`verify.commands=<none>`** - establish no check state; there is nothing to run and nothing to call green. Guessing a check command runs something arbitrary in a repo that never asked for it, the same reason `wf-ship`'s checks step declines to invent one.
 
 Carry that state into every reviewer's opening prompt as `<CHECK_STATE>`, using these literal sentences:
 
@@ -90,7 +115,7 @@ A failing state is still handed forward. It is a fact the next reviewer needs mo
 
 The one exception is the check state below, and it is bounded deliberately: what crosses between reviewers is a fact about the tree, never a fact about the review. A reviewer learns that the checks pass at the commit it starts from; it does not learn who made them pass or what they thought.
 
-The numbered focus list carries one line per `review.focus` entry, however many the repo configures; the four shown below are this repo's defaults.
+The numbered focus list carries one line per `review.focus` entry, however many the repo configures. On `review.focus=<none>`, drop the `Focus your review of this on:` line and the numbered list with it, and leave the rest of the prompt as it stands.
 
 ```text
 I have changes committed in my worktree checked out at <ABSOLUTE WORKTREE PATH>. Review these changes against the latest `origin/<default>` holistically. Write your review feedback in normal markdown format to docs/reviews/<id>-impl-review-YourName.md within this branch. Note that docs/reviews/ is gitignored, which is fine.

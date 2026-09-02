@@ -18,13 +18,36 @@ A disagreement is the point of running this. Never fold one into a summary line 
 ```bash
 wf-status --porcelain <repo paths, or nothing for the current repo>
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+echo "resolver_exit=$?"
+[ -f "$(git rev-parse --show-toplevel)/.wf.yml" ] \
+  && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
 ```
 
 The first call takes whatever repo paths the user named, substituted literally - or none for the current repo.
 
 `wf-status` exits `0` when every repo path resolved. It exits `1` when at least one repo path was not a git work tree but at least one row still printed: use the rows you got, and report each named path from its stderr as unreadable, on its own line, the way this skill reports every other unobservable condition. It exits `2` on a usage error or when no repo path resolved at all - stop and print its stderr.
 
-The resolver exits `2` on a usage error or a missing `yq`, `3` on a `.wf.yml` that is present but wrong - either way stop and print its stderr. A broken config is the user's to fix, and guessing the state names would compare rows against names nobody configured.
+The resolver exits `2` on a usage error or a missing `yq`, `3` on a `.wf.yml` that is present but wrong - either way stop and print its stderr. A broken config is the user's to fix, and guessing the state names would compare rows against names nobody configured. Both print no dump at all, so there is nothing below to check.
+
+`resolver_exit=` carries that status, and the file probe has to come after it. This block's last command is what sets `$?`, so appending an `echo` that always exits 0 without capturing the resolver's first would read a rejected config as clean and then read an empty dump as an absent file. `/wf-ship`, `/wf-spec-review` and `/wf-impl-review` capture it the same way.
+
+The keys this skill reads:
+
+- `states.shaping`, `states.implementing`, `states.in-review` - the names Step 2 compares each row's Plane state against.
+
+Check every key in that list against the dump, with any trailing `.1`/`.2` dropped: a key is present when a line starts with `<key>=` or `<key>.`, and unset when that line is `<key>=<unset>`. On the happy path print nothing and continue.
+
+**Any key unset** - stop, naming them all in one line:
+
+> `states.in-review` is unset in `.wf.yml`. Run `/wf-config` to set it, then retry.
+
+**Every key in the list unset, and `wfconfig_file=no`** - collapse it instead:
+
+> No `.wf.yml` in this repo. Run `/wf-config` to create one.
+
+The probe is what earns the collapsed wording. An empty `.wf.yml`, a comments-only one and `review: {}` all resolve at exit 0 with every key `<unset>`, exactly as an absent file does, and the dump alone cannot tell them apart; `wfconfig_file=yes` names the keys instead.
+
+`<none>` is never a halt - it is a list the file declared empty, deliberately.
 
 Each porcelain row is seven tab-separated fields: `repo`, `worktree`, `branch`, `identifier`, `dirty`, `pr_state`, `pr_url`. `branch` is `-` when the worktree has a detached HEAD, and such a row is never looked up in `gh` - so its `pr_state` is always `none`, which says nothing about whether a pull request exists. `identifier` is `-` when the branch carries none. `pr_state` is one of `none`, `draft`, `ready`, `merged`, `closed`; `pr_url` is `-` when there is no PR. `dirty` is a file count, `prunable`, or `-` when it could not be observed.
 

@@ -57,12 +57,40 @@ Resolve the config and the default branch in one call:
 
 ```bash
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+echo "resolver_exit=$?"
+[ -f "$(git rev-parse --show-toplevel)/.wf.yml" ] \
+  && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
 origin=$(git remote get-url origin 2>/dev/null)
 echo "origin=$origin"
 [ -n "$origin" ] && git fetch --quiet origin
 default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
 echo "default=$default"
 ```
+
+`resolver_exit=2` (a usage error or a missing `yq`) or `resolver_exit=3` (a `.wf.yml` that is present but wrong) - stop and print the resolver's stderr. A broken config is the user's to fix, and guessing a workspace mode would cut a branch where a worktree was asked for. Both print no dump at all, so there is nothing below to check.
+
+The keys this skill reads:
+
+- `workspace.impl` - whether this step cuts a branch or enters a worktree.
+- `states.shaping` - the name Step 6 matches against the project's states.
+
+Check every key in that list against the dump, with any trailing `.1`/`.2` dropped: a key is present when a line starts with `<key>=` or `<key>.`, and unset when that line is `<key>=<unset>`. On the happy path print nothing and continue.
+
+**Any key unset** - stop, naming them all in one line:
+
+> `workspace.impl` is unset in `.wf.yml`. Run `/wf-config` to set it, then retry.
+
+**Every key in the list unset, and `wfconfig_file=no`** - collapse it instead:
+
+> No `.wf.yml` in this repo. Run `/wf-config` to create one.
+
+The probe is what earns the collapsed wording. An empty `.wf.yml`, a comments-only one and `review: {}` all resolve at exit 0 with every key `<unset>`, exactly as an absent file does, and the dump alone cannot tell them apart; `wfconfig_file=yes` names the keys instead.
+
+`<none>` is never a halt - it is a list the file declared empty, deliberately.
+
+The list is fixed rather than re-derived per run, so a guarded run that never reaches Step 6 can still halt on `states.shaping`. That is the cheaper of the two errors: a conditional list is a second thing to keep in step with the branch structure, and the cost of being wrong is a `/wf-config` run rather than a wrong write.
+
+After running `/wf-config`, resume at this step rather than re-running the skill. Step 3's comment carries a fixed `<h3>` title that `/wf-status` and later readers match on, so a second run leaves two of them on the work item.
 
 `origin=` empty - stop and tell the user no remote named `origin` is configured.
 
@@ -73,7 +101,7 @@ Read `workspace.impl`:
 - **`base`** - cut a branch from the current default branch: `git checkout -b <id-lowercase>-<short-kebab-slug> origin/<default>`. The slug comes from the work item's title, under 50 characters.
 - **`worktree`** - use the `EnterWorktree` tool, passing `name` set to `<id-lowercase>-<short-kebab-slug>` - the same branch name the `base` path uses. Do not hand-roll `git worktree add`; the tool tracks what it created, which is what lets `/wf-wrap` tear it down.
 
-## Step 6: Write the Shaping state
+## Step 6: Write the `states.shaping` state
 
 1. Call `state` with `action: "list"` and `project_id` set to the project id Step 1 saved.
 2. **Check the guard first.** If the state Step 1 saved belongs to a state in that list whose `group` is `completed` or `cancelled`, leave the item alone, report that, and stop here - do not read `states.shaping` at all. Compare against every state in those groups, not one named state: a project can close work items into more than one state.

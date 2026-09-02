@@ -260,7 +260,9 @@ bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$
 
 **Exit 2 (`yq` missing) or exit 3 (a broken `.wf.yml`)** - unlike `wf-ship` and `wf-spec-review`, do not stop the skill. By this step the worktree is gone and the branch is deleted; failing now would report a completed cleanup as an error. Set Step 6's outcome to `config-error`, keep the stderr, and skip the rest of this step.
 
-`wrap.watch-post-merge-ci` `false` or absent - skip this step entirely and say nothing. It is opt-in because nothing on the PR says whether a repo has CI worth watching, so the intent has to come from a key. Step 1a spends comparable wall-clock without one because the armed flag states that intent on the PR itself.
+`wrap.watch-post-merge-ci` `false` - skip this step entirely and say nothing. It is opt-in because nothing on the PR says whether a repo has CI worth watching, so the intent has to come from a key. Step 1a spends comparable wall-clock without one because the armed flag states that intent on the PR itself.
+
+`<unset>` - the repo's `.wf.yml` does not declare the key. Set Step 6's outcome to `config-error` with `wrap.watch-post-merge-ci is unset in .wf.yml - run /wf-config to set it` as the stderr, and skip the rest of this step. Unlike every other skill in the family this one never halts on an unset key: by here the worktree is gone and the branch deleted, and the rule above that keeps exit 2 and exit 3 non-fatal covers this the same way. There is no earlier step holding a config read to halt at.
 
 `true`, and `<MERGE_SHA>` is empty - set Step 6's outcome to `unidentified` and skip the rest of this step. A squash merge always produces a merge commit, so an empty value means the `gh` call changed shape, not that there is nothing to watch.
 

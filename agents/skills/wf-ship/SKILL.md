@@ -35,6 +35,8 @@ git status --porcelain
 echo 'wfconfig<<<'
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
 echo "resolver_exit=$?"
+[ -f "$(git rev-parse --show-toplevel)/.wf.yml" ] \
+  && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
 ```
 
 The fetch runs before the `@{upstream}` read so the upstream hash and every later `@{upstream}..HEAD` comparison reflect current remote state. Everything after the `status<<<` marker is porcelain output; no output there means a clean tree.
@@ -56,10 +58,24 @@ Step 0's block already ran the resolver; its output is the lines after the `wfco
 The keys this skill reads:
 
 - `ship.draft-by-default` - whether "Writing the PR" passes `--draft`.
-- `verify.commands.1`, `.2`, ... - what "Running the checks" runs. Absent means run nothing.
+- `verify.commands.1`, `.2`, ... - what "Running the checks" runs. `verify.commands=<none>` means run nothing.
 - `states.shaping`, `states.implementing`, `states.in-review` - the names "Reconciling the Plane state" matches against.
 
-`resolver_exit=3` means the repo's `.wf.yml` is present but wrong. Stop and print stderr: a broken config is the user's to fix, and guessing a draft setting would ship a PR in the wrong state. `resolver_exit=2` with `yq` missing is the same - say what is missing rather than proceeding on defaults.
+`resolver_exit=3` means the repo's `.wf.yml` is present but wrong. Stop and print stderr: a broken config is the user's to fix, and guessing a draft setting would ship a PR in the wrong state. `resolver_exit=2` with `yq` missing is the same - say what is missing rather than proceeding. Both print no dump at all, so there is nothing below to check.
+
+Check every key in that list against the dump, with any trailing `.1`/`.2` dropped: a key is present when a line starts with `<key>=` or `<key>.`, and unset when that line is `<key>=<unset>`. On the happy path print nothing and continue.
+
+**Any key unset** - stop, naming them all in one line:
+
+> `states.in-review` is unset in `.wf.yml`. Run `/wf-config` to set it, then retry.
+
+**Every key in the list unset, and `wfconfig_file=no`** - collapse it instead:
+
+> No `.wf.yml` in this repo. Run `/wf-config` to create one.
+
+The probe is what earns the collapsed wording. An empty `.wf.yml`, a comments-only one and `review: {}` all resolve at exit 0 with every key `<unset>`, exactly as an absent file does, and the dump alone cannot tell them apart; `wfconfig_file=yes` names the keys instead.
+
+`<none>` is never a halt - it is a list the file declared empty, deliberately.
 
 ### Choosing the flow
 
@@ -257,7 +273,7 @@ Set `<PR_STATE>` to `ready`, then follow "Reconciling the Plane state", "Linking
 
 Read `verify.commands.1`, `.2`, ... from `<WF_CONFIG>` until a line is missing. Run each from the repo root, in order, and record its outcome in `<VERIFY_RESULTS>`: the command, whether it exited zero, and the last few lines of its output.
 
-**No `verify.commands` at all** - run nothing, set `<VERIFY_RESULTS>` to `none-configured`, and say so in the Report step. Guessing a check command runs something arbitrary in a repo that never asked for it.
+**`verify.commands=<none>`** - run nothing, set `<VERIFY_RESULTS>` to `none-configured`, and say so in the Report step. Guessing a check command runs something arbitrary in a repo that never asked for it.
 
 **A command fails** - do not stop the ship. The PR is the place a failure gets discussed, and a red suite that never reaches a PR gets fixed silently and forgotten. Record the failure, leave its box unchecked, and name it in the Report step.
 
