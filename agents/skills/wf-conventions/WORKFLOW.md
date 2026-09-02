@@ -13,4 +13,4 @@
 
 **`/wf-status`** sits outside the sequence - run it any time to see where every thread stands, or `wf-status <repo paths>` from the shell for the git half alone.
 
-Two things worth remembering: a dirty tree stops `/wf-ship` and `/wf-wrap` by design, and `.wf.yml` in the repo root controls the states, reviewers, check commands, and whether drafts and CI-watching are on. `CONFIG.md` beside this file documents every key.
+Two things worth remembering: a dirty tree stops `/wf-ship` and `/wf-wrap` by design, and `.wf.yml` in the repo root controls the states, reviewers, check commands, and whether drafts and CI-watching are on. That file is required, and so is every key in it - a repo missing one halts the skill that reads it, and **`/wf-config`** writes the file or fills in what it lacks. `CONFIG.md` beside this file documents every key.
