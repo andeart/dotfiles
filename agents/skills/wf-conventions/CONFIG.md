@@ -68,9 +68,10 @@ The template's `review.focus`:
   stops, so there it is the Report afterwards that names what ran.
 - **`verify.commands` entries should not overlap.** Check the listed commands
   for work one already does for another, and cut it as hard as the commands
-  allow: the list runs in full on every ship and once per review cycle. The
-  measurement behind the rule is dated and in full in
-  `docs/superpowers/specs/2026-08-30-dx-73-wf-skill-latency-design.md`.
+  allow: the list runs in full on every ship and once per review cycle.
+  Measured in this repo on 2026-08-30: `pre-commit run --all-files` took 86s, of
+  which the `bats` hook was 83s, so a list naming both it and `tests/run.sh` ran
+  the whole suite twice on every ship. `SKIP=bats` brings that run to 3s.
 - **State names are matched against the project's Plane states by name.** A
   project without a matching state has that write skipped and reported, which
   is what lets the states be trialled in one project. DX-59 covers making that
@@ -176,3 +177,9 @@ config that is present but wrong, with the offending key named on stderr, `4` a
 `--require` key the file never declared. An unset key is not exit 3: the file is
 incomplete rather than malformed, and `/wf-wrap` needs to tell those apart while
 treating both as non-fatal.
+
+The parse is bounded. YAML aliases expand multiplicatively, so a document under
+300 bytes can hold `yq` past any deadline at full CPU; the fork is killed at 10
+seconds and reported as exit `3` naming the timeout rather than a key, which is
+what keeps a skill's Step 0 block inside the Bash tool's own timeout.
+`WF_YQ_TIMEOUT` overrides the deadline.

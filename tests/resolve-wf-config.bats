@@ -321,6 +321,37 @@ verify:
   [[ "$stderr" == *"could not parse"* ]]
 }
 
+# Nested aliases expand multiplicatively, so this 289-byte document holds an
+# unbounded `yq -o=props` past any wall clock at full CPU - no cap on size or
+# depth reaches it. AGENTS.md requires a SKILL.md block to fit inside the Bash
+# tool's timeout and six of them fork this script, so the bound is what makes
+# that rule hold from underneath. A timeout reports separately from a parse
+# failure: they need different fixes.
+@test "an alias chain is killed at the deadline rather than parsed" {
+  local root; root="$(repo alias-bomb)"
+  config "$root" 'a: &a ["x","x","x","x","x","x","x","x","x"]
+b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]
+c: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b]
+d: &d [*c,*c,*c,*c,*c,*c,*c,*c,*c]
+e: &e [*d,*d,*d,*d,*d,*d,*d,*d,*d]
+f: &f [*e,*e,*e,*e,*e,*e,*e,*e,*e]
+g: &g [*f,*f,*f,*f,*f,*f,*f,*f,*f]
+h: &h [*g,*g,*g,*g,*g,*g,*g,*g,*g]'
+  run --separate-stderr env WF_YQ_TIMEOUT=1 bash "$RESOLVE" --repo-root "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"gave up parsing"* ]]
+  [[ "$stderr" != *"could not parse"* ]]
+}
+
+@test "a non-numeric WF_YQ_TIMEOUT is a usage error" {
+  local root; root="$(repo bad-timeout)"
+  config "$root" 'states:
+  shaping: Shaping'
+  run --separate-stderr env WF_YQ_TIMEOUT=soon bash "$RESOLVE" --repo-root "$root"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"whole number of seconds"* ]]
+}
+
 # Silently ignoring a key means a setting that appears to apply and does not,
 # which is worse than a file that will not load.
 @test "an unknown top-level section exits 3 and names it" {
@@ -565,6 +596,19 @@ verify:
 # yq collapses duplicate keys inside one document, so a multi-document file is
 # the only way to put a second `key=` line in front of the skill-side check -
 # and it also breaks the rule that a list replaces rather than appends.
+# One level in from the root-list case. Walking every trailing index off is
+# what keeps yq's raw 0-based inner index out of the message, in a dump that
+# promises 1-based indices everywhere else.
+@test "a nested list names the list, not yq's inner index" {
+  local root; root="$(repo nested-list)"
+  config "$root" 'review:
+  reviewers: [[], "A"]'
+  resolve "$root"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"review.reviewers must be a list of single values"* ]]
+  [[ "$stderr" != *".0"* ]]
+}
+
 @test "a key set in two documents exits 3 and names it" {
   local root; root="$(repo two-docs)"
   config "$root" 'states:
@@ -797,6 +841,39 @@ wrap:
   resolve "$root" --require states.shaping --require states.in-review
   [ "$status" -eq 4 ]
   [[ "$stderr" == *"states.in-review is unset"* ]]
+}
+
+# Accumulating repeats is exactly what makes a duplicate reachable from a caller
+# building its list up, so the dedupe is the other half of that feature.
+@test "--require names a key once however many times it is given" {
+  local root; root="$(repo dup-require)"
+  config "$root" "workspace:
+  impl: base"
+  resolve "$root" --require states.shaping,states.shaping --require states.shaping
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *"states.shaping is unset"* ]]
+  [[ "$stderr" != *"states.shaping, states.shaping"* ]]
+}
+
+# One index is dropped, never two. `review.reviewers.1.2` is a spelling no file
+# can declare, so it matches no dump line - accepting it would halt on nothing,
+# which is the silent no-halt the usage error exists to prevent.
+@test "--require rejects a doubly indexed key rather than halting on nothing" {
+  local root; root="$(repo double-index)"
+  config "$root" "workspace:
+  impl: base"
+  resolve "$root" --require review.reviewers.1.2
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"not a key this script knows"* ]]
+}
+
+@test "--require tolerates a space after a comma" {
+  local root; root="$(repo spaced-require)"
+  config "$root" "workspace:
+  impl: base"
+  resolve "$root" --require 'workspace.impl, states.shaping'
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *"states.shaping is unset"* ]]
 }
 
 # A broken config outranks an unset key: there is nothing to fill into a file

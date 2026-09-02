@@ -148,6 +148,34 @@ partial() {
   [[ "$output" != *"<unset>"* ]]
 }
 
+# The fill's promise has a hole the dispatch table does not cover, because the
+# table reads the root tag only. A leaf declared as an empty map is a value the
+# file declares, so the merge keeps it, exits 0, and the key resolves <unset>
+# exactly as it went in - the user is told the fill worked and the skill that
+# sent them here halts on the same key again. The re-resolve step is what has to
+# catch it, so pin the behaviour that instruction rests on.
+@test "the fill leaves a leaf key declared as an empty map unset" {
+  local root="$BATS_TEST_TMPDIR/emptymap"
+  mkdir -p "$root"
+  printf 'states:\n  shaping: {}\n' > "$root/.wf.yml"
+  fill "$root"
+  run bash "$RESOLVE" --repo-root "$root"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"states.shaping=<unset>"* ]]
+}
+
+# An empty section is not that case: the template's keys merge into it. The
+# skill must not report the two the same way, so the difference is pinned.
+@test "the fill does fill an empty section" {
+  local root="$BATS_TEST_TMPDIR/emptysection"
+  mkdir -p "$root"
+  printf 'review: {}\n' > "$root/.wf.yml"
+  fill "$root"
+  run bash "$RESOLVE" --repo-root "$root"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"<unset>"* ]]
+}
+
 @test "the filled file still satisfies every key in KNOWN_SHAPES" {
   local root shapes keys
   root="$(partial required)"

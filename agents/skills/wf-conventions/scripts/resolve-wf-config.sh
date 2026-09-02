@@ -16,7 +16,7 @@
 #   4   a --require key the file never declared; stderr carries the halt message.
 #
 # Reads .wf.yml and nothing else: no writes, no network, and one yq fork per
-# run. tests/resolve-wf-config.bats pins that.
+# run, bounded by YQ_TIMEOUT below. tests/resolve-wf-config.bats pins that.
 
 set -euo pipefail
 
@@ -78,16 +78,24 @@ config_path() {
   fi
 }
 
+# Wall clock the one yq fork gets. Nested YAML aliases expand multiplicatively,
+# so a .wf.yml under 300 bytes can hold yq past any deadline at full CPU, which
+# no cap on size or depth reaches. /wf-config is what makes the bound necessary
+# rather than merely tidy: every other caller also runs that repo's
+# verify.commands verbatim, so for them a hang is the least of what an untrusted
+# file already does, while /wf-config runs no command and a hang is the whole of
+# it. AGENTS.md also requires a SKILL.md block to fit inside the Bash tool's
+# timeout, and six of them fork this script.
+YQ_TIMEOUT="${WF_YQ_TIMEOUT:-10}"
+case "$YQ_TIMEOUT" in
+  ''|*[!0-9]*) die "WF_YQ_TIMEOUT must be a whole number of seconds" ;;
+esac
+
+# 128 + SIGTERM: what the watchdog's kill leaves as the fork's status.
+YQ_TIMEOUT_RC=143
+
 # read_props <file>: the single yq fork. Emits `key=value`, normalising yq's
 # " = " separator and its 0-based list indices.
-#
-# The parse is unbounded: nested YAML aliases expand multiplicatively, so a
-# .wf.yml well under a kilobyte can hold yq past any wall clock. Left that way
-# deliberately. A cap on size or depth does not reach the case - 283 bytes is
-# enough - and every skill that runs this against an unfamiliar repo also runs
-# that repo's verify.commands verbatim, so a hang is the least of what an
-# untrusted file already does. /wf-config is the one caller where that is not
-# true, since it never runs a command: there, a hang is the whole of it.
 #
 # The expression rewrites every empty sequence to a one-member sentinel first.
 # yq -o=props drops an empty sequence entirely, so `reviewers: []` would emit no
@@ -96,10 +104,27 @@ config_path() {
 # written as `[]` a line to be rejected on. It does not reach an empty map:
 # `{}` is still dropped, so a list mistyped as a map reports <unset>.
 read_props() {
-  local file="$1" out
+  local file="$1" out rc=0
   command -v yq >/dev/null 2>&1 || die "yq is required to read .wf.yml"
-  out="$(yq -o=props '(.. | select(tag == "!!seq" and length == 0)) |= ["<none>"]' -- "$file")" \
-    || invalid "could not parse $file as YAML"
+  # The fork runs on a leash held by a sleeping subshell. No temp file: the
+  # watchdog's own output goes to /dev/null so it cannot hold the command
+  # substitution open, and a temp-file capture would need the `rm` this repo's
+  # deletion hook blocks. `wait ... || rc=$?` rather than `; rc=$?` because
+  # `set -e` is in force inside the subshell too.
+  out="$(
+    yq -o=props '(.. | select(tag == "!!seq" and length == 0)) |= ["<none>"]' -- "$file" &
+    parser=$!
+    { sleep "$YQ_TIMEOUT"; kill -TERM "$parser" 2>/dev/null; } >/dev/null 2>&1 &
+    watchdog=$!
+    rc=0
+    wait "$parser" || rc=$?
+    kill "$watchdog" 2>/dev/null || :
+    exit "$rc"
+  )" || rc=$?
+  if [ "$rc" -eq "$YQ_TIMEOUT_RC" ]; then
+    invalid "gave up parsing $file after ${YQ_TIMEOUT}s; a YAML alias chain can expand without bound"
+  fi
+  [ "$rc" -eq 0 ] || invalid "could not parse $file as YAML"
   printf '%s\n' "$out" | awk '
     {
       # yq -o=props emits YAML comments verbatim as their own lines. Skip them
@@ -139,7 +164,7 @@ is_known_shape() {
 # key never survives it, and merging the two would retire the unknown-key
 # rejection along with it.
 validate() {
-  local line key val shape seen="|" none_prefix=""
+  local line key val shape base seen="|" none_prefix=""
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     key="${line%%=*}"
@@ -175,11 +200,29 @@ validate() {
       if [ "$shape" = "ship.test-commands.N" ] || [ "$key" = "ship.test-commands" ]; then
         invalid "ship.test-commands was renamed to verify.commands"
       fi
+      # Every trailing index walked off, not just one. A nested sequence
+      # indexes twice (`review.reviewers.0.1`), and dropping a single index
+      # would expose yq's raw 0-based inner index - a position the file never
+      # spelled, and the opposite of the 1-based dump every other line promises.
+      base="$key"
+      while :; do
+        case "$base" in
+          *.*) ;;
+          *) break ;;
+        esac
+        case "${base##*.}" in
+          ''|*[!0-9]*) break ;;
+          *) base="${base%.*}" ;;
+        esac
+      done
+      if [ "$base" != "$key" ] && is_known_shape "$base.N"; then
+        invalid "$base must be a list of single values, not a nested list"
+      fi
       # The sentinel rewrite hands an unknown `bogus: []` the key `bogus.1`, an
-      # index the file never had. Key on the shape rather than on the sentinel,
-      # so `bogus: [Ana]` - the same mistake - reports the same name.
+      # index the file never had. Key on the walked-down name rather than on the
+      # sentinel, so `bogus: [Ana]` - the same mistake - reports the same name.
       case "$shape" in
-        *.N) invalid "unknown key: ${key%.*}" ;;
+        *.N) invalid "unknown key: $base" ;;
       esac
       invalid "unknown key: $key"
     fi
@@ -298,16 +341,6 @@ emit() {
   done
 }
 
-# bare_key <key>: a key with any trailing list index dropped. A skill names a
-# list member (`review.reviewers.1`) as readily as the list, and the dump's
-# <unset> line carries the bare key either way.
-bare_key() {
-  case "${1##*.}" in
-    ''|*[!0-9]*) printf '%s\n' "$1" ;;
-    *) printf '%s\n' "${1%.*}" ;;
-  esac
-}
-
 # require <dump> <present> <csv>: halt on any named key the dump reports
 # <unset>. The halt lives here rather than in five SKILL.md copies of the same
 # thirteen lines: the message is one string, the comparison is not a judgment,
@@ -317,7 +350,7 @@ bare_key() {
 # typo in the caller, and reporting it as "unset" would be a halt that no
 # /wf-config run could ever clear.
 require() {
-  local dump="$1" present="$2" csv="$3" key shape missing="" n=0 total=0 oldifs hadf
+  local dump="$1" present="$2" csv="$3" key missing="" seen="|" n=0 total=0 oldifs hadf
   # Same flag discipline as emit(): restore what the caller had rather than
   # assuming globbing was on.
   case $- in
@@ -330,14 +363,29 @@ require() {
   IFS="$oldifs"
   [ "$hadf" = yes ] || set +f
   for key in "$@"; do
+    # Trimmed so a caller may write its list readably. A space after a comma is
+    # the only separator a comma-delimited list invites by accident.
+    while :; do case "$key" in [[:space:]]*) key="${key#?}" ;; *) break ;; esac; done
+    while :; do case "$key" in *[[:space:]]) key="${key%?}" ;; *) break ;; esac; done
     [ -n "$key" ] || continue
-    key="$(bare_key "$key")"
+    # One index dropped, never two. A skill names a list member
+    # (`review.reviewers.1`) as readily as the list, and the dump's <unset> line
+    # carries the bare key either way; `review.reviewers.1.2` is a spelling no
+    # file can declare, so accepting it would match no dump line and halt on
+    # nothing - the silent no-halt this die exists to prevent.
     case "${key##*.}" in
-      ''|*[!0-9]*) shape="$key" ;;
-      *) shape="${key%.*}.N" ;;
+      ''|*[!0-9]*) ;;
+      *) key="${key%.*}" ;;
     esac
-    is_known_shape "$shape" || is_known_shape "$key.N" \
+    is_known_shape "$key" || is_known_shape "$key.N" \
       || die "--require names $key, which is not a key this script knows"
+    # A key named twice - within one list, or across accumulated --require
+    # flags - would be counted twice and named twice in the line below, and
+    # pluralise a message about a single key.
+    case "$seen" in
+      *"|$key|"*) continue ;;
+    esac
+    seen="$seen$key|"
     total=$((total + 1))
     # Anchored on a leading newline so one key cannot match inside another's
     # line; the dump is newline-separated and every line starts with its key.

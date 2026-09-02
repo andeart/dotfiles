@@ -127,6 +127,8 @@ root=$(git rev-parse --show-toplevel)
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root"
 ```
 
+**A key still `<unset>` in that dump means the fill did not fill it, and nothing errored.** The merge gives every key the file declares its own value, and `{}` is a declared value: a leaf written `shaping: {}` or `reviewers: {}` beats the template, survives the merge at exit 0, and resolves `<unset>` exactly as it went in. An empty *section* - `review: {}` - is not this case, since the template's keys merge into it normally. Name each key still unset, say the file declares it as an empty map, and ask the user to remove those keys before re-running. Do not report the fill as done: the user reached this skill from one that halted on such a key, and calling it filled sends them back to the same halt. `tests/wf-config-scaffolder.bats` pins both directions.
+
 ## Sign-off
 
 Both paths end here. Show the file, name the keys most likely to need changing for this repo, and **ask the user to confirm they have reviewed and revised it** before concluding:
