@@ -34,6 +34,8 @@ find "$root" -maxdepth 1 -name '.workitems.*.yml'
 
 Everything below acts on `$root/.wf.yml`, never on a path relative to the working directory. The resolver takes `--repo-root` for the same reason: a scaffolder that writes to the working directory drops a `.wf.yml` wherever the user happened to be standing.
 
+**Every block below opens by re-deriving `root`.** Shell state does not survive from one block to the next, so a `root` assigned here is empty in the next one - and an empty `$root` does not fail loudly, it points the resolver at `--repo-root ""` (exit 2, which reads as a broken config) and both writes below at `/.wf.yml`, the filesystem root. The five skills that read this config spell the probe `$(git rev-parse --show-toplevel)` inline for the same reason.
+
 ## Step 1: Choose the path
 
 **`wfconfig_file=no`** - go to "Writing a new file".
@@ -41,10 +43,14 @@ Everything below acts on `$root/.wf.yml`, never on a path relative to the workin
 **`wfconfig_file=yes`** - resolve it first, and branch on the exit code:
 
 ```bash
+root=$(git rev-parse --show-toplevel)
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root"
-echo "resolver_exit=$?"
-yq 'tag' "$root/.wf.yml"
+rc=$?
+echo "resolver_exit=$rc"
+[ "$rc" -eq 0 ] && yq 'tag' "$root/.wf.yml"
 ```
+
+`rc` is captured before anything else runs, and the `tag` call is guarded by it: a rejected config writes nothing below, so its shape is read only to be discarded, and on a malformed file an unguarded `yq` prints a second error the user then has to reconcile with the resolver's.
 
 **`resolver_exit=2` or `3`** - print the resolver's stderr, ask the user to fix the file, and write nothing. A rejection emits no dump at all, so there are no keys to read as unset, and reading that silence as "everything is missing" answers the wrong question: the file is not short of keys, it has something wrong in it, and filling keys will not fix what the resolver just named. There is nothing for the merge to merge into either.
 
@@ -56,7 +62,7 @@ yq 'tag' "$root/.wf.yml"
 | `!!map`, empty (`{}`) | a root-level `{}` | "Writing a new file" |
 | `!!null` | zero-byte, or comments only | "Writing a new file" |
 | `!!str` | a root-level scalar | stop |
-| `!!seq` | a root-level list | unreachable |
+| more than one line | a multi-document file | stop |
 
 The dump cannot pick between these: an empty file, a comments-only one and `review: {}` all resolve at exit 0 with every key `<unset>`, exactly as an absent file does. The document's own shape is what separates them, and one `yq 'tag'` fork answers it.
 
@@ -64,7 +70,9 @@ A `!!null` file has nothing for the merge to fill - `select(fi==1)` selects noth
 
 `!!str` **stops.** A file whose whole content is `hello` reaches exit 0 with every key `<unset>`, because `read_props`'s awk drops any props line without a ` = ` separator - so it arrives here looking like an ordinary incomplete file, and the merge below then fails with `cannot multiply !!map with !!str`. Say the file's whole content is a bare scalar rather than a mapping, and ask the user to fix or delete it.
 
-`!!seq` never arrives: the resolver's sentinel rewrite gives a root `[]` the key `0`, which it rejects as `unknown key: 0` at exit 3. The row is here so that stays a stated fact rather than a gap someone rediscovers.
+**More than one line** means more than one document, and it **stops.** `yq 'tag'` prints one line per document, so a two-document file answers `!!map` twice and matches no single-value row above. It gets here because the resolver only rejects a multi-document file when a key repeats across the documents - one whose documents share no key resolves at exit 0 with a clean dump. The merge would then make it worse rather than fixing it: `select(fi==1)` selects both documents and emits two mappings with no `---` between them, which re-reads as one document with duplicate keys, and there the template's value wins over the user's. Say the file holds more than one YAML document and ask the user to collapse it to one.
+
+A root-level list never reaches this table: the sentinel rewrite gives a root `[]` the key `0`, which the resolver rejects as `unknown key: 0` at exit 3.
 
 ## Writing a new file
 
@@ -73,6 +81,7 @@ Say the repo configures none of the nine keys, offer to write the template, and 
 On yes:
 
 ```bash
+root=$(git rev-parse --show-toplevel)
 cp ~/.agents/skills/wf-conventions/wf.yml.template "$root/.wf.yml"
 ```
 
@@ -89,9 +98,11 @@ Otherwise name them, offer to fill them from the template, and **ask first**.
 On yes, merge with the template underneath - never append:
 
 ```bash
+root=$(git rev-parse --show-toplevel)
 tmp=$(mktemp) \
   && yq ea 'select(fi==0) * select(fi==1)' \
        ~/.agents/skills/wf-conventions/wf.yml.template "$root/.wf.yml" > "$tmp" \
+  && chmod 644 "$tmp" \
   && mv "$tmp" "$root/.wf.yml"
 ```
 
@@ -99,11 +110,14 @@ A duplicate YAML key is not an error yq reports - a second `states:` block wins 
 
 **`mktemp` and `mv`, never a redirect and never `-i`.** Both shorthands destroy something, silently, at exit 0. `yq ea ... > .wf.yml` truncates the file before yq opens it. `yq ea -i` writes the *first* file, so it leaves `.wf.yml` untouched and overwrites the shipped template instead - which `dotfiles freeze`'s pre-commit hook then harvests, making one repo's config everyone else's template.
 
-Two consequences worth stating rather than discovering: the result is written in the template's key order, and it replaces the file rather than appending to it. So the promise is not "never overwrite" but **the user's declared values always win**. A shorter list in the file replaces the template's outright rather than merging by index, which is the same rule the resolver applies.
+The `chmod` is not decoration. `mktemp` creates at `600` and `mv` carries that mode onto `.wf.yml`, so without it a fill quietly narrows a `644` config to owner-only - and git tracks no mode but the exec bit, so nothing in a diff or a `git status` would ever show it. `644` is what the `cp` path above produces from the template. A failed run leaves the temp file behind, which is deliberate: an `rm` on the failure arm would trip this repo's own deletion hook when the skill ran.
+
+Three consequences worth stating rather than discovering: the result is written in the template's key order, it replaces the file rather than appending to it, and yq reflows what it rewrites - comments survive and land with their keys, but blank lines between sections do not, and the template's header comment is prepended to the file. So the promise is not "never overwrite" but **the user's declared values always win**. A shorter list in the file replaces the template's outright rather than merging by index, which is the same rule the resolver applies.
 
 Then re-resolve, and show the dump beside the file so the sign-off is given against what the skills will actually read:
 
 ```bash
+root=$(git rev-parse --show-toplevel)
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root"
 ```
 

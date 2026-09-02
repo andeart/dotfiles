@@ -74,6 +74,8 @@ The keys this skill reads:
 - `workspace.impl` - whether this step cuts a branch or enters a worktree.
 - `states.shaping` - the name Step 6 matches against the project's states.
 
+The halt check below, through its closing `<none>` line, is identical in the other four halting skills by design and pinned by `tests/wf-config-halt-check.bats`; only the example key in its first message differs. Keep them in sync.
+
 Check every key in that list against the dump, with any trailing `.1`/`.2` dropped: a key is present when a line starts with `<key>=` or `<key>.`, and unset when that line is `<key>=<unset>`. On the happy path print nothing and continue.
 
 **Any key unset** - stop, naming them all in one line:
@@ -84,7 +86,7 @@ Check every key in that list against the dump, with any trailing `.1`/`.2` dropp
 
 > No `.wf.yml` in this repo. Run `/wf-config` to create one.
 
-The probe is what earns the collapsed wording. An empty `.wf.yml`, a comments-only one and `review: {}` all resolve at exit 0 with every key `<unset>`, exactly as an absent file does, and the dump alone cannot tell them apart; `wfconfig_file=yes` names the keys instead.
+The probe is what separates an absent file from an incomplete one: both dump every key as `<unset>`, so `wfconfig_file` is what decides between naming the keys and naming the file.
 
 `<none>` is never a halt - it is a list the file declared empty, deliberately.
 
