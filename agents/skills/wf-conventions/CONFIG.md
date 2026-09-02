@@ -58,6 +58,14 @@ The template's `review.focus`:
 - **A key set twice is an error.** yq collapses duplicates inside one document,
   so this only reaches a multi-document file - which would put two lines for
   one key in front of every skill-side check.
+- **`verify.commands` entries are executed verbatim.** `/wf-ship` and both
+  review skills run every entry from the repo root, as you, out of a file that
+  travels with the repo. `/wf-config`'s sign-off is the only gate on them, and
+  it only ever sees a file that skill just wrote - one that arrived with a
+  clone, or was edited by hand, reaches the runners without passing it. So read
+  the list before running a `wf-*` skill in a repo you did not configure. The
+  two review skills name the entries at their go-ahead gate; `/wf-ship` never
+  stops, so there it is the Report afterwards that names what ran.
 - **`verify.commands` entries should not overlap.** Check the listed commands
   for work one already does for another, and cut it as hard as the commands
   allow: the list runs in full on every ship and once per review cycle. The

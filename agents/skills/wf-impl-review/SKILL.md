@@ -30,9 +30,9 @@ default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git r
 echo "default=$default"
 git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
 echo 'wfconfig<<<'
-bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root"
 echo "resolver_exit=$?"
-[ -f "$(git rev-parse --show-toplevel)/.wf.yml" ] \
+[ -f "$root/.wf.yml" ] \
   && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
 ```
 
@@ -53,7 +53,7 @@ The keys this skill reads:
 - `review.focus.1`, `.2`, ... - the topics each reviewer's opening prompt names.
 - `verify.commands.1`, `.2`, ... - what Step 4 runs to establish the check state.
 
-The halt check below, through its closing `<none>` line, is identical in the other four halting skills by design and pinned by `tests/wf-config-halt-check.bats`; only the example key in its first message differs. Keep them in sync.
+The halt check below, through its closing `<none>` line, is identical in the other four halting skills and pinned by `tests/wf-config-halt-check.bats`; only the example key differs. Keep them in sync.
 
 Check every key in that list against the dump, with any trailing `.1`/`.2` dropped: a key is present when a line starts with `<key>=` or `<key>.`, and unset when that line is `<key>=<unset>`. On the happy path print nothing and continue.
 

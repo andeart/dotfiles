@@ -34,7 +34,7 @@ find "$root" -maxdepth 1 -name '.workitems.*.yml'
 
 Everything below acts on `$root/.wf.yml`, never on a path relative to the working directory. The resolver takes `--repo-root` for the same reason: a scaffolder that writes to the working directory drops a `.wf.yml` wherever the user happened to be standing.
 
-**Every block below opens by re-deriving `root`.** Shell state does not survive from one block to the next, so a `root` assigned here is empty in the next one - and an empty `$root` does not fail loudly, it points the resolver at `--repo-root ""` (exit 2, which reads as a broken config) and both writes below at `/.wf.yml`, the filesystem root. The five skills that read this config spell the probe `$(git rev-parse --show-toplevel)` inline for the same reason.
+**Every block below opens by re-deriving `root`.** Shell state does not survive from one block to the next, so a `root` assigned here is empty in the next one - and an empty `$root` does not fail loudly, it points the resolver at `--repo-root ""` (exit 2, which reads as a broken config) and both writes below at `/.wf.yml`, the filesystem root. The five skills that read this config bind `root` once at the top of their own Step 0 block for the same reason.
 
 ## Step 1: Choose the path
 

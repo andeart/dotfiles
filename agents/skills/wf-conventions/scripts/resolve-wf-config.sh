@@ -100,20 +100,6 @@ read_props() {
   '
 }
 
-# shape_of <key>: sets SHAPE to the key with a trailing list index replaced by
-# N. An out-parameter rather than stdout - the command substitution was the
-# whole cost. SHAPE holds the previous call's value until the next one, so read
-# it immediately after the call and nowhere else; a stale read here is a wrong
-# answer rather than an error.
-shape_of() {
-  # Test the last segment rather than globbing digits, which would silently cap
-  # the index length the sed this replaced handled.
-  case "${1##*.}" in
-    ''|*[!0-9]*) SHAPE="$1" ;;
-    *) SHAPE="${1%.*}.N" ;;
-  esac
-}
-
 # is_known_shape <shape>: exact match, one entry at a time. Testing against the
 # joined list would match any adjacent run of it.
 is_known_shape() {
@@ -131,14 +117,20 @@ is_known_shape() {
 # key never survives it, and merging the two would retire the unknown-key
 # rejection along with it.
 validate() {
-  local line key val seen="|" none_prefix=""
+  local line key val shape seen="|" none_prefix=""
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     key="${line%%=*}"
     val="${line#*=}"
-    shape_of "$key"
+    # A trailing list index becomes N so a member matches its list's shape.
+    # Test the last segment rather than globbing digits, which would cap the
+    # index length this accepts.
+    case "${key##*.}" in
+      ''|*[!0-9]*) shape="$key" ;;
+      *) shape="${key%.*}.N" ;;
+    esac
 
-    if ! is_known_shape "$SHAPE"; then
+    if ! is_known_shape "$shape"; then
       # A list written as a scalar, or the reverse, reaches here too. Both are
       # real mistakes with a clearer name than "unknown key".
       if is_known_shape "$key.N"; then
@@ -151,13 +143,13 @@ validate() {
       # stale branch, an old override, or a forgotten local copy of .wf.yml
       # can carry the retired key indefinitely, and this costs one string
       # comparison in a function whose whole job is already a lookup.
-      if [ "$SHAPE" = "ship.test-commands.N" ] || [ "$key" = "ship.test-commands" ]; then
+      if [ "$shape" = "ship.test-commands.N" ] || [ "$key" = "ship.test-commands" ]; then
         invalid "ship.test-commands was renamed to verify.commands"
       fi
       # The sentinel rewrite hands an unknown `bogus: []` the key `bogus.1`, an
       # index the file never had. Key on the shape rather than on the sentinel,
       # so `bogus: [Ana]` - the same mistake - reports the same name.
-      case "$SHAPE" in
+      case "$shape" in
         *.N) invalid "unknown key: ${key%.*}" ;;
       esac
       invalid "unknown key: $key"
@@ -186,7 +178,7 @@ validate() {
       ""|"null"|"~") invalid "$key is empty; run /wf-config to set it" ;;
       "<unset>") invalid "$key must not be set to <unset>; that marker means a key the file does not declare" ;;
       "<none>")
-        case "$SHAPE" in
+        case "$shape" in
           *.N) ;;
           *) invalid "$key must not be set to <none>; that marker means an empty list, and $key is a single value" ;;
         esac

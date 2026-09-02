@@ -38,7 +38,7 @@ key_list() {
 }
 
 # dotted_keys <file>: every dotted wf key the list names, with a trailing index
-# normalised to .N - shape_of's own rule, applied to markdown. Without it
+# normalised to .N - validate's own rule, applied to markdown. Without it
 # `review.reviewers.1` fails to match `review.reviewers.N` and the test fails on
 # correct input.
 #
@@ -57,7 +57,7 @@ dotted_keys() {
     | sed 's/=.*//' \
     | grep -E '^[a-z][a-z_-]*(\.[a-z][a-z0-9_-]*)+(\.[0-9]+)?$' \
     | sed 's/\.[0-9][0-9]*$/.N/' \
-    | sort -u || true
+    | sort -u
 }
 
 # knows <shapes> <key>: whether the resolver understands that key. A list key

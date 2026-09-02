@@ -56,9 +56,10 @@ If the pass raised no questions and every premise held, say so in one line and c
 Resolve the config and the default branch in one call:
 
 ```bash
-bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+root=$(git rev-parse --show-toplevel)
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root"
 echo "resolver_exit=$?"
-[ -f "$(git rev-parse --show-toplevel)/.wf.yml" ] \
+[ -f "$root/.wf.yml" ] \
   && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
 origin=$(git remote get-url origin 2>/dev/null)
 echo "origin=$origin"
@@ -74,7 +75,7 @@ The keys this skill reads:
 - `workspace.impl` - whether this step cuts a branch or enters a worktree.
 - `states.shaping` - the name Step 6 matches against the project's states.
 
-The halt check below, through its closing `<none>` line, is identical in the other four halting skills by design and pinned by `tests/wf-config-halt-check.bats`; only the example key in its first message differs. Keep them in sync.
+The halt check below, through its closing `<none>` line, is identical in the other four halting skills and pinned by `tests/wf-config-halt-check.bats`; only the example key differs. Keep them in sync.
 
 Check every key in that list against the dump, with any trailing `.1`/`.2` dropped: a key is present when a line starts with `<key>=` or `<key>.`, and unset when that line is `<key>=<unset>`. On the happy path print nothing and continue.
 

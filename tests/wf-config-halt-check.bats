@@ -21,11 +21,13 @@ bats_require_minimum_version 1.5.0
 
 HALTING_SKILLS=(wf-ship wf-status wf-shape wf-spec-review wf-impl-review)
 
-# halt_block <file>: the sync note through the closing <none> line. The one
-# per-skill line - the example key in the "is unset" message - is dropped,
-# because it names a key that skill actually reads and is deliberately not
-# shared. `|| true` keeps an absent block an empty string rather than a
-# set -e abort, so the first test below reports it by name.
+# halt_block <file>: the sync note through the closing <none> line. Those two
+# lines are the extraction anchors, so rewording either one empties the block
+# here even though the prose is still present - the first test below says so
+# when it fires. The one per-skill line - the example key in the "is unset"
+# message - is dropped, because it names a key that skill actually reads and is
+# deliberately not shared. `|| true` keeps an absent block an empty string
+# rather than a set -e abort, so the first test below reports it by name.
 halt_block() {
   awk '/^The halt check below/,/^`<none>` is never a halt/' "$1" \
     | grep -v 'is unset in' || true
@@ -37,7 +39,7 @@ halt_block() {
     file="$DOTFILES_ROOT/agents/skills/$skill/SKILL.md"
     [ -f "$file" ]
     if [ -z "$(halt_block "$file")" ]; then
-      echo "$skill has no halt-check block" >&2
+      echo "$skill has no halt-check block - it is absent, or its first or last line was reworded away from the anchors halt_block matches on" >&2
       return 1
     fi
   done

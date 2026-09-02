@@ -22,6 +22,7 @@ One call answers everything both flows need to know. Run it as a single command 
 ```bash
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'repo=no'; exit 0; }
 echo 'repo=yes'
+root=$(git rev-parse --show-toplevel)
 command -v gh >/dev/null 2>&1 && echo 'gh=yes' || echo 'gh=no'
 origin=$(git remote get-url origin 2>/dev/null)
 echo "origin=$origin"
@@ -33,9 +34,9 @@ echo "upstream=$(git rev-parse --verify --quiet '@{upstream}')"
 echo 'status<<<'
 git status --porcelain
 echo 'wfconfig<<<'
-bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root"
 echo "resolver_exit=$?"
-[ -f "$(git rev-parse --show-toplevel)/.wf.yml" ] \
+[ -f "$root/.wf.yml" ] \
   && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
 ```
 
@@ -63,7 +64,7 @@ The keys this skill reads:
 
 `resolver_exit=3` means the repo's `.wf.yml` is present but wrong. Stop and print stderr: a broken config is the user's to fix, and guessing a draft setting would ship a PR in the wrong state. `resolver_exit=2` with `yq` missing is the same - say what is missing rather than proceeding. Both print no dump at all, so there is nothing below to check.
 
-The halt check below, through its closing `<none>` line, is identical in the other four halting skills by design and pinned by `tests/wf-config-halt-check.bats`; only the example key in its first message differs. Keep them in sync.
+The halt check below, through its closing `<none>` line, is identical in the other four halting skills and pinned by `tests/wf-config-halt-check.bats`; only the example key differs. Keep them in sync.
 
 Check every key in that list against the dump, with any trailing `.1`/`.2` dropped: a key is present when a line starts with `<key>=` or `<key>.`, and unset when that line is `<key>=<unset>`. On the happy path print nothing and continue.
 

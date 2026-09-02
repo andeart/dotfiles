@@ -124,16 +124,6 @@ value() {
   [ -z "$output" ]
 }
 
-# shape_of writes SHAPE instead of printing: the command substitution was the
-# cost, not the sed. Read it immediately after the call - it holds the previous
-# call's value until then.
-@test "shape_of replaces a trailing list index with N" {
-  run bash -c '_WF_LIB_ONLY=1 source "$0"; shape_of "$1"; printf "%s\n" "$SHAPE"' \
-    "$RESOLVE" review.reviewers.3
-  [ "$status" -eq 0 ]
-  [ "$output" = "review.reviewers.N" ]
-}
-
 @test "config_path prints nothing when there is no .wf.yml" {
   local root; root="$(repo no-config)"
   call config_path "$root"
@@ -587,6 +577,31 @@ states:
   [[ "$stderr" == *"states.shaping"* ]]
 }
 
+# The other half of the multi-document story, pinned because it is a decision
+# rather than an oversight. Documents that share no key flatten into one
+# well-formed dump - every key the file declares, exactly once, no value lost -
+# so the resolver has nothing to reject and honours it. /wf-config stops on the
+# same file, because there the merge would concatenate two mappings with no
+# separator and the template's value would win over the user's. Rejecting it
+# here as well was tried and dropped: every single-fork way of counting
+# documents that yq offers breaks a behaviour this suite pins above, and a
+# second fork would cost the one-yq-fork guarantee below for a file that is
+# already resolved correctly.
+@test "documents that share no key flatten into one dump" {
+  local root; root="$(repo disjoint-docs)"
+  config "$root" 'states:
+  shaping: FromFirst
+---
+workspace:
+  impl: worktree'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromFirst" ]
+  [ "$(value workspace.impl)" = "worktree" ]
+  [ "$(value states.implementing)" = "<unset>" ]
+}
+
 # The script's header claims one yq fork per run and points here. A shim first
 # on PATH counts the calls and delegates, which makes the claim an assertion.
 @test "read_props makes exactly one yq fork" {
@@ -619,18 +634,19 @@ EOF
   [ "$status" -eq 0 ]
   [ -z "$stderr" ]
   [[ "$output" != *"<unset>"* ]]
+  # workspace.impl is an invariant here - work happens on plain feature
+  # branches in this repo, never a worktree. The other values are preferences
+  # the user is free to change, so pinning them would make a settings edit a
+  # test edit.
   [ "$(value workspace.impl)" = "base" ]
-  [ "$(value wrap.watch-post-merge-ci)" = "true" ]
 }
 
 # ─── the shipped template ──────────────────────────────────────────────────
 
-# The template is the only place the shipped values live now that DEFAULTS is
-# gone, so this is what stops a key reaching KNOWN_SHAPES without a matching
-# template entry - and it is what carries the four reviewer names and four
-# focus headings the two deleted default cases used to assert. An
-# exit-0-and-no-<unset> assertion would not: it passes on a template whose
-# reviewers were renamed.
+# The template is the only place the shipped values live, so this is what stops
+# a key reaching KNOWN_SHAPES without a matching template entry, and what pins
+# the four reviewer names and four focus headings. An exit-0-and-no-<unset>
+# assertion would not: it passes on a template whose reviewers were renamed.
 @test "the shipped template round-trips to a complete dump" {
   local root; root="$(repo template)"
   cp "$DOTFILES_ROOT/agents/skills/wf-conventions/wf.yml.template" "$root/.wf.yml"

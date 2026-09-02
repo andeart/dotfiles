@@ -27,6 +27,7 @@ ship:
   draft-by-default: true
 
 verify:
+  # Every entry here is executed verbatim by /wf-ship and both review skills.
   # Before adding one, check the commands here for overlapping work - see the
   # overlap rule in CONFIG.md.
   commands: []
