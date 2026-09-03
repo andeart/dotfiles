@@ -22,6 +22,7 @@ One call answers everything both flows need to know. Run it as a single command 
 ```bash
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'repo=no'; exit 0; }
 echo 'repo=yes'
+root=$(git rev-parse --show-toplevel)
 command -v gh >/dev/null 2>&1 && echo 'gh=yes' || echo 'gh=no'
 origin=$(git remote get-url origin 2>/dev/null)
 echo "origin=$origin"
@@ -33,7 +34,8 @@ echo "upstream=$(git rev-parse --verify --quiet '@{upstream}')"
 echo 'status<<<'
 git status --porcelain
 echo 'wfconfig<<<'
-bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root" \
+  --require states.shaping,states.implementing,states.in-review,ship.draft-by-default,verify.commands
 echo "resolver_exit=$?"
 ```
 
@@ -56,10 +58,12 @@ Step 0's block already ran the resolver; its output is the lines after the `wfco
 The keys this skill reads:
 
 - `ship.draft-by-default` - whether "Writing the PR" passes `--draft`.
-- `verify.commands.1`, `.2`, ... - what "Running the checks" runs. Absent means run nothing.
+- `verify.commands.1`, `.2`, ... - what "Running the checks" runs. `verify.commands=<none>` means run nothing.
 - `states.shaping`, `states.implementing`, `states.in-review` - the names "Reconciling the Plane state" matches against.
 
-`resolver_exit=3` means the repo's `.wf.yml` is present but wrong. Stop and print stderr: a broken config is the user's to fix, and guessing a draft setting would ship a PR in the wrong state. `resolver_exit=2` with `yq` missing is the same - say what is missing rather than proceeding on defaults.
+`resolver_exit=3` means the repo's `.wf.yml` is present but wrong. Stop and print stderr: a broken config is the user's to fix, and guessing a draft setting would ship a PR in the wrong state. `resolver_exit=2` with `yq` missing is the same - say what is missing rather than proceeding. Both print no dump at all, so there is nothing below to check.
+
+Step 0 passes that list to the resolver as `--require`, so the halt is the resolver's: `resolver_exit=4` means a key it names is not declared, and its stderr is the message to print verbatim before stopping. Nothing here re-derives it from the dump. `<none>` is never a halt - it is a list the file declared empty, deliberately. `tests/wf-config-halt-check.bats` pins this paragraph and the `--require` list beside it.
 
 ### Choosing the flow
 
@@ -257,7 +261,7 @@ Set `<PR_STATE>` to `ready`, then follow "Reconciling the Plane state", "Linking
 
 Read `verify.commands.1`, `.2`, ... from `<WF_CONFIG>` until a line is missing. Run each from the repo root, in order, and record its outcome in `<VERIFY_RESULTS>`: the command, whether it exited zero, and the last few lines of its output.
 
-**No `verify.commands` at all** - run nothing, set `<VERIFY_RESULTS>` to `none-configured`, and say so in the Report step. Guessing a check command runs something arbitrary in a repo that never asked for it.
+**`verify.commands=<none>`** - run nothing, set `<VERIFY_RESULTS>` to `none-configured`, and say so in the Report step. Guessing a check command runs something arbitrary in a repo that never asked for it.
 
 **A command fails** - do not stop the ship. The PR is the place a failure gets discussed, and a red suite that never reaches a PR gets fixed silently and forgotten. Record the failure, leave its box unchecked, and name it in the Report step.
 

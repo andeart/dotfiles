@@ -17,14 +17,25 @@ A disagreement is the point of running this. Never fold one into a summary line 
 
 ```bash
 wf-status --porcelain <repo paths, or nothing for the current repo>
-bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+root=$(git rev-parse --show-toplevel)
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root" \
+  --require states.shaping,states.implementing,states.in-review
+echo "resolver_exit=$?"
 ```
 
 The first call takes whatever repo paths the user named, substituted literally - or none for the current repo.
 
 `wf-status` exits `0` when every repo path resolved. It exits `1` when at least one repo path was not a git work tree but at least one row still printed: use the rows you got, and report each named path from its stderr as unreadable, on its own line, the way this skill reports every other unobservable condition. It exits `2` on a usage error or when no repo path resolved at all - stop and print its stderr.
 
-The resolver exits `2` on a usage error or a missing `yq`, `3` on a `.wf.yml` that is present but wrong - either way stop and print its stderr. A broken config is the user's to fix, and guessing the state names would compare rows against names nobody configured.
+The resolver exits `2` on a usage error or a missing `yq`, `3` on a `.wf.yml` that is present but wrong - either way stop and print its stderr. A broken config is the user's to fix, and guessing the state names would compare rows against names nobody configured. Both print no dump at all, so there is nothing below to check.
+
+`resolver_exit=` has to be captured directly after the call, since this block's last command is what sets `$?` - anything appended before the capture would report its own status and read a rejected config as clean. `/wf-ship`, `/wf-spec-review` and `/wf-impl-review` capture it the same way.
+
+The keys this skill reads:
+
+- `states.shaping`, `states.implementing`, `states.in-review` - the names Step 2 compares each row's Plane state against.
+
+Step 0 passes that list to the resolver as `--require`, so the halt is the resolver's: `resolver_exit=4` means a key it names is not declared, and its stderr is the message to print verbatim before stopping. Nothing here re-derives it from the dump. `<none>` is never a halt - it is a list the file declared empty, deliberately. `tests/wf-config-halt-check.bats` pins this paragraph and the `--require` list beside it.
 
 Each porcelain row is seven tab-separated fields: `repo`, `worktree`, `branch`, `identifier`, `dirty`, `pr_state`, `pr_url`. `branch` is `-` when the worktree has a detached HEAD, and such a row is never looked up in `gh` - so its `pr_state` is always `none`, which says nothing about whether a pull request exists. `identifier` is `-` when the branch carries none. `pr_state` is one of `none`, `draft`, `ready`, `merged`, `closed`; `pr_url` is `-` when there is no PR. `dirty` is a file count, `prunable`, or `-` when it could not be observed.
 

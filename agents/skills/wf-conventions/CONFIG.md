@@ -1,8 +1,10 @@
 # .wf.yml
 
 Repo-level settings for the `wf-*` skill family, read by
-`scripts/resolve-wf-config.sh`. The file is optional: with none present every
-key takes the default below.
+`scripts/resolve-wf-config.sh`. The file is required, and so is every key in
+it: nothing falls back, so a key the file leaves out halts the skill that reads
+it. `/wf-config` writes the file, or fills in the keys it lacks, from
+`wf.yml.template` beside this document.
 
 Sections group by concern rather than by skill, because `states` and
 `workspace` are each read by more than one skill and a per-skill layout would
@@ -10,7 +12,7 @@ force an arbitrary owner.
 
 ## Keys
 
-| Key | Type | Default | Read by |
+| Key | Type | Template value | Read by |
 | --- | --- | --- | --- |
 | `states.shaping` | string | `Shaping` | `/wf-shape`, `/wf-ship`, `/wf-status` |
 | `states.implementing` | string | `Implementing` | `/wf-ship`, `/wf-status` |
@@ -19,12 +21,14 @@ force an arbitrary owner.
 | `review.reviewers` | list | `Alia`, `Bheem`, `Cristo`, `Darius` | `/wf-spec-review`, `/wf-impl-review` |
 | `review.focus` | list | the four headings below | `/wf-spec-review`, `/wf-impl-review` |
 | `ship.draft-by-default` | bool | `true` | `/wf-ship` |
-| `verify.commands` | list | none | `/wf-ship`, `/wf-spec-review`, `/wf-impl-review` |
+| `verify.commands` | list | `[]` | `/wf-ship`, `/wf-spec-review`, `/wf-impl-review` |
 | `wrap.watch-post-merge-ci` | bool | `false` | `/wf-wrap` |
 
-`/wf-status` reads `states.*` alongside the skills already listed above.
+The "Template value" column is what `/wf-config` writes into a repo that has
+none, not a fallback: with the file in place, the value that applies is the one
+the file carries.
 
-The default `review.focus`:
+The template's `review.focus`:
 
 1. Security hardening
 2. Performance
@@ -33,17 +37,41 @@ The default `review.focus`:
 
 ## Rules
 
-- **A list in the file replaces its default; it does not extend it.** A roster
-  of two names runs two review cycles, not six.
-- **An explicitly empty list is treated as unset and takes the default.**
-  `reviewers: []` and an absent `reviewers` key look identical to the
-  resolver, so both give the four-name roster. To run fewer cycles, name the
-  reviewers you want rather than emptying the list.
+- **Every key is required.** There is no required/optional tier: a tier would
+  reintroduce the question this contract exists to remove, and each new key
+  would arrive needing a judgment call about which side it lands on. A repo
+  that wants nothing from a list key writes `[]`.
+- **A list in the file is the whole list; it does not extend anything.** A
+  roster of two names runs two review cycles, not six, and `/wf-config`'s merge
+  applies the same rule - a shorter list replaces the template's outright
+  rather than merging by index.
+- **An explicitly empty list means none, deliberately.** `reviewers: []`
+  resolves to `review.reviewers=<none>` and runs zero cycles. It is a decision
+  the file states, and it is not the same answer as leaving the key out.
 - **An unrecognised key is an error, not a no-op.** A key that is quietly
   ignored looks like a setting that applies and does not.
 - **A key present with no value is an error.** A bare `key:`, `null` and `~`
-  are all spellings of "no value" and all three are rejected. Remove the key
-  to take its default.
+  are all spellings of "no value" and all three are rejected. `<none>` is a
+  list-only concept: a bool has no third state to express, and an empty state
+  name cannot match any Plane state, so it would resolve to a write that is
+  skipped every time. Run `/wf-config` to set the key.
+- **A key set twice is an error.** yq collapses duplicates inside one document,
+  so this only reaches a multi-document file - which would put two lines for
+  one key in front of every skill-side check.
+- **`verify.commands` entries are executed verbatim.** `/wf-ship` and both
+  review skills run every entry from the repo root, as you, out of a file that
+  travels with the repo. `/wf-config`'s sign-off is the only gate on them, and
+  it only ever sees a file that skill just wrote - one that arrived with a
+  clone, or was edited by hand, reaches the runners without passing it. So read
+  the list before running a `wf-*` skill in a repo you did not configure. The
+  two review skills name the entries at their go-ahead gate; `/wf-ship` never
+  stops, so there it is the Report afterwards that names what ran.
+- **`verify.commands` entries should not overlap.** Check the listed commands
+  for work one already does for another, and cut it as hard as the commands
+  allow: the list runs in full on every ship and once per review cycle.
+  Measured in this repo on 2026-08-30: `pre-commit run --all-files` took 86s, of
+  which the `bats` hook was 83s, so a list naming both it and `tests/run.sh` ran
+  the whole suite twice on every ship. `SKIP=bats` brings that run to 3s.
 - **State names are matched against the project's Plane states by name.** A
   project without a matching state has that write skipped and reported, which
   is what lets the states be trialled in one project. DX-59 covers making that
@@ -94,28 +122,64 @@ Two of `/wf-status`'s checks have no writer and no `states.*` key, since
 
 ## Reading it from a skill
 
-One call, once per run:
+One call, once per run, naming the keys the skill cannot run without:
 
 ```bash
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
-  --repo-root "$(git rev-parse --show-toplevel)"
+  --repo-root "$(git rev-parse --show-toplevel)" \
+  --require states.shaping,workspace.impl
 ```
 
-Every setting comes back as `key=value` with defaults filled in, in a fixed
-order, list members 1-indexed - except `verify.commands`, which has no
-default and prints no lines when unset:
+Every key emits at least one line, in a fixed order, list members 1-indexed:
 
-```bash
+```text
 states.shaping=Shaping
 workspace.impl=base
 review.reviewers.1=Alia
-verify.commands.1=tests/run.sh
+verify.commands=<none>
 wrap.watch-post-merge-ci=true
 ```
 
-To walk a list key, read `key.1`, `key.2`, ... until a line is missing; a list
-is absent when `key.1` is missing. That is how a skill detects that
-`verify.commands` is unset.
+Two markers carry what a value cannot:
+
+| Marker | Means | What a skill does |
+| --- | --- | --- |
+| `key=<unset>` | The file did not declare it | Nothing - `--require` has already halted the run if the skill named that key |
+| `key=<none>` | Declared as an empty list | Proceed with zero members |
+
+**`--require` is the halt.** Name every key the skill cannot run without,
+comma-separated; the resolver exits `4` and prints the line the skill shows the
+user verbatim. Naming a key the resolver does not know is a usage error rather
+than a halt, since a halt on something that is not a key could never be cleared
+by running `/wf-config`. The flag is opt-in because `/wf-wrap` must not gain a
+way to fail - by the step that reads its key the worktree is gone and the branch
+deleted - so it passes none and treats `<unset>` as an outcome instead.
+`/wf-config` passes none either, for the opposite reason: a file short of keys
+is the input it exists to fix.
+
+A skill that needs a value still walks the dump: a key is present when a line
+starts with `key=` or `key.`, and a list arrives three ways - `key=<unset>`,
+`key=<none>`, or `key.1=` and up. To walk a list's members, read `key.1`,
+`key.2`, ... until a line is missing.
+
+The markers are in-band, so a skill consumes the dump verbatim - read and
+matched, never re-expanded. `yq -o=props` escapes a newline in a value to a
+literal `\n` and keeps the value on one line, but zsh's `echo` would turn that
+back into two, which is enough to forge a `wrap.watch-post-merge-ci=true` line
+that a skill then reads as the repo's own setting. `AGENTS.md` already requires
+these blocks to be portable across `/bin/bash` 3.2, bash 5 and zsh; this is the
+same rule seen from the other side. The `--require` halt is out of reach of
+that: it is computed inside the script from the parsed document, never from the
+dump a caller re-expands.
 
 Exit `0` resolved, `2` usage error (also what a missing `yq` produces), `3` a
-config that is present but wrong, with the offending key named on stderr.
+config that is present but wrong, with the offending key named on stderr, `4` a
+`--require` key the file never declared. An unset key is not exit 3: the file is
+incomplete rather than malformed, and `/wf-wrap` needs to tell those apart while
+treating both as non-fatal.
+
+The parse is bounded. YAML aliases expand multiplicatively, so a document under
+300 bytes can hold `yq` past any deadline at full CPU; the fork is killed at 10
+seconds and reported as exit `3` naming the timeout rather than a key, which is
+what keeps a skill's Step 0 block inside the Bash tool's own timeout.
+`WF_YQ_TIMEOUT` overrides the deadline.

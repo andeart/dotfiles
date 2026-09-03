@@ -20,11 +20,14 @@ repos:
         language: system
         files: \.md$
 
+      # `.yml.template` is in the pattern for wf.yml.template, the shipped
+      # .wf.yml that /wf-config copies. pre-commit passes explicit filenames,
+      # so yamllint's own yaml-files glob never filters the suffix back out.
       - id: yamllint
         name: yamllint
         entry: yamllint
         language: system
-        files: \.(yml|yaml)$
+        files: \.(yml|yaml)(\.template)?$
 
       # Range: everything on HEAD that no remote has yet. "origin/HEAD..HEAD"
       # is deliberately avoided - where origin/HEAD is unset gitleaks swallows

@@ -1,10 +1,31 @@
 # Settings for the wf-* skill family. Keys are documented in
 # agents/skills/wf-conventions/CONFIG.md; anything not listed there is rejected
-# rather than ignored.
+# rather than ignored. Every key is required - a missing one halts the skill
+# that reads it. A list that should do nothing is written [].
+
+states:
+  shaping: Shaping
+  implementing: Implementing
+  in-review: In Review
 
 # Work happens on plain feature branches here, not in worktrees.
 workspace:
   impl: base
+
+review:
+  reviewers:
+    - Alia
+    - Bheem
+    - Cristo
+    - Darius
+  focus:
+    - Security hardening
+    - Performance
+    - Cleanliness and maintainability of code
+    - Succinct documentation that's not unnecessarily elaborate
+
+ship:
+  draft-by-default: true
 
 verify:
   commands:

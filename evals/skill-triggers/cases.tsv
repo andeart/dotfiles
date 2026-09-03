@@ -48,3 +48,12 @@ boundary-status-vs-single	(none)	observe	what state is DX-57 in
 # wf-wrap also claims the case where the merge has not happened yet and auto-merge is armed.
 # The phrasing for it names no skill and sits close to plain post-merge cleanup talk.
 wrap-anchor-armed	wf-wrap	observe	auto-merge is armed on my PR - clean up once it lands
+# /wf-config anchors - the phrasings its description claims outright.
+wfconfig-anchor-setup	wf-config	observe	set up .wf.yml for this repo
+wfconfig-anchor-missing	wf-config	observe	which wf keys is this repo missing
+wfconfig-anchor-configure	wf-config	observe	configure the wf skills for this repo
+wfconfig-anchor-nofile	wf-config	observe	this repo has no .wf.yml - write one
+# Near-collisions - the three neighbours its Do-NOT clause hands off to.
+wfconfig-collide-workitems	file-work-item	observe	set up a work item for the resolver rejecting comments
+wfconfig-collide-legacy	migrate-work-item-config	observe	this repo still has a .plane.yml - convert it
+wfconfig-collide-settings	update-config	observe	configure a hook in settings.json to run after every edit

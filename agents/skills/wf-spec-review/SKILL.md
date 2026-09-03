@@ -28,7 +28,8 @@ echo "origin=$origin"
 [ -n "$origin" ] && git fetch --quiet origin
 git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
 echo 'wfconfig<<<'
-bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$(git rev-parse --show-toplevel)"
+bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root" \
+  --require review.reviewers,review.focus,verify.commands
 echo "resolver_exit=$?"
 echo 'specs<<<'
 ls -t "$root"/docs/superpowers/specs/*.md 2>/dev/null
@@ -42,9 +43,19 @@ ls -t "$root"/docs/superpowers/specs/*.md 2>/dev/null
 
 Step 0's block already ran the resolver; its output is the lines after the `wfconfig<<<` marker and `resolver_exit=` is its exit status.
 
-Read `review.reviewers.1`, `.2`, ... in order until a line is missing; that list is the roster and its length is the cycle count. Read `review.focus.1`, `.2`, ... the same way.
+`resolver_exit=2` (a usage error or a missing `yq`) or `resolver_exit=3` (a `.wf.yml` that is present but wrong) - stop and print its stderr. A broken config is the user's to fix, and guessing a roster would run the wrong cycle. Neither prints a dump, so there is nothing below to check.
 
-If `resolver_exit` is non-zero, stop and print its stderr - a broken `.wf.yml` is the user's to fix, and guessing a roster would run the wrong cycle.
+The keys this skill reads:
+
+- `review.reviewers.1`, `.2`, ... - the roster, in order; its length is the cycle count.
+- `review.focus.1`, `.2`, ... - the topics each reviewer's opening prompt names.
+- `verify.commands.1`, `.2`, ... - what Step 4 runs to establish the check state.
+
+Step 0 passes that list to the resolver as `--require`, so the halt is the resolver's: `resolver_exit=4` means a key it names is not declared, and its stderr is the message to print verbatim before stopping. Nothing here re-derives it from the dump. `<none>` is never a halt - it is a list the file declared empty, deliberately. `tests/wf-config-halt-check.bats` pins this paragraph and the `--require` list beside it.
+
+Read the roster and the focus list from the dump, `key.1`, `key.2`, ... in order until a line is missing.
+
+`review.reviewers=<none>` - the repo configures no reviewers. Say so in one line and stop; zero cycles is what the file asked for, and there is nothing to spend a pre-flight on.
 
 ## Step 2: Resolve the target and the identifier
 
@@ -59,6 +70,8 @@ If `resolver_exit` is non-zero, stop and print its stderr - a broken `.wf.yml` i
 Print exactly this, filled in, and stop for the user's go-ahead:
 
 > Reviewing `<spec path>` with `<N>` reviewers: `<names>`.
+> Focus: `<focus list, comma-separated, or "none - holistic">`.
+> Checks: `<verify.commands entries, comma-separated, or "none configured">`.
 > Notes land in `docs/reviews/<id>-spec-review-<Name>.md` (gitignored).
 > Each reviewer revises the spec before the next one starts. I'll push once at the end.
 > Any concerns before we start the cycle?
@@ -73,7 +86,7 @@ The check-state paragraphs below, through the no-bullet-items gate after the pro
 
 **Establish the check state before the roster starts.** Run every `verify.commands` entry named in Step 0's resolver output, from the repo root and in order, and record the outcome with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
 
-**No `verify.commands` entries at all** - establish no check state; there is nothing to run and nothing to call green. Guessing a check command runs something arbitrary in a repo that never asked for it, the same reason `wf-ship`'s checks step declines to invent one.
+**`verify.commands=<none>`** - establish no check state; there is nothing to run and nothing to call green. Guessing a check command runs something arbitrary in a repo that never asked for it, the same reason `wf-ship`'s checks step declines to invent one.
 
 Carry that state into every reviewer's opening prompt as `<CHECK_STATE>`, using these literal sentences:
 
@@ -91,7 +104,7 @@ A failing state is still handed forward. It is a fact the next reviewer needs mo
 
 The one exception is the check state below, and it is bounded deliberately: what crosses between reviewers is a fact about the tree, never a fact about the review. A reviewer learns that the checks pass at the commit it starts from; it does not learn who made them pass or what they thought.
 
-The numbered focus list carries one line per `review.focus` entry, however many the repo configures; the four shown below are this repo's defaults.
+The numbered focus list carries one line per `review.focus` entry, however many the repo configures. On `review.focus=<none>`, drop the `Focus your review of this on:` line and the numbered list with it, and leave the rest of the prompt as it stands.
 
 ```text
 I have a spec written in my worktree at <ABSOLUTE SPEC PATH>. Review this spec holistically. Write your review feedback in normal markdown format to docs/reviews/<id>-spec-review-YourName.md within this branch. Note that docs/reviews/ is gitignored, which is fine. The spec file is the only deliverable. Every point you raise must be actionable as an edit to that spec. If a suggestion can only be carried out by writing implementation code, write it into the spec as a design note instead.
