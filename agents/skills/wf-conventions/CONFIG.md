@@ -207,6 +207,14 @@ config that is present but wrong, with the offending key named on stderr, `4` a
 incomplete rather than malformed, and `/wf-wrap` needs to tell those apart while
 treating both as non-fatal. `--print-config-path` reaches only `0` and `2`.
 
+Both exits that end in a reader name their source when the file was inherited,
+since neither reader can see it from where they stand: exit `3` appends the path
+to the rejection, and exit `4` names it in place of a bare `.wf.yml` along with
+the directory to run `/wf-config` in, because `/wf-config` declines in the
+worktree. `/wf-wrap` is the one caller that names no source - it reads its key
+out of the dump rather than through `--require`, so no halt of its own carries
+one, and nothing it does after a merge runs the repo's commands.
+
 The parse is bounded. YAML aliases expand multiplicatively, so a document under
 300 bytes can hold `yq` past any deadline at full CPU; the fork is killed at 10
 seconds and reported as exit `3` naming the timeout rather than a key, which is

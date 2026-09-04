@@ -1035,6 +1035,49 @@ workspace:
   [ "$output" = "$(physical "$BASE")/.wf.yml" ]
 }
 
+# Every other row in this section hand-writes the two files, which is faster and
+# keeps each fixture on the one malformation it names. This row asks git for
+# them instead, because the arm rests on a claim about what git writes: if that
+# shape ever changed, every hand-built row would still pass while the fallback
+# was dead, and nothing here would notice. tests/wf-status.bats already drives
+# real worktrees, and setup.bash pins the identity and defaultBranch this needs.
+@test "a worktree git itself created inherits, and carries the shape the fixtures assume" {
+  local base="$BATS_TEST_TMPDIR/real/base" wt="$BATS_TEST_TMPDIR/real/wt" reg
+  mkdir -p "$base"
+  git -C "$base" init -q -b main .
+  git -C "$base" commit -q --allow-empty -m init
+  git -C "$base" worktree add -q "$wt" -b feature
+  # The premise the worktree helper encodes, asserted against real git rather
+  # than restated: a `gitdir: ` pointer, and a back-reference beside what it
+  # names. The registration is named for the worktree's directory, not its
+  # branch, so it is read out of the pointer rather than spelled here.
+  [[ "$(cat "$wt/.git")" == "gitdir: "* ]]
+  reg="$(sed 's/^gitdir: //' "$wt/.git")"
+  [ -f "$reg/gitdir" ]
+  # An uncommitted .wf.yml in the base clone is the case DX-77 exists for, so
+  # the fixture writes one after the worktree already exists.
+  config "$base" 'states:
+  shaping: FromBase'
+  resolve "$wt"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromBase" ]
+  path "$wt"
+  [ "$output" = "$(physical "$base")/.wf.yml" ]
+  # git 2.48 and later can write both files relative, which is the layout most
+  # likely to drift and the one the hand-built relative rows only guess at. Same
+  # base clone, so it costs one more `worktree add` rather than another repo,
+  # and an `if` rather than a `skip` so older git still runs everything above.
+  if git -C "$base" worktree add --relative-paths -q \
+      "$BATS_TEST_TMPDIR/real/rel" -b relfeature 2>/dev/null; then
+    [[ "$(cat "$BATS_TEST_TMPDIR/real/rel/.git")" == "gitdir: "* ]]
+    resolve "$BATS_TEST_TMPDIR/real/rel"
+    [ "$status" -eq 0 ]
+    [ -z "$stderr" ]
+    [ "$(value states.shaping)" = "FromBase" ]
+  fi
+}
+
 @test "a worktree whose base clone has no .wf.yml either inherits nothing" {
   worktree neither
   resolve "$WT"
@@ -1043,6 +1086,11 @@ workspace:
   [ "$(value states.shaping)" = "<unset>" ]
   path "$WT"
   [ -z "$output" ]
+  # Nothing resolved anywhere, so the halt is the no-file one and names no
+  # path: there is no file to name, and present=no is what selects it.
+  resolve "$WT" --require states.shaping
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "No .wf.yml in this repo. Run /wf-config to create one." ]
 }
 
 @test "an ordinary clone whose .git is a directory resolves as before" {
@@ -1212,8 +1260,9 @@ workspace:
 }
 
 @test "a back-reference that is a directory does not fall back" {
-  # The observable proxy for a FIFO: the same [ -f ] declines both, and a FIFO
-  # fixture would hang the suite rather than fail it if that guard were dropped.
+  # One [ -f ] declines a directory and a FIFO alike. This row is the cheap half
+  # of that guard; the FIFO rows below pin the half that blocks on open, which
+  # is why they need run_bounded to fail rather than hang.
   worktree dir-backref
   config "$BASE" 'states:
   shaping: FromBase'
@@ -1417,6 +1466,30 @@ workspace:
   [ "$status" -eq 3 ]
   [[ "$stderr" == *"review.reviewers must be a list"* ]]
   [[ "$stderr" != *"(from "* ]]
+}
+
+# The exit-3 case above is the rarer half of the same problem: a malformed
+# inherited file would equally break the base clone that uses it daily, while a
+# key-short one halts here and is what a config written before every key became
+# required does. Both messages reach a reader who cannot see the file.
+@test "an inherited config short of a required key names the file and where to fix it" {
+  worktree short
+  config "$BASE" 'states:
+  shaping: FromBase'
+  resolve "$WT" --require review.reviewers
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "review.reviewers is unset in $(physical "$BASE")/.wf.yml. Run /wf-config in $(physical "$BASE") to set it, then retry." ]
+  # The plural message takes the same two substitutions.
+  resolve "$WT" --require review.reviewers,review.focus
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "review.reviewers, review.focus are unset in $(physical "$BASE")/.wf.yml. Run /wf-config in $(physical "$BASE") to set them, then retry." ]
+  # And unchanged for a file the root carries itself, which is what lets every
+  # exit-4 expectation already in this file stand without edit.
+  config "$WT" 'states:
+  shaping: FromWorktree'
+  resolve "$WT" --require review.reviewers
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "review.reviewers is unset in .wf.yml. Run /wf-config to set it, then retry." ]
 }
 
 # Most rejection messages interpolate a value the file controls. Deciding the

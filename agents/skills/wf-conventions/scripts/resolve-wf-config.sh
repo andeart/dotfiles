@@ -481,6 +481,7 @@ emit() {
 # /wf-config run could ever clear.
 require() {
   local dump="$1" present="$2" csv="$3" key missing="" seen="|" n=0 total=0 oldifs hadf
+  local where=".wf.yml" run_in=""
   # Same flag discipline as emit(): restore what the caller had rather than
   # assuming globbing was on.
   case $- in
@@ -529,15 +530,23 @@ $key=<unset>"*)
   done
   [ "$n" -gt 0 ] || return 0
   missing="${missing#, }"
+  # The same disclosure invalid() carries, on the exit a key-short base clone
+  # reaches: bare ".wf.yml" names no file a worktree has, and /wf-config
+  # declines there, so the directory to run it in is named too. Empty outside a
+  # worktree, which keeps every message below byte-identical there.
+  if [ -n "$INHERITED_FROM" ]; then
+    where="$INHERITED_FROM"
+    run_in=" in ${INHERITED_FROM%/*}"
+  fi
   # Every named key unset AND no file at all is one condition with one cause,
   # and naming nine keys for it would bury the cause under its symptoms.
   if [ "$n" -eq "$total" ] && [ "$present" = no ]; then
     halt "No .wf.yml in this repo. Run /wf-config to create one."
   fi
   if [ "$n" -eq 1 ]; then
-    halt "$missing is unset in .wf.yml. Run /wf-config to set it, then retry."
+    halt "$missing is unset in $where. Run /wf-config$run_in to set it, then retry."
   fi
-  halt "$missing are unset in .wf.yml. Run /wf-config to set them, then retry."
+  halt "$missing are unset in $where. Run /wf-config$run_in to set them, then retry."
 }
 
 # resolve <root> <csv>: the whole decision. See the exit codes above.
@@ -586,9 +595,8 @@ main() {
     esac
   done
 
-  # A precedence rule between these two would be silent, and a caller that got
-  # a path back from a run it believed had validated the file would be wrong
-  # with nothing to tell it.
+  # Refused rather than ordered. CONFIG.md's --print-config-path paragraph
+  # carries why a silent precedence rule between the two would be worse.
   if [ "$print_path" = yes ] && [ -n "$require" ]; then
     die "--print-config-path cannot be combined with --require"
   fi
