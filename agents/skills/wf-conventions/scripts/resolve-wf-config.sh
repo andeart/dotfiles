@@ -16,8 +16,10 @@
 #   3   a .wf.yml is present but wrong; stderr names the offending key.
 #   4   a --require key the file never declared; stderr carries the halt message.
 #
-# Reads .wf.yml and nothing else: no writes, no network, and one yq fork per
-# run, bounded by YQ_TIMEOUT below. tests/resolve-wf-config.bats pins that.
+# Reads .wf.yml, plus - only when the root has none - the worktree's .git
+# pointer and the back-reference git writes beside the registration it names.
+# No writes, no network, and at most one yq fork per run, bounded by
+# YQ_TIMEOUT below. tests/resolve-wf-config.bats pins that.
 
 set -euo pipefail
 
@@ -71,12 +73,104 @@ usage() {
   echo "Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]] [--print-config-path]"
 }
 
-# config_path <root>: print the config path, or nothing. Root only - there is no
-# tmp/ fallback, unlike the tracker config.
+# Caps both reads in base_clone below. A named constant rather than a literal
+# inside the read, for the same reason YQ_TIMEOUT is one: no path a filesystem
+# accepts is long enough to reach 4096, so a test that lowers this constant is
+# the only thing that can observe the bound at all.
+POINTER_MAX=4096
+
+# base_clone <root>: print the base clone of the linked worktree at <root>, or
+# nothing. Every branch that declines returns 0 explicitly - config_path reads
+# this through a command substitution, so a branch ending on a false test would
+# take the whole run down under `set -e`.
+#
+# root/.git being a FILE is the whole of what separates a linked worktree from
+# an ordinary clone, which therefore resolves exactly as it did before.
+#
+# Both reads are bounded four ways, because root/.git is attacker-controlled
+# under the same model .wf.yml already is and a regular file passes an
+# is-a-file test at any size. [ -f ] rejects a directory, a FIFO and a device
+# along with a missing file; POINTER_MAX caps the length; the read's exit
+# status is tolerated because a file with no trailing newline returns 1 with
+# the value correctly set; and the brace group's stderr goes to /dev/null
+# because a mode-000 regular file passes [ -f ] and then fails at the redirect,
+# which is not a status the other three see. The braces are what place that
+# redirect: `read ... < file 2>/dev/null` applies them in the wrong order and
+# still prints.
+base_clone() {
+  local root="$1" line ptr name backref base
+  [ -f "$root/.git" ] || return 0
+  line=""
+  { IFS= read -r -n "$POINTER_MAX" line < "$root/.git"; } 2>/dev/null || :
+  case "$line" in
+    "gitdir: "?*) ptr="${line#gitdir: }" ;;
+    *) return 0 ;;
+  esac
+  case "$ptr" in
+    /*) ;;
+    *) ptr="$root/$ptr" ;;
+  esac
+  # A submodule's `/modules/` segment fails this, and so does a bare repo under
+  # the conventional `<name>.git`, whose segment leaves no `/.git/` to match.
+  case "$ptr" in
+    */.git/worktrees/?*) ;;
+    *) return 0 ;;
+  esac
+  # Longest match, so a `.git/worktrees` deeper in the path cannot leave a
+  # slash in the name. A name carrying one does not name a registration.
+  name="${ptr##*/.git/worktrees/}"
+  case "$name" in
+    */*) return 0 ;;
+  esac
+  # The pointer's shape is a string test, not a trust boundary. This is the
+  # test that decides whether the directory it named is really this worktree's
+  # base clone: git registers the relationship in both directions, and
+  # <ptr>/gitdir holds the path back to the worktree's own .git. Without it,
+  # any .git file naming a directory would have that directory's
+  # verify.commands executed by three skills.
+  [ -f "$ptr/gitdir" ] || return 0
+  backref=""
+  { IFS= read -r -n "$POINTER_MAX" backref < "$ptr/gitdir"; } 2>/dev/null || :
+  [ -n "$backref" ] || return 0
+  case "$backref" in
+    /*) ;;
+    *) backref="$ptr/$backref" ;;
+  esac
+  # -ef is a builtin in both /bin/bash 3.2 and zsh and stats both paths, so the
+  # kernel resolves a relative back-reference, any `..` in it and any symlink
+  # on either side. That is why nothing in this function normalises a path.
+  [ "$backref" -ef "$root/.git" ] || return 0
+  # /.git/worktrees/<name> is three segments, stripped one at a time. The
+  # non-empty check is not decoration: `gitdir: /.git/worktrees/x` strips to
+  # nothing, and the caller would then stat /.wf.yml at the filesystem root.
+  base="${ptr%/*}"; base="${base%/*}"; base="${base%/*}"
+  [ -n "$base" ] || return 0
+  printf '%s\n' "$base"
+}
+
+# config_path <root>: print the config path, or nothing. The root's own file
+# first; on a miss, the base clone's when the root is a linked worktree. That
+# one hop is the whole chain rather than a budget - worktrees do not nest, so
+# there is nowhere for a second to go. There is no tmp/ fallback, unlike the
+# tracker config.
+#
+# The is-a-file test in front of base_clone is that function's own first test,
+# hoisted ahead of the command substitution it makes unnecessary: the fork
+# costs two orders more than the stat, so without it every ordinary clone with
+# no config pays one to be told its .git is a directory.
 config_path() {
+  local base
   if [ -f "$1/.wf.yml" ]; then
     printf '%s\n' "$1/.wf.yml"
+  elif [ -f "$1/.git" ]; then
+    base="$(base_clone "$1")"
+    if [ -n "$base" ] && [ -f "$base/.wf.yml" ]; then
+      printf '%s\n' "$base/.wf.yml"
+    fi
   fi
+  # Explicit on every path, for the reason base_clone's branches are: resolve
+  # reads this through a command substitution.
+  return 0
 }
 
 # Wall clock the one yq fork gets. Nested YAML aliases expand multiplicatively,
