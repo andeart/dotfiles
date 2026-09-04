@@ -8,6 +8,7 @@
 # declare. Reasons go to stderr.
 #
 # Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]]
+#                             [--print-config-path]
 #
 # Exit codes:
 #   0   resolved; stdout holds every setting.
@@ -67,7 +68,7 @@ halt() {
 }
 
 usage() {
-  echo "Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]]"
+  echo "Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]] [--print-config-path]"
 }
 
 # config_path <root>: print the config path, or nothing. Root only - there is no
@@ -413,7 +414,6 @@ $key=<unset>"*)
 # resolve <root> <csv>: the whole decision. See the exit codes above.
 resolve() {
   local root="$1" csv="$2" file kv dump present
-  [ -d "$root" ] || die "no such directory: $root"
   file="$(config_path "$root")"
   if [ -z "$file" ]; then
     present=no
@@ -431,7 +431,7 @@ resolve() {
 }
 
 main() {
-  local repo_root="." require=""
+  local repo_root="." require="" print_path=no
   while [ $# -gt 0 ]; do
     case "$1" in
       --repo-root)
@@ -444,12 +444,32 @@ main() {
         # Repeats accumulate rather than replace, so a caller can build the
         # list up without the last flag silently winning.
         require="${require:+$require,}$2"; shift 2 ;;
+      --print-config-path)
+        print_path=yes; shift ;;
       -h|--help)
         usage; exit 0 ;;
       *)
         usage >&2; die "unknown argument: $1" ;;
     esac
   done
+
+  # A precedence rule between these two would be silent, and a caller that got
+  # a path back from a run it believed had validated the file would be wrong
+  # with nothing to tell it.
+  if [ "$print_path" = yes ] && [ -n "$require" ]; then
+    die "--print-config-path cannot be combined with --require"
+  fi
+
+  # Here rather than in resolve(), because --print-config-path shares
+  # config_path and needs the same answer: printing nothing for a root that
+  # does not exist would report a broken invocation as "this repo has no
+  # config", the one answer a caller cannot tell apart from the truth.
+  [ -d "$repo_root" ] || die "no such directory: $repo_root"
+
+  if [ "$print_path" = yes ]; then
+    config_path "$repo_root"
+    exit 0
+  fi
 
   resolve "$repo_root" "$require"
 }

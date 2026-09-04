@@ -44,6 +44,7 @@ value() {
   run bash "$RESOLVE" --help
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage: resolve-wf-config.sh"* ]]
+  [[ "$output" == *"--print-config-path"* ]]
 }
 
 @test "an unknown flag exits 2" {
@@ -884,6 +885,45 @@ wrap:
   resolve "$root" --require states.shaping
   [ "$status" -eq 3 ]
   [[ "$stderr" == *"unknown key: bogus"* ]]
+}
+
+# ─── --print-config-path ───────────────────────────────────────────────────
+
+@test "--print-config-path with --require is a usage error" {
+  local root; root="$(repo print-and-require)"
+  run bash "$RESOLVE" --repo-root "$root" --print-config-path --require states.shaping
+  [ "$status" -eq 2 ]
+}
+
+@test "--print-config-path with a nonexistent --repo-root exits 2" {
+  run bash "$RESOLVE" --repo-root "$BATS_TEST_TMPDIR/absent" --print-config-path
+  [ "$status" -eq 2 ]
+}
+
+# The flag's contract is that it answers before any yq work, which is a
+# sentence in the design doc and nowhere else without this. The shim is the one
+# the "read_props makes exactly one yq fork" case above builds, counting calls
+# and delegating.
+@test "--print-config-path forks no yq" {
+  local root; root="$(repo print-no-fork)"
+  config "$root" 'states:
+  shaping: Designing'
+  local bin="$BATS_TEST_TMPDIR/bin" log="$BATS_TEST_TMPDIR/yq-calls" real
+  real="$(command -v yq)"
+  mkdir -p "$bin"
+  cat > "$bin/yq" <<EOF
+#!/usr/bin/env bash
+echo call >> "$log"
+exec "$real" "\$@"
+EOF
+  chmod +x "$bin/yq"
+  : > "$log"
+  run --separate-stderr env "PATH=$bin:$PATH" bash "$RESOLVE" \
+    --repo-root "$root" --print-config-path
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$output" = "$root/.wf.yml" ]
+  [ "$(wc -l < "$log" | tr -d ' ')" -eq 0 ]
 }
 
 # ─── bash 3.2 compatibility ────────────────────────────────────────────────
