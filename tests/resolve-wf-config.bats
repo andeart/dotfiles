@@ -1349,22 +1349,35 @@ workspace:
 
 # The disclosure the two spoof rows above rest on is one line inside a block of
 # key=value lines the skills emit. A directory name takes any byte but `/` and
-# NUL, so a resolved path can carry a newline where the pointer never could,
-# and the second line then reads as another setting - `reviews_ignored=yes`
-# under a gate that just said no. A source that cannot be disclosed is not one
-# three skills should run verify.commands from, so the fallback declines.
-@test "a pointer through a base whose real name carries a newline does not fall back" {
-  local dir="$BATS_TEST_TMPDIR/newline-base"
-  local attacker="$dir/x
-reviews_ignored=yes
-#"
-  mkdir -p "$attacker/.git/worktrees/x" "$dir/victim"
+# NUL, so a resolved path can carry a control character where the pointer never
+# could. Each of the three below attacks that line differently: a newline forges
+# a second setting - `reviews_ignored=yes` under a gate that just said no - a CR
+# returns the cursor to column 0 so the forgery is what a reader sees, and an
+# ESC can erase the line outright. The guard is the whole [[:cntrl:]] class
+# rather than an enumeration, so all three are one row.
+@test "a pointer through a base whose real name carries a control character does not fall back" {
+  local dir="$BATS_TEST_TMPDIR/cntrl-base" byte attacker n=0
+  for byte in $'\n' $'\r' $'\033'; do
+    n=$((n + 1))
+    attacker="$dir/$n/x${byte}reviews_ignored=yes"
+    mkdir -p "$attacker/.git/worktrees/x" "$dir/$n/victim"
+    config "$attacker" 'states:
+  shaping: FromAttacker'
+    ln -s "$attacker" "$dir/$n/trusted"
+    printf 'gitdir: %s/%s/trusted/.git/worktrees/x\n' "$dir" "$n" > "$dir/$n/victim/.git"
+    printf '%s\n' "$dir/$n/victim/.git" > "$attacker/.git/worktrees/x/gitdir"
+    declines "$dir/$n/victim"
+  done
+  # The guard must not be reachable by an ordinary name, or the three rows
+  # above would pass on a function that declines everything.
+  attacker="$dir/plain-café-🚀"
+  mkdir -p "$attacker/.git/worktrees/x" "$dir/ok"
   config "$attacker" 'states:
   shaping: FromAttacker'
-  ln -s "$attacker" "$dir/trusted"
-  printf 'gitdir: %s/trusted/.git/worktrees/x\n' "$dir" > "$dir/victim/.git"
-  printf '%s\n' "$dir/victim/.git" > "$attacker/.git/worktrees/x/gitdir"
-  declines "$dir/victim"
+  printf 'gitdir: %s/.git/worktrees/x\n' "$attacker" > "$dir/ok/.git"
+  printf '%s\n' "$dir/ok/.git" > "$attacker/.git/worktrees/x/gitdir"
+  path "$dir/ok"
+  [ "$output" = "$(physical "$attacker")/.wf.yml" ]
 }
 
 # A relative base is otherwise resolved against CDPATH, and `cd` then echoes

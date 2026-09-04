@@ -23,7 +23,7 @@ echo "root=$root"
 [ -f "$root/.wf.yml" ] && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
 [ -f "$root/.wf.yml" ] || echo "wfconfig_path=$(bash \
   ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
-  --repo-root "$root" --print-config-path)"
+  --repo-root "$root" --print-config-path 2>/dev/null)"
 [ -f ~/.agents/skills/wf-conventions/wf.yml.template ] \
   && echo 'template=yes' || echo 'template=no'
 echo 'workitems<<<'

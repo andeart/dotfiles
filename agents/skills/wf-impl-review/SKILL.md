@@ -31,7 +31,7 @@ echo "default=$default"
 git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
 [ -f "$root/.wf.yml" ] || echo "wfconfig_path=$(bash \
   ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
-  --repo-root "$root" --print-config-path)"
+  --repo-root "$root" --print-config-path 2>/dev/null)"
 echo 'wfconfig<<<'
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root" \
   --require review.reviewers,review.focus,verify.commands

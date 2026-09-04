@@ -33,7 +33,7 @@ echo "default=$default"
 echo "upstream=$(git rev-parse --verify --quiet '@{upstream}')"
 [ -f "$root/.wf.yml" ] || echo "wfconfig_path=$(bash \
   ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
-  --repo-root "$root" --print-config-path)"
+  --repo-root "$root" --print-config-path 2>/dev/null)"
 echo 'status<<<'
 git status --porcelain
 echo 'wfconfig<<<'

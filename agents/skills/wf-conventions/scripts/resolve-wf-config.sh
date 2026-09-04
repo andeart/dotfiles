@@ -97,9 +97,8 @@ usage() {
 POINTER_MAX=4096
 
 # base_clone <root>: print the base clone of the linked worktree at <root>, or
-# nothing. Every branch that declines returns 0 explicitly - config_path reads
-# this through a command substitution, so a branch ending on a false test would
-# take the whole run down under `set -e`.
+# nothing. Every branch that declines returns 0 explicitly, for the reason
+# config_path's own closing comment gives.
 #
 # root/.git being a FILE is the whole of what separates a linked worktree from
 # an ordinary clone, which therefore resolves exactly as it did before.
@@ -115,7 +114,7 @@ POINTER_MAX=4096
 # redirect: `read ... < file 2>/dev/null` applies them in the wrong order and
 # still prints.
 base_clone() {
-  local root="$1" line ptr name backref base physical
+  local root="$1" line ptr name backref base
   [ -f "$root/.git" ] || return 0
   line=""
   { IFS= read -r -n "$POINTER_MAX" line < "$root/.git"; } 2>/dev/null || :
@@ -162,24 +161,18 @@ base_clone() {
   # nothing, and the caller would then stat /.wf.yml at the filesystem root.
   base="${ptr%/*}"; base="${base%/*}"; base="${base%/*}"
   [ -n "$base" ] || return 0
-  # Resolved, not printed as spelled: three skills show this path beside the
-  # verify.commands they execute, and the pointer is attacker-controlled. A
-  # `..` or a symlink otherwise lets it lead with a directory the reader trusts
-  # - `<trusted>/.git/worktrees/../../../attacker` names the wrong repo. This
-  # normalises the answer, not the -ef comparison above. A failed cd leaves the
-  # path unresolved: harder to read, never wrong to open. `CDPATH=` keeps a
-  # relative base off it - `cd` echoes the entry it takes, and that is a second
-  # line too.
-  physical="$(CDPATH= cd -- "$base" 2>/dev/null && pwd -P)" || physical=""
-  [ -z "$physical" ] || base="$physical"
-  # Resolving is also the only step that can put a newline in the path: the
-  # pointer read stops at the first one, a directory name does not. The skills
-  # echo this path into a block of key=value lines, where a second line reads
-  # as another setting, so a path that cannot be disclosed is not one to hand
-  # back.
+  # Resolved, not spelled: three skills show this path beside the
+  # verify.commands they execute, and `<trusted>/.git/worktrees/../../../evil`
+  # must not read as the trusted clone. Normalises the answer only, never the
+  # -ef above; a failed cd declines; `CDPATH=` keeps a relative base off it.
+  base="$(CDPATH= cd -- "$base" 2>/dev/null && pwd -P)" || base=""
+  [ -n "$base" ] || return 0
+  # A directory name stops at no byte the pointer read would have caught. In
+  # the key=value block the skills echo this into, a newline forges another
+  # setting and a CR or ESC rewrites the line a reader sees, so the guard is
+  # the whole class - which costs the same one pattern.
   case "$base" in
-    *"
-"*) return 0 ;;
+    *[[:cntrl:]]*) return 0 ;;
   esac
   printf '%s\n' "$base"
 }

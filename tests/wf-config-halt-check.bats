@@ -63,7 +63,7 @@ wfconfig_block() {
   step0_block "$1" | awk '
     /wfconfig_path=/ { grab = 1 }
     grab { print }
-    grab && /print-config-path\)"/ { exit }
+    grab && /print-config-path.*\)"/ { exit }
   '
 }
 

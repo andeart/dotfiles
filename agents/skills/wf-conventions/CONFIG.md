@@ -49,9 +49,10 @@ The second entry exists because a `.wf.yml` that was never committed does not
 travel into a worktree.
 
 An inherited path is reported resolved - symlinks and `..` expanded - because
-three skills show it beside the `verify.commands` they then run. A resolved
-path carrying a newline is declined rather than reported: the skills state it
-as one line among others, and a second line reads as another setting.
+three skills show it beside the `verify.commands` they then run. A path that
+will not resolve, or that carries a control character once it has, is declined
+rather than reported: the skills state it as one line among others, where a
+newline forges another setting and a CR or ESC rewrites what a reader sees.
 
 ## Rules
 
