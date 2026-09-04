@@ -55,6 +55,18 @@ step0_block() {
   ' "$1"
 }
 
+# wfconfig_block <file>: the three-line wfconfig_path= block inside the
+# skill's Step 0 block - from the line naming it to the line closing the
+# command substitution it opens. Empty if the block is missing or its shape
+# has drifted away from what this matches on.
+wfconfig_block() {
+  step0_block "$1" | awk '
+    /wfconfig_path=/ { grab = 1 }
+    grab { print }
+    grab && /print-config-path\)"/ { exit }
+  '
+}
+
 @test "every halting skill passes a --require list to the resolver" {
   local skill file keys
   for skill in "${HALTING_SKILLS[@]}"; do
@@ -167,6 +179,32 @@ step0_block() {
     fi
     if [ "$path_at" -ge "$marker_at" ]; then
       echo "$skill emits wfconfig_path= at block line $path_at, under the marker at $marker_at" >&2
+      return 1
+    fi
+  done
+}
+
+# The block is deliberately copy-pasted four times - SKILL.md has no include
+# mechanism - so nothing but a test keeps the copies from drifting apart. The
+# case above pins each copy's position relative to its marker but not its
+# content, so someone could edit one copy (drop `--repo-root "$root"`, say,
+# which makes the resolver default to `.` and resolve whatever directory the
+# agent happens to be standing in) and every other case here would still pass.
+# This is what keeps the four honest against each other.
+@test "every copy of the wfconfig_path block is identical" {
+  local first skill file block
+  first="$(wfconfig_block "$DOTFILES_ROOT/agents/skills/${PATH_SKILLS[0]}/SKILL.md")"
+  [ -n "$first" ]
+  for skill in "${PATH_SKILLS[@]}"; do
+    file="$DOTFILES_ROOT/agents/skills/$skill/SKILL.md"
+    block="$(wfconfig_block "$file")"
+    if [ -z "$block" ]; then
+      echo "$skill has no wfconfig_path= block, or its shape has drifted from what wfconfig_block matches on" >&2
+      return 1
+    fi
+    if [ "$block" != "$first" ]; then
+      echo "$skill's wfconfig_path= block has drifted from ${PATH_SKILLS[0]}'s" >&2
+      diff <(printf '%s\n' "$first") <(printf '%s\n' "$block") >&2 || true
       return 1
     fi
   done

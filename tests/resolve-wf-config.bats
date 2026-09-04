@@ -1259,8 +1259,20 @@ workspace:
 # uncapped one by wall clock is not an assertion tests/run.sh should carry
 # while it runs its files concurrently. Both halves matter - the same fixture
 # resolves at the real cap.
-@test "a pointer longer than the cap is truncated and declines" {
+#
+# It also pins the `|| :` on both of base_clone's reads. `worktree` writes both
+# files with a trailing newline, which is why they are rewritten here without
+# one: a file with no trailing newline makes `read` return 1 with the value
+# correctly set, and that only matters under errexit. config_path runs
+# base_clone through a command substitution, where `inherit_errexit` (off by
+# default) keeps errexit from reaching in - so every other case in this file
+# exercises the tolerance with errexit already not in force. `call` and the
+# bare `bash -c` below are the two places it IS in force: removing `|| :` from
+# either read takes this case down instead of resolving cleanly.
+@test "a pointer longer than the cap is truncated and declines, and both reads tolerate a missing trailing newline under errexit" {
   worktree capped
+  printf 'gitdir: %s' "$REG" > "$WT/.git"
+  printf '%s' "$WT/.git" > "$REG/gitdir"
   call base_clone "$WT"
   [ "$status" -eq 0 ]
   [ "$output" = "$BASE" ]
@@ -1288,6 +1300,22 @@ workspace:
   [ "$status" -eq 3 ]
   [[ "$stderr" == *"review.reviewers must be a list"* ]]
   [[ "$stderr" != *"(from "* ]]
+}
+
+# read_props's two invalid() messages already name $file, unlike every other
+# call site which names a key. Without the suppression in invalid(), this
+# would read "could not parse /base/.wf.yml as YAML (from /base/.wf.yml)".
+@test "an inherited malformed .wf.yml exits 3 with the path named exactly once" {
+  worktree malformed-inherited
+  config "$BASE" 'states: [unterminated
+  shaping: Designing'
+  resolve "$WT"
+  [ "$status" -eq 3 ]
+  # yq's own error line (unrelated to invalid()) also carries the path, so the
+  # assertion is on this script's own line rather than on all of stderr.
+  local line
+  line="$(printf '%s\n' "$stderr" | grep '^resolve-wf-config:')"
+  [ "$line" = "resolve-wf-config: could not parse $BASE/.wf.yml as YAML" ]
 }
 
 # A FIFO blocks on open, so the guard that rejects it cannot be pinned by a

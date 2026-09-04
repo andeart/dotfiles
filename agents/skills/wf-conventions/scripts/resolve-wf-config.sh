@@ -64,10 +64,18 @@ die() {
 # invalid <message>: a config that is present but cannot be honoured. Separate
 # from die() - see EXIT_INVALID above. The trailing clause is the whole of the
 # rejection-side disclosure: a reader in a worktree cannot otherwise tell which
-# file the key they are being told about lives in.
+# file the key they are being told about lives in. Suppressed when the message
+# already names that file: read_props's two messages report a parse failure
+# against $file rather than a key, so without this check they would double-name
+# it - "could not parse /base/.wf.yml as YAML (from /base/.wf.yml)".
 invalid() {
   local from=""
-  [ -z "$INHERITED_FROM" ] || from=" (from $INHERITED_FROM)"
+  if [ -n "$INHERITED_FROM" ]; then
+    case "$*" in
+      *"$INHERITED_FROM"*) ;;
+      *) from=" (from $INHERITED_FROM)" ;;
+    esac
+  fi
   echo "resolve-wf-config: $*$from" >&2
   exit "$EXIT_INVALID"
 }
