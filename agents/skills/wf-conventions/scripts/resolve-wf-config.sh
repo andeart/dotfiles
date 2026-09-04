@@ -64,19 +64,22 @@ die() {
 # invalid <message>: a config that is present but cannot be honoured. Separate
 # from die() - see EXIT_INVALID above. The trailing clause is the whole of the
 # rejection-side disclosure: a reader in a worktree cannot otherwise tell which
-# file the key they are being told about lives in. Suppressed when the message
-# already names that file: read_props's two messages report a parse failure
-# against $file rather than a key, so without this check they would double-name
-# it - "could not parse /base/.wf.yml as YAML (from /base/.wf.yml)".
+# file the key they are being told about lives in.
 invalid() {
-  local from=""
-  if [ -n "$INHERITED_FROM" ]; then
-    case "$*" in
-      *"$INHERITED_FROM"*) ;;
-      *) from=" (from $INHERITED_FROM)" ;;
-    esac
-  fi
-  echo "resolve-wf-config: $*$from" >&2
+  echo "resolve-wf-config: $*${INHERITED_FROM:+ (from $INHERITED_FROM)}" >&2
+  exit "$EXIT_INVALID"
+}
+
+# invalid_at_file <message>: invalid() for the messages that already name the
+# file, so the disclosure does not double-name it - "could not parse
+# /base/.wf.yml as YAML (from /base/.wf.yml)". Only read_props reports against
+# $file rather than against a key.
+#
+# Which messages those are is the call site's to know, never something to infer
+# from the text: most messages interpolate a value the file controls, so a
+# crafted `impl: /base/.wf.yml` would suppress its own disclosure.
+invalid_at_file() {
+  echo "resolve-wf-config: $*" >&2
   exit "$EXIT_INVALID"
 }
 
@@ -117,7 +120,7 @@ POINTER_MAX=4096
 # redirect: `read ... < file 2>/dev/null` applies them in the wrong order and
 # still prints.
 base_clone() {
-  local root="$1" line ptr name backref base
+  local root="$1" line ptr name backref base physical
   [ -f "$root/.git" ] || return 0
   line=""
   { IFS= read -r -n "$POINTER_MAX" line < "$root/.git"; } 2>/dev/null || :
@@ -164,19 +167,25 @@ base_clone() {
   # nothing, and the caller would then stat /.wf.yml at the filesystem root.
   base="${ptr%/*}"; base="${base%/*}"; base="${base%/*}"
   [ -n "$base" ] || return 0
+  # Resolved, not printed as spelled: three skills show this path beside the
+  # verify.commands they execute, and the pointer is attacker-controlled. A
+  # `..` or a symlink otherwise lets it lead with a directory the reader trusts
+  # - `<trusted>/.git/worktrees/../../../attacker` names the wrong repo. This
+  # normalises the answer, not the -ef comparison above. A failed cd leaves the
+  # path unresolved: harder to read, never wrong to open.
+  physical="$(cd "$base" 2>/dev/null && pwd -P)" || physical=""
+  [ -z "$physical" ] || base="$physical"
   printf '%s\n' "$base"
 }
 
 # config_path <root>: print the config path, or nothing. The root's own file
-# first; on a miss, the base clone's when the root is a linked worktree. That
-# one hop is the whole chain rather than a budget - worktrees do not nest, so
-# there is nowhere for a second to go. There is no tmp/ fallback, unlike the
-# tracker config.
+# first; on a miss, the base clone's when the root is a linked worktree. One
+# hop is the whole chain, not a budget - worktrees do not nest. There is no
+# tmp/ fallback, unlike the tracker config.
 #
-# The is-a-file test in front of base_clone is that function's own first test,
-# hoisted ahead of the command substitution it makes unnecessary: the fork
-# costs two orders more than the stat, so without it every ordinary clone with
-# no config pays one to be told its .git is a directory.
+# The is-a-file test is base_clone's own first test, hoisted ahead of the
+# command substitution so an ordinary clone with no config pays a stat rather
+# than a fork.
 config_path() {
   local base
   if [ -f "$1/.wf.yml" ]; then
@@ -187,8 +196,7 @@ config_path() {
       printf '%s\n' "$base/.wf.yml"
     fi
   fi
-  # Explicit on every path, for the reason base_clone's branches are: resolve
-  # reads this through a command substitution.
+  # Explicit: resolve reads this through a command substitution under set -e.
   return 0
 }
 
@@ -236,9 +244,9 @@ read_props() {
     exit "$rc"
   )" || rc=$?
   if [ "$rc" -eq "$YQ_TIMEOUT_RC" ]; then
-    invalid "gave up parsing $file after ${YQ_TIMEOUT}s; a YAML alias chain can expand without bound"
+    invalid_at_file "gave up parsing $file after ${YQ_TIMEOUT}s; a YAML alias chain can expand without bound"
   fi
-  [ "$rc" -eq 0 ] || invalid "could not parse $file as YAML"
+  [ "$rc" -eq 0 ] || invalid_at_file "could not parse $file as YAML"
   printf '%s\n' "$out" | awk '
     {
       # yq -o=props emits YAML comments verbatim as their own lines. Skip them
@@ -533,10 +541,8 @@ resolve() {
     dump="$(emit "")"
   else
     # config_path prints the root's own file verbatim on its first arm, so this
-    # comparison is the whole test for whether the file was inherited. It stays
-    # here rather than in config_path, which --print-config-path shares and
-    # which is better off with no side effect for that flag to leave behind
-    # unread.
+    # comparison is the whole test for inheritance. Not in config_path, which
+    # --print-config-path shares and must leave no side effect behind.
     [ "$file" = "$root/.wf.yml" ] || INHERITED_FROM="$file"
     present=yes
     kv="$(read_props "$file")"

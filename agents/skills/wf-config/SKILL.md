@@ -44,7 +44,7 @@ Everything below acts on `$root/.wf.yml`, never on a path relative to the workin
 
 **`wfconfig_file=no` with a non-empty `wfconfig_path=`** - this root is a linked worktree inheriting its settings from the base clone. Report the path, say that changing those settings means running `/wf-config` in that directory, and **stop**. Write nothing here: a worktree-local file would shadow the one the base clone carries, which is the failure the fallback exists to remove.
 
-That report does not resolve the file it names, deliberately. Validating here would duplicate the `wfconfig_file=yes` arm's rejection reporting in the one directory where the fix cannot be applied, and spend a second `yq` fork to do it. The user is sent to the base clone either way, and `/wf-config` run there resolves the file on its existing arm and names the offending key. A user who arrived from another skill's exit 3 already has the path, which that skill's rejection message carried.
+Do not resolve the file that report names. `/wf-config` run in the base clone validates it there, on the arm that can also fix it.
 
 **`wfconfig_file=no` with an absent or empty `wfconfig_path=`** - go to "Writing a new file". Nothing is inherited, so there is nothing to shadow.
 

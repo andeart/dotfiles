@@ -190,7 +190,10 @@ wfconfig_block() {
 # content, so someone could edit one copy (drop `--repo-root "$root"`, say,
 # which makes the resolver default to `.` and resolve whatever directory the
 # agent happens to be standing in) and every other case here would still pass.
-# This is what keeps the four honest against each other.
+#
+# Scope: the bash fence only. Each skill's prose about `wfconfig_path=` differs
+# legitimately - only two of the four have a Step 3 gate to point at - so it is
+# not gradable here, and it has drifted before.
 @test "every copy of the wfconfig_path block is identical" {
   local first skill file block
   first="$(wfconfig_block "$DOTFILES_ROOT/agents/skills/${PATH_SKILLS[0]}/SKILL.md")"

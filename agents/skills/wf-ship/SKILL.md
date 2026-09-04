@@ -44,7 +44,7 @@ echo "resolver_exit=$?"
 
 The fetch runs before the `@{upstream}` read so the upstream hash and every later `@{upstream}..HEAD` comparison reflect current remote state. Everything after the `status<<<` marker is porcelain output; no output there means a clean tree.
 
-The `wfconfig_path=` line sits above `status<<<` rather than beside the resolver call, and that position is load-bearing: a `key=value` line under `status<<<` reads as porcelain, and a clean tree is what this skill stages and commits on. Between the resolver call and `echo "resolver_exit=$?"` is worse still - `$?` would carry the guard's status rather than the resolver's, and a halt would read as a clean run.
+Keep the `wfconfig_path=` line above `status<<<`: under that marker it reads as porcelain and a clean tree looks dirty. `tests/wf-config-halt-check.bats` pins the placement and explains it.
 
 Read the results into the names the rest of this skill uses:
 
@@ -54,7 +54,7 @@ Read the results into the names the rest of this skill uses:
 - `branch=` empty - HEAD is detached. Stop and tell the user to check out a branch first.
 - `default=` - this is `<DEFAULT_BRANCH>`. If it is empty, neither `main` nor `master` exists; stop and say so.
 - `upstream=` - the upstream commit hash, or empty if the branch has no upstream. This is the hash the default-branch flow's Step 2 needs; do not re-read it.
-- `wfconfig_path=` - absent means the repo root carries its own `.wf.yml` and nothing below changes. A non-empty value is the file the settings actually came from, outside this working tree. An empty value means no config resolved anywhere, and nothing more - the substitution swallows a usage error and a missing `yq` the same way, so never fill it in as `$root/.wf.yml`.
+- `wfconfig_path=` - absent means the repo root carries its own `.wf.yml` and nothing below changes. A non-empty value is the file the settings actually came from, outside this working tree. An empty value means no config resolved anywhere, and nothing more - never fill it in as `$root/.wf.yml`.
 - `status<<<` - the porcelain lines, if any.
 
 ### Resolve the wf config

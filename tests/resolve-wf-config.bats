@@ -956,6 +956,14 @@ worktree() {
   printf '%s\n' "$WT/.git" > "$REG/gitdir"
 }
 
+# physical <dir>: <dir> with `..` and every symlink resolved, which is the form
+# base_clone prints an inherited path in. Asserting against a literal $BASE
+# would pass on Linux and fail on macOS, where BATS_TEST_TMPDIR sits under a
+# symlinked /var. The root's own file is printed verbatim and is not wrapped.
+physical() {
+  (cd "$1" && pwd -P)
+}
+
 # declines <root>: what every no-fallback row asserts. Exit 0 and an empty
 # stderr, not merely an empty resolution: exit 1 is the shape this arm fails in
 # - a declining branch that ends on a false test, or a read whose status `set
@@ -1005,7 +1013,7 @@ workspace:
   resolve "$BASE"
   [ "$output" = "$inherited" ]
   path "$WT"
-  [ "$output" = "$BASE/.wf.yml" ]
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
 }
 
 @test "a worktree whose base clone has no .wf.yml either inherits nothing" {
@@ -1073,7 +1081,7 @@ workspace:
   [ -z "$stderr" ]
   [ "$(value states.shaping)" = "FromBareDir" ]
   path "$WT"
-  [ "$output" = "$BASE/.wf.yml" ]
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
 }
 
 @test "a pointer ending in worktrees/ with no name does not fall back" {
@@ -1120,12 +1128,13 @@ workspace:
   [ "$status" -eq 0 ]
   [ -z "$stderr" ]
   [ "$(value states.shaping)" = "FromBase" ]
-  # Printed exactly as base_clone built it: absolute, but carrying the `..` the
-  # pointer spelled. It opens as written, and normalising it for display would
-  # put a path normaliser in a script whose argument for -ef is that it needs
-  # none.
+  # Resolved rather than printed as the pointer spelled it. The `..` a relative
+  # pointer carries is legitimate - `git worktree add --relative-paths` writes
+  # one - but the path is a disclosure three skills show beside the commands
+  # they run, so it is printed in the form that names the real directory. The
+  # spoof case below is why.
   path "$WT"
-  [ "$output" = "$WT/../base/.wf.yml" ]
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
 }
 
 @test "a relative back-reference resolves to the base clone" {
@@ -1140,7 +1149,7 @@ workspace:
   [ -z "$stderr" ]
   [ "$(value states.shaping)" = "FromBase" ]
   path "$WT"
-  [ "$output" = "$BASE/.wf.yml" ]
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
 }
 
 @test "a back-reference spelling root/.git through a symlink resolves to the base clone" {
@@ -1157,7 +1166,7 @@ workspace:
   [ -z "$stderr" ]
   [ "$(value states.shaping)" = "FromBase" ]
   path "$WT"
-  [ "$output" = "$BASE/.wf.yml" ]
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
 }
 
 @test "a missing back-reference does not fall back" {
@@ -1233,7 +1242,7 @@ workspace:
   [ -z "$stderr" ]
   [ "$(value states.shaping)" = "FromBase" ]
   path "$WT"
-  [ "$output" = "$BASE/.wf.yml" ]
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
 }
 
 @test "a pointer file with a second line resolves off the first" {
@@ -1250,7 +1259,7 @@ workspace:
   [ -z "$stderr" ]
   [ "$(value states.shaping)" = "FromBase" ]
   path "$WT"
-  [ "$output" = "$BASE/.wf.yml" ]
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
 }
 
 # The only case here that does not use the script's entry point. No path a
@@ -1275,11 +1284,48 @@ workspace:
   printf '%s' "$WT/.git" > "$REG/gitdir"
   call base_clone "$WT"
   [ "$status" -eq 0 ]
-  [ "$output" = "$BASE" ]
+  [ "$output" = "$(physical "$BASE")" ]
   run bash -c '_WF_LIB_ONLY=1 source "$0"; POINTER_MAX=8; base_clone "$1"' \
     "$RESOLVE" "$WT"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+}
+
+# The pointer decides the path this prints, and three skills show that path
+# beside the verify.commands they then execute. A pointer traversing out of a
+# directory the reader trusts must not leave the disclosure leading with that
+# directory's name. This tree is the one the threat model does not close - the
+# attacker assembled both the pointer and a matching back-reference - so what
+# the disclosure says is the whole of what the reader gets.
+@test "a pointer traversing out of a trusted directory discloses where it lands" {
+  local dir="$BATS_TEST_TMPDIR/traversal"
+  mkdir -p "$dir/legit/.git/worktrees/w" "$dir/attacker/.git/worktrees/x" "$dir/victim"
+  config "$dir/attacker" 'states:
+  shaping: FromAttacker'
+  printf 'gitdir: %s/legit/.git/worktrees/../../../attacker/.git/worktrees/x\n' "$dir" > "$dir/victim/.git"
+  printf '%s\n' "$dir/victim/.git" > "$dir/attacker/.git/worktrees/x/gitdir"
+  resolve "$dir/victim"
+  [ "$status" -eq 0 ]
+  [ "$(value states.shaping)" = "FromAttacker" ]
+  path "$dir/victim"
+  [ "$output" = "$(physical "$dir/attacker")/.wf.yml" ]
+  # The point of the row: it must not read as the trusted clone.
+  [[ "$output" != *"/legit/"* ]]
+}
+
+# A symlinked base is the same spoof without a `..` in sight, which is why the
+# path is resolved rather than merely stripped of traversal.
+@test "a pointer through a symlinked base discloses the directory it lands in" {
+  local dir="$BATS_TEST_TMPDIR/symlink-spoof"
+  mkdir -p "$dir/attacker/.git/worktrees/x" "$dir/victim"
+  config "$dir/attacker" 'states:
+  shaping: FromAttacker'
+  ln -s "$dir/attacker" "$dir/trusted"
+  printf 'gitdir: %s/trusted/.git/worktrees/x\n' "$dir" > "$dir/victim/.git"
+  printf '%s\n' "$dir/victim/.git" > "$dir/attacker/.git/worktrees/x/gitdir"
+  path "$dir/victim"
+  [ "$output" = "$(physical "$dir/attacker")/.wf.yml" ]
+  [[ "$output" != *"/trusted/"* ]]
 }
 
 @test "a rejected config inherited from the base clone names the file it came from" {
@@ -1291,7 +1337,7 @@ workspace:
   resolve "$WT"
   [ "$status" -eq 3 ]
   [[ "$stderr" == *"review.reviewers must be a list"* ]]
-  [[ "$stderr" == *"(from $BASE/.wf.yml)"* ]]
+  [[ "$stderr" == *"(from $(physical "$BASE")/.wf.yml)"* ]]
   # And unchanged for a file the root carries itself, which is what lets every
   # exit-3 expectation already in this file stand without edit.
   config "$WT" 'review:
@@ -1300,6 +1346,20 @@ workspace:
   [ "$status" -eq 3 ]
   [[ "$stderr" == *"review.reviewers must be a list"* ]]
   [[ "$stderr" != *"(from "* ]]
+}
+
+# Most rejection messages interpolate a value the file controls. Deciding the
+# disclosure by looking for the path inside the message let the file switch its
+# own disclosure off, which is why invalid_at_file() is a separate entry point
+# rather than a test on the text.
+@test "a value naming the inherited file does not suppress the disclosure" {
+  worktree crafted
+  config "$BASE" "workspace:
+  impl: \"$(physical "$BASE")/.wf.yml\""
+  resolve "$WT"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"workspace.impl must be base or worktree"* ]]
+  [[ "$stderr" == *"(from $(physical "$BASE")/.wf.yml)"* ]]
 }
 
 # read_props's two invalid() messages already name $file, unlike every other
@@ -1315,21 +1375,46 @@ workspace:
   # assertion is on this script's own line rather than on all of stderr.
   local line
   line="$(printf '%s\n' "$stderr" | grep '^resolve-wf-config:')"
-  [ "$line" = "resolve-wf-config: could not parse $BASE/.wf.yml as YAML" ]
+  [ "$line" = "resolve-wf-config: could not parse $(physical "$BASE")/.wf.yml as YAML" ]
 }
 
-# A FIFO blocks on open, so the guard that rejects it cannot be pinned by a
-# plain fixture: without the guard this case would hang tests/run.sh rather
-# than fail it. The watchdog is the same background sleep-and-kill read_props
-# uses, and it turns the hang into a failure. `timeout` is not portable here.
+# run_bounded <snippet>: run one shell snippet under a deadline, with $RESOLVE
+# as $1 and $WT as $2, and assert it declined without blocking. A FIFO blocks
+# on open, so the guards that reject one cannot be pinned by a plain fixture:
+# without them these cases would hang tests/run.sh rather than fail it. The
+# watchdog is the same background sleep-and-kill read_props uses, and it turns
+# the hang into a failure. `timeout` is not portable here.
 #
-# config_path calls base_clone through a command substitution, which forks a
-# subshell to run it; a blocking read lands inside that subshell, one level
-# below the process this test's own `$!` names. Killing only that named PID
-# leaves the subshell running, orphaned, still holding the captured stdout
-# open - so bats' `run` never sees EOF and hangs right along with it. `set -m`
-# gives the whole job its own process group before it forks, so the kill
-# below, aimed at the group, reaches the subshell too.
+# `set -m` puts the runner in its own process group, so the deadline's kill can
+# reach a blocking read that landed in a forked subshell one level below the
+# PID `$!` names - which is where config_path's command substitution puts it.
+# Left on past the fork, bash 3.2 (unlike 5.x non-interactive) announces the
+# job's completion on stderr, and these cases assert stderr is empty.
+#
+# Both kills are group-directed. `kill "$watchdog"` reaches the watchdog
+# subshell but not the `sleep` it is blocked in, and the orphan then holds the
+# captured output open until it expires - the success path paid the full
+# deadline, about 5 s per case, for a run that finishes in about 15 ms.
+run_bounded() {
+  run --separate-stderr bash -c '
+    snippet="$1"; shift
+    set -m
+    eval "$snippet" &
+    runner=$!
+    { sleep 5; kill -TERM -- "-$runner" 2>/dev/null; } >/dev/null 2>&1 &
+    watchdog=$!
+    set +m
+    rc=0
+    wait "$runner" || rc=$?
+    kill -TERM -- "-$watchdog" 2>/dev/null || :
+    wait "$watchdog" 2>/dev/null || :
+    exit "$rc"
+  ' _ "$1" "$RESOLVE" "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+}
+
 @test "a FIFO at the back-reference does not fall back, and does not block" {
   worktree fifo-backref
   config "$BASE" 'states:
@@ -1337,27 +1422,7 @@ workspace:
   mkdir -p "$BASE/.git/worktrees/as-fifo"
   mkfifo "$BASE/.git/worktrees/as-fifo/gitdir"
   printf 'gitdir: %s/.git/worktrees/as-fifo\n' "$BASE" > "$WT/.git"
-  run --separate-stderr bash -c '
-    resolve="$1" root="$2"
-    set -m
-    bash "$resolve" --repo-root "$root" --print-config-path &
-    runner=$!
-    { sleep 5; kill -TERM -- "-$runner" 2>/dev/null; } >/dev/null 2>&1 &
-    watchdog=$!
-    # Job control is needed only to put the runner in its own process group;
-    # left on past this point, bash 3.2 (unlike 5.x in a non-interactive
-    # shell) announces the job'"'"'s completion on stderr once it exits, and
-    # this test asserts stderr is empty.
-    set +m
-    rc=0
-    wait "$runner" || rc=$?
-    kill "$watchdog" 2>/dev/null || :
-    wait "$watchdog" 2>/dev/null || :
-    exit "$rc"
-  ' _ "$RESOLVE" "$WT"
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
-  [ -z "$stderr" ]
+  run_bounded 'bash "$1" --repo-root "$2" --print-config-path'
 }
 
 # The same bound in the other position: config_path's own `[ -f "$1/.git" ]`
@@ -1367,11 +1432,7 @@ workspace:
 # before base_clone ever runs, which makes base_clone's own copy unreachable
 # through --print-config-path for this exact condition - so pinning it means
 # calling base_clone directly, the same way the "capped" pointer case above
-# does. No command substitution sits between this call and the blocking read,
-# so a plain single-PID kill reaches it; `set -m` and the group-directed kill
-# are carried over from the case above anyway, since a bare `&` still runs
-# under whatever job-control state the surrounding script has, and leaving it
-# off here would make this test's watchdog behavior depend on that.
+# does.
 @test "a FIFO at root/.git does not fall back, and does not block" {
   BASE="$BATS_TEST_TMPDIR/fifo-root/base"
   WT="$BATS_TEST_TMPDIR/fifo-root/wt"
@@ -1379,27 +1440,7 @@ workspace:
   config "$BASE" 'states:
   shaping: FromBase'
   mkfifo "$WT/.git"
-  run --separate-stderr bash -c '
-    resolve="$1" root="$2"
-    set -m
-    bash -c "_WF_LIB_ONLY=1 source \"\$0\"; base_clone \"\$1\"" "$resolve" "$root" &
-    runner=$!
-    { sleep 5; kill -TERM -- "-$runner" 2>/dev/null; } >/dev/null 2>&1 &
-    watchdog=$!
-    # Job control is needed only to put the runner in its own process group;
-    # left on past this point, bash 3.2 (unlike 5.x in a non-interactive
-    # shell) announces the job'"'"'s completion on stderr once it exits, and
-    # this test asserts stderr is empty.
-    set +m
-    rc=0
-    wait "$runner" || rc=$?
-    kill "$watchdog" 2>/dev/null || :
-    wait "$watchdog" 2>/dev/null || :
-    exit "$rc"
-  ' _ "$RESOLVE" "$WT"
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
-  [ -z "$stderr" ]
+  run_bounded 'bash -c "_WF_LIB_ONLY=1 source \"\$0\"; base_clone \"\$1\"" "$1" "$2"'
 }
 
 @test "a pointer whose name carries a slash does not fall back" {

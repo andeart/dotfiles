@@ -46,19 +46,11 @@ Two directories, in order:
 2. Only when the root has no file of its own and the root is a linked worktree,
    the base clone that worktree was cut from.
 
-That second entry exists because a `.wf.yml` that was never committed does not
-travel into a worktree, so without it the same repo runs under its real states,
-reviewers and checks from the base clone and under nothing at all from a
-worktree cut off it. It is one hop, and one hop is the whole chain: worktrees
-do not nest.
+The second entry exists because a `.wf.yml` that was never committed does not
+travel into a worktree.
 
-Anything the resolver cannot understand about a worktree resolves as an
-unconfigured repo does, every key `<unset>`. There is no new way to halt.
-
-`/wf-config` writes only in the directory it is run from, and never writes a
-worktree-local file over an inherited one - changing inherited settings means
-running it in the base clone. A worktree that inherits nothing gets the
-template where it stands.
+An inherited path is reported resolved - symlinks and `..` expanded - because
+three skills show it beside the `verify.commands` they then run.
 
 ## Rules
 
