@@ -18,7 +18,9 @@
         "stddev",
         "Superellipse",
         "webbrowser",
-        "webp"
+        "webp",
+        "worktree",
+        "worktrees"
     ],
     "[dart]": {
         "editor.defaultFormatter": "Dart-Code.dart-code",
