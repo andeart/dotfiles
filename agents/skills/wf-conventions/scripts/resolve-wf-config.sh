@@ -70,14 +70,11 @@ invalid() {
   exit "$EXIT_INVALID"
 }
 
-# invalid_at_file <message>: invalid() for the messages that already name the
-# file, so the disclosure does not double-name it - "could not parse
-# /base/.wf.yml as YAML (from /base/.wf.yml)". Only read_props reports against
-# $file rather than against a key.
-#
-# Which messages those are is the call site's to know, never something to infer
-# from the text: most messages interpolate a value the file controls, so a
-# crafted `impl: /base/.wf.yml` would suppress its own disclosure.
+# invalid_at_file <message>: for read_props's two messages, which name $file
+# themselves, so the disclosure does not double-name it. A separate entry point
+# and never a test on the message text: most messages interpolate a value the
+# file controls, so a crafted `impl: /base/.wf.yml` would suppress its own
+# disclosure.
 invalid_at_file() {
   echo "resolve-wf-config: $*" >&2
   exit "$EXIT_INVALID"
@@ -95,10 +92,8 @@ usage() {
   echo "Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]] [--print-config-path]"
 }
 
-# Caps both reads in base_clone below. A named constant rather than a literal
-# inside the read, for the same reason YQ_TIMEOUT is one: no path a filesystem
-# accepts is long enough to reach 4096, so a test that lowers this constant is
-# the only thing that can observe the bound at all.
+# Caps both reads in base_clone below. No path a filesystem accepts reaches
+# 4096, so lowering this constant is the only way a test can observe the bound.
 POINTER_MAX=4096
 
 # base_clone <root>: print the base clone of the linked worktree at <root>, or
@@ -172,9 +167,20 @@ base_clone() {
   # `..` or a symlink otherwise lets it lead with a directory the reader trusts
   # - `<trusted>/.git/worktrees/../../../attacker` names the wrong repo. This
   # normalises the answer, not the -ef comparison above. A failed cd leaves the
-  # path unresolved: harder to read, never wrong to open.
-  physical="$(cd "$base" 2>/dev/null && pwd -P)" || physical=""
+  # path unresolved: harder to read, never wrong to open. `CDPATH=` keeps a
+  # relative base off it - `cd` echoes the entry it takes, and that is a second
+  # line too.
+  physical="$(CDPATH= cd -- "$base" 2>/dev/null && pwd -P)" || physical=""
   [ -z "$physical" ] || base="$physical"
+  # Resolving is also the only step that can put a newline in the path: the
+  # pointer read stops at the first one, a directory name does not. The skills
+  # echo this path into a block of key=value lines, where a second line reads
+  # as another setting, so a path that cannot be disclosed is not one to hand
+  # back.
+  case "$base" in
+    *"
+"*) return 0 ;;
+  esac
   printf '%s\n' "$base"
 }
 
@@ -236,11 +242,20 @@ read_props() {
   out="$(
     yq -o=props '(.. | select(tag == "!!seq" and length == 0)) |= ["<none>"]' -- "$file" &
     parser=$!
-    { sleep "$YQ_TIMEOUT"; kill -TERM "$parser" 2>/dev/null; } >/dev/null 2>&1 &
+    # Blocked in `wait`, not in `sleep`: a subshell killed while blocked in
+    # `sleep` leaves the sleep orphaned, holding every fd the caller gave it
+    # for the whole deadline - under bats that is FD 3. `wait` is
+    # interruptible, so the TERM trap below takes the sleep with it. Not a
+    # group-directed kill: this script sets no `set -m`, so the group is its
+    # own.
+    { trap 'kill "$napper" 2>/dev/null; exit' TERM
+      sleep "$YQ_TIMEOUT" & napper=$!
+      wait "$napper" && kill -TERM "$parser" 2>/dev/null; } >/dev/null 2>&1 &
     watchdog=$!
     rc=0
     wait "$parser" || rc=$?
-    kill "$watchdog" 2>/dev/null || :
+    kill -TERM "$watchdog" 2>/dev/null || :
+    wait "$watchdog" 2>/dev/null || :
     exit "$rc"
   )" || rc=$?
   if [ "$rc" -eq "$YQ_TIMEOUT_RC" ]; then

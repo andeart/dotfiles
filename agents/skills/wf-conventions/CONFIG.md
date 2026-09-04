@@ -5,8 +5,7 @@ Repo-level settings for the `wf-*` skill family, read by
 it: nothing falls back, so a key the file leaves out halts the skill that reads
 it. `/wf-config` writes the file, or fills in the keys it lacks, from
 `wf.yml.template` beside this document. See "Where the file lives" below for
-which directory is read - in a linked worktree it is not always this one, and
-there `/wf-config` reports the inherited file rather than writing a second.
+which directory is read.
 
 Sections group by concern rather than by skill, because `states` and
 `workspace` are each read by more than one skill and a per-skill layout would
@@ -50,7 +49,9 @@ The second entry exists because a `.wf.yml` that was never committed does not
 travel into a worktree.
 
 An inherited path is reported resolved - symlinks and `..` expanded - because
-three skills show it beside the `verify.commands` they then run.
+three skills show it beside the `verify.commands` they then run. A resolved
+path carrying a newline is declined rather than reported: the skills state it
+as one line among others, and a second line reads as another setting.
 
 ## Rules
 

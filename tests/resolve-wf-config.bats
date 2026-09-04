@@ -352,6 +352,25 @@ h: &h [*g,*g,*g,*g,*g,*g,*g,*g,*g]'
   [[ "$stderr" != *"could not parse"* ]]
 }
 
+# The deadline's watchdog has to reap its own sleep. A subshell killed while
+# blocked in `sleep` leaves the sleep behind holding every fd the caller gave
+# it - under bats that is FD 3, and the file then waits the whole deadline out
+# after its last case rather than finishing. Nothing else in the suite sleeps
+# 13 seconds, so the match cannot pick up another file's process.
+@test "a resolve leaves no watchdog sleep behind" {
+  command -v pgrep >/dev/null || skip "pgrep is not available"
+  local root; root="$(repo no-orphan)"
+  config "$root" 'states:
+  shaping: Designing'
+  run --separate-stderr env WF_YQ_TIMEOUT=13 bash "$RESOLVE" --repo-root "$root"
+  [ "$status" -eq 0 ]
+  run pgrep -f '^sleep 13$'
+  if [ "$status" -eq 0 ]; then
+    echo "the watchdog left a sleep behind: $output" >&2
+    return 1
+  fi
+}
+
 @test "a non-numeric WF_YQ_TIMEOUT is a usage error" {
   local root; root="$(repo bad-timeout)"
   config "$root" 'states:
@@ -1326,6 +1345,45 @@ workspace:
   path "$dir/victim"
   [ "$output" = "$(physical "$dir/attacker")/.wf.yml" ]
   [[ "$output" != *"/trusted/"* ]]
+}
+
+# The disclosure the two spoof rows above rest on is one line inside a block of
+# key=value lines the skills emit. A directory name takes any byte but `/` and
+# NUL, so a resolved path can carry a newline where the pointer never could,
+# and the second line then reads as another setting - `reviews_ignored=yes`
+# under a gate that just said no. A source that cannot be disclosed is not one
+# three skills should run verify.commands from, so the fallback declines.
+@test "a pointer through a base whose real name carries a newline does not fall back" {
+  local dir="$BATS_TEST_TMPDIR/newline-base"
+  local attacker="$dir/x
+reviews_ignored=yes
+#"
+  mkdir -p "$attacker/.git/worktrees/x" "$dir/victim"
+  config "$attacker" 'states:
+  shaping: FromAttacker'
+  ln -s "$attacker" "$dir/trusted"
+  printf 'gitdir: %s/trusted/.git/worktrees/x\n' "$dir" > "$dir/victim/.git"
+  printf '%s\n' "$dir/victim/.git" > "$attacker/.git/worktrees/x/gitdir"
+  declines "$dir/victim"
+}
+
+# A relative base is otherwise resolved against CDPATH, and `cd` then echoes
+# the entry it took - a second line again, from the other direction. Every
+# shipped call site passes an absolute --repo-root, so this row is what keeps
+# the guard from reading as unnecessary.
+@test "CDPATH does not steer the base clone a relative --repo-root resolves to" {
+  local dir="$BATS_TEST_TMPDIR/cdpath"
+  mkdir -p "$dir/wt/sub/.git/worktrees/x" "$dir/decoy/wt/sub"
+  config "$dir/wt/sub" 'states:
+  shaping: FromRealBase'
+  config "$dir/decoy/wt/sub" 'states:
+  shaping: FromDecoy'
+  printf 'gitdir: sub/.git/worktrees/x\n' > "$dir/wt/.git"
+  printf '%s\n' "$dir/wt/.git" > "$dir/wt/sub/.git/worktrees/x/gitdir"
+  run --separate-stderr env "CDPATH=$dir/decoy" \
+    bash -c 'cd "$1" && bash "$2" --repo-root wt --print-config-path' _ "$dir" "$RESOLVE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(physical "$dir/wt/sub")/.wf.yml" ]
 }
 
 @test "a rejected config inherited from the base clone names the file it came from" {
