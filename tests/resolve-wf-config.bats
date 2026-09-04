@@ -1298,10 +1298,10 @@ workspace:
 # config_path calls base_clone through a command substitution, which forks a
 # subshell to run it; a blocking read lands inside that subshell, one level
 # below the process this test's own `$!` names. Killing only that named PID
-# leaves the subshell running, orphaned, still holding the captured stdout and
-# stderr open - so bats' `run` never sees EOF and hangs right along with it.
-# `set -m` gives the whole job its own process group before it forks, so the
-# kill below, aimed at the group, reaches the subshell too.
+# leaves the subshell running, orphaned, still holding the captured stdout
+# open - so bats' `run` never sees EOF and hangs right along with it. `set -m`
+# gives the whole job its own process group before it forks, so the kill
+# below, aimed at the group, reaches the subshell too.
 @test "a FIFO at the back-reference does not fall back, and does not block" {
   worktree fifo-backref
   config "$BASE" 'states:
@@ -1316,6 +1316,11 @@ workspace:
     runner=$!
     { sleep 5; kill -TERM -- "-$runner" 2>/dev/null; } >/dev/null 2>&1 &
     watchdog=$!
+    # Job control is needed only to put the runner in its own process group;
+    # left on past this point, bash 3.2 (unlike 5.x in a non-interactive
+    # shell) announces the job'"'"'s completion on stderr once it exits, and
+    # this test asserts stderr is empty.
+    set +m
     rc=0
     wait "$runner" || rc=$?
     kill "$watchdog" 2>/dev/null || :
@@ -1353,6 +1358,11 @@ workspace:
     runner=$!
     { sleep 5; kill -TERM -- "-$runner" 2>/dev/null; } >/dev/null 2>&1 &
     watchdog=$!
+    # Job control is needed only to put the runner in its own process group;
+    # left on past this point, bash 3.2 (unlike 5.x in a non-interactive
+    # shell) announces the job'"'"'s completion on stderr once it exits, and
+    # this test asserts stderr is empty.
+    set +m
     rc=0
     wait "$runner" || rc=$?
     kill "$watchdog" 2>/dev/null || :
@@ -1368,13 +1378,17 @@ workspace:
   # base_clone's `case "$name" in */*) return 0` is the only thing stopping
   # `gitdir: <base>/.git/worktrees/a/b` from resolving the base clone to
   # <base>/.git itself. The back-reference beside it is correct, so the case
-  # cannot pass merely because that guard fires first.
+  # cannot pass merely because that guard fires first. The .wf.yml below sits
+  # where a wrong strip would land, so the <unset> assertion is a real one -
+  # the same pattern the bare-repo case above uses.
   worktree slash-name
   config "$BASE" 'states:
   shaping: FromBase'
   mkdir -p "$BASE/.git/worktrees/a/b"
   printf '%s\n' "$WT/.git" > "$BASE/.git/worktrees/a/b/gitdir"
   printf 'gitdir: %s/.git/worktrees/a/b\n' "$BASE" > "$WT/.git"
+  config "$BASE/.git" 'states:
+  shaping: FromWrongStrip'
   declines "$WT"
 }
 
