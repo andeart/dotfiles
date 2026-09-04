@@ -33,6 +33,13 @@ EXIT_INVALID=3
 # after its cleanup has already run.
 EXIT_UNSET=4
 
+# The path a resolved config came from when it was not the root's own file, or
+# empty. Declared here rather than only inside resolve(): `set -u` is in force
+# and tests/resolve-wf-config.bats sources this script to call functions
+# directly, where an invalid() reading a variable only resolve() ever set would
+# exit 1 on an unbound variable instead of 3.
+INHERITED_FROM=""
+
 # Every key the family understands, in the order the dump prints them. A `.N`
 # suffix marks a list, whose members the file may set to any length. The values
 # a repo starts from live in wf.yml.template beside this script; nothing here
@@ -55,9 +62,13 @@ die() {
 }
 
 # invalid <message>: a config that is present but cannot be honoured. Separate
-# from die() - see EXIT_INVALID above.
+# from die() - see EXIT_INVALID above. The trailing clause is the whole of the
+# rejection-side disclosure: a reader in a worktree cannot otherwise tell which
+# file the key they are being told about lives in.
 invalid() {
-  echo "resolve-wf-config: $*" >&2
+  local from=""
+  [ -z "$INHERITED_FROM" ] || from=" (from $INHERITED_FROM)"
+  echo "resolve-wf-config: $*$from" >&2
   exit "$EXIT_INVALID"
 }
 
@@ -513,6 +524,12 @@ resolve() {
     present=no
     dump="$(emit "")"
   else
+    # config_path prints the root's own file verbatim on its first arm, so this
+    # comparison is the whole test for whether the file was inherited. It stays
+    # here rather than in config_path, which --print-config-path shares and
+    # which is better off with no side effect for that flag to leave behind
+    # unread.
+    [ "$file" = "$root/.wf.yml" ] || INHERITED_FROM="$file"
     present=yes
     kv="$(read_props "$file")"
     validate "$kv"

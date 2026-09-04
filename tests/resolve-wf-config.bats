@@ -1270,6 +1270,114 @@ workspace:
   [ -z "$output" ]
 }
 
+@test "a rejected config inherited from the base clone names the file it came from" {
+  # Without this, someone in a worktree reads a complaint about a key in a file
+  # they cannot see from where they are standing.
+  worktree rejected
+  config "$BASE" 'review:
+  reviewers: Ana'
+  resolve "$WT"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"review.reviewers must be a list"* ]]
+  [[ "$stderr" == *"(from $BASE/.wf.yml)"* ]]
+  # And unchanged for a file the root carries itself, which is what lets every
+  # exit-3 expectation already in this file stand without edit.
+  config "$WT" 'review:
+  reviewers: Ana'
+  resolve "$WT"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"review.reviewers must be a list"* ]]
+  [[ "$stderr" != *"(from "* ]]
+}
+
+# A FIFO blocks on open, so the guard that rejects it cannot be pinned by a
+# plain fixture: without the guard this case would hang tests/run.sh rather
+# than fail it. The watchdog is the same background sleep-and-kill read_props
+# uses, and it turns the hang into a failure. `timeout` is not portable here.
+#
+# config_path calls base_clone through a command substitution, which forks a
+# subshell to run it; a blocking read lands inside that subshell, one level
+# below the process this test's own `$!` names. Killing only that named PID
+# leaves the subshell running, orphaned, still holding the captured stdout and
+# stderr open - so bats' `run` never sees EOF and hangs right along with it.
+# `set -m` gives the whole job its own process group before it forks, so the
+# kill below, aimed at the group, reaches the subshell too.
+@test "a FIFO at the back-reference does not fall back, and does not block" {
+  worktree fifo-backref
+  config "$BASE" 'states:
+  shaping: FromBase'
+  mkdir -p "$BASE/.git/worktrees/as-fifo"
+  mkfifo "$BASE/.git/worktrees/as-fifo/gitdir"
+  printf 'gitdir: %s/.git/worktrees/as-fifo\n' "$BASE" > "$WT/.git"
+  run --separate-stderr bash -c '
+    resolve="$1" root="$2"
+    set -m
+    bash "$resolve" --repo-root "$root" --print-config-path &
+    runner=$!
+    { sleep 5; kill -TERM -- "-$runner" 2>/dev/null; } >/dev/null 2>&1 &
+    watchdog=$!
+    rc=0
+    wait "$runner" || rc=$?
+    kill "$watchdog" 2>/dev/null || :
+    wait "$watchdog" 2>/dev/null || :
+    exit "$rc"
+  ' _ "$RESOLVE" "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+}
+
+# The same bound in the other position: config_path's own `[ -f "$1/.git" ]`
+# is a hoisted copy of base_clone's first line (see the comment above
+# config_path), kept only to skip the fork base_clone would otherwise cost an
+# ordinary clone. That hoisted copy already declines a FIFO at root/.git
+# before base_clone ever runs, which makes base_clone's own copy unreachable
+# through --print-config-path for this exact condition - so pinning it means
+# calling base_clone directly, the same way the "capped" pointer case above
+# does. No command substitution sits between this call and the blocking read,
+# so a plain single-PID kill reaches it; `set -m` and the group-directed kill
+# are carried over from the case above anyway, since a bare `&` still runs
+# under whatever job-control state the surrounding script has, and leaving it
+# off here would make this test's watchdog behavior depend on that.
+@test "a FIFO at root/.git does not fall back, and does not block" {
+  BASE="$BATS_TEST_TMPDIR/fifo-root/base"
+  WT="$BATS_TEST_TMPDIR/fifo-root/wt"
+  mkdir -p "$BASE" "$WT"
+  config "$BASE" 'states:
+  shaping: FromBase'
+  mkfifo "$WT/.git"
+  run --separate-stderr bash -c '
+    resolve="$1" root="$2"
+    set -m
+    bash -c "_WF_LIB_ONLY=1 source \"\$0\"; base_clone \"\$1\"" "$resolve" "$root" &
+    runner=$!
+    { sleep 5; kill -TERM -- "-$runner" 2>/dev/null; } >/dev/null 2>&1 &
+    watchdog=$!
+    rc=0
+    wait "$runner" || rc=$?
+    kill "$watchdog" 2>/dev/null || :
+    wait "$watchdog" 2>/dev/null || :
+    exit "$rc"
+  ' _ "$RESOLVE" "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+}
+
+@test "a pointer whose name carries a slash does not fall back" {
+  # base_clone's `case "$name" in */*) return 0` is the only thing stopping
+  # `gitdir: <base>/.git/worktrees/a/b` from resolving the base clone to
+  # <base>/.git itself. The back-reference beside it is correct, so the case
+  # cannot pass merely because that guard fires first.
+  worktree slash-name
+  config "$BASE" 'states:
+  shaping: FromBase'
+  mkdir -p "$BASE/.git/worktrees/a/b"
+  printf '%s\n' "$WT/.git" > "$BASE/.git/worktrees/a/b/gitdir"
+  printf 'gitdir: %s/.git/worktrees/a/b\n' "$BASE" > "$WT/.git"
+  declines "$WT"
+}
+
 # ─── bash 3.2 compatibility ────────────────────────────────────────────────
 
 # The script's shebang resolves to bash 5.x on this machine's PATH, so a
