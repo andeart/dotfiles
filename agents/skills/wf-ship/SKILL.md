@@ -31,6 +31,9 @@ echo "branch=$(git symbolic-ref --short HEAD 2>/dev/null)"
 default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
 echo "default=$default"
 echo "upstream=$(git rev-parse --verify --quiet '@{upstream}')"
+[ -f "$root/.wf.yml" ] || echo "wfconfig_path=$(bash \
+  ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
+  --repo-root "$root" --print-config-path)"
 echo 'status<<<'
 git status --porcelain
 echo 'wfconfig<<<'
@@ -41,6 +44,8 @@ echo "resolver_exit=$?"
 
 The fetch runs before the `@{upstream}` read so the upstream hash and every later `@{upstream}..HEAD` comparison reflect current remote state. Everything after the `status<<<` marker is porcelain output; no output there means a clean tree.
 
+The `wfconfig_path=` line sits above `status<<<` rather than beside the resolver call, and that position is load-bearing: a `key=value` line under `status<<<` reads as porcelain, and a clean tree is what this skill stages and commits on. Between the resolver call and `echo "resolver_exit=$?"` is worse still - `$?` would carry the guard's status rather than the resolver's, and a halt would read as a clean run.
+
 Read the results into the names the rest of this skill uses:
 
 - `repo=no` - stop and tell the user this isn't a git repository. Nothing else in the output is meaningful.
@@ -49,6 +54,7 @@ Read the results into the names the rest of this skill uses:
 - `branch=` empty - HEAD is detached. Stop and tell the user to check out a branch first.
 - `default=` - this is `<DEFAULT_BRANCH>`. If it is empty, neither `main` nor `master` exists; stop and say so.
 - `upstream=` - the upstream commit hash, or empty if the branch has no upstream. This is the hash the default-branch flow's Step 2 needs; do not re-read it.
+- `wfconfig_path=` - absent means the repo root carries its own `.wf.yml` and nothing below changes. A non-empty value is the file the settings actually came from, outside this working tree. An empty value means no config resolved anywhere, and nothing more - the substitution swallows a usage error and a missing `yq` the same way, so never fill it in as `$root/.wf.yml`.
 - `status<<<` - the porcelain lines, if any.
 
 ### Resolve the wf config
@@ -267,6 +273,8 @@ Read `verify.commands.1`, `.2`, ... from `<WF_CONFIG>` until a line is missing. 
 
 Never truncate a failing command's output with `head` - the summary is at the end. Use `tail`.
 
+When Step 0 printed a non-empty `wfconfig_path=`, this list came from a file outside the working tree. `CONFIG.md` puts `/wf-ship`'s disclosure in the Report rather than in front of the run, because this skill never stops to ask; name the path there beside what ran.
+
 ### What this does and does not decide
 
 The Test plan in the PR body is written independently of this, and thoroughly: it lists what a reviewer should verify, whether or not anything here can run it. This section only decides which of those boxes starts checked.
@@ -281,6 +289,8 @@ One line, after the state line:
 - **`not-run`**: `- Checks did not run - a pull request already existed for this branch.`
 - **Every command passed**: `- Ran <N> check command(s) - all passed.`
 - **One or more commands failed**: `- <command> failed - left unchecked in the Test plan.` Name every failing command; join more than one with a comma.
+
+Add one more line under whichever of those applies when Step 0's `wfconfig_path=` carried a value: `- verify.commands came from <wfconfig_path>.` The entries are executed verbatim, and a reader in a worktree cannot see the file they came from.
 
 ## Writing the PR
 

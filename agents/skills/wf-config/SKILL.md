@@ -21,6 +21,9 @@ echo 'repo=yes'
 root=$(git rev-parse --show-toplevel)
 echo "root=$root"
 [ -f "$root/.wf.yml" ] && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
+[ -f "$root/.wf.yml" ] || echo "wfconfig_path=$(bash \
+  ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
+  --repo-root "$root" --print-config-path)"
 [ -f ~/.agents/skills/wf-conventions/wf.yml.template ] \
   && echo 'template=yes' || echo 'template=no'
 echo 'workitems<<<'
@@ -31,6 +34,7 @@ find "$root" -maxdepth 1 -name '.workitems.*.yml'
 
 - `repo=no` - stop and tell the user this is not a git repository.
 - `template=no` - **stop.** Say the shipped template is not on disk at `~/.agents/skills/wf-conventions/wf.yml.template`, and that `dotfiles push` puts it there. Never write the nine keys from memory: the template is the only place the shipped values live, and a skill that can reconstruct them is the guessing this contract exists to delete.
+- `wfconfig_path=` - only printed when the root has no file of its own. A non-empty value means this worktree inherits its settings from that path; Step 1 branches on it. An empty value means nothing resolved anywhere.
 
 Everything below acts on `$root/.wf.yml`, never on a path relative to the working directory. The resolver takes `--repo-root` for the same reason: a scaffolder that writes to the working directory drops a `.wf.yml` wherever the user happened to be standing.
 
