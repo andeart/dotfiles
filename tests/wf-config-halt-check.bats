@@ -7,20 +7,14 @@ bats_require_minimum_version 1.5.0
 RESOLVE="$DOTFILES_ROOT/agents/skills/wf-conventions/scripts/resolve-wf-config.sh"
 
 # The halt - stop when the repo's .wf.yml never declared a key the skill needs -
-# is one contract applied by five skills. It used to be thirteen lines of prose
-# in each of them, pinned against each other here because nothing else could:
-# a wording change in one was invisible until a skill halted differently from
-# its neighbours.
+# is one contract applied by five skills, and the resolver's `--require` is
+# where its wording lives. This file pins the wiring around it: that each skill
+# passes a list, that the list is spelled in keys the resolver accepts, and that
+# the one paragraph explaining the halt has not drifted between copies.
 #
-# It is now the resolver's `--require`, so the wording lives in one place and
-# this file's job changed with it. What is left to pin is the wiring: that each
-# skill still passes a list, that the list is spelled in keys the resolver
-# accepts, and that the one paragraph still explaining the halt has not drifted
-# between copies.
-#
-# It is deliberately not the same test as tests/wf-config-keys.bats: that one
-# pins each skill's --require list against its prose and against KNOWN_SHAPES.
-# This pins the mechanism that consumes the list.
+# Distinct from tests/wf-config-keys.bats, which pins each skill's --require
+# list against its prose and against KNOWN_SHAPES. This pins the mechanism that
+# consumes the list.
 
 HALTING_SKILLS=(wf-ship wf-status wf-shape wf-spec-review wf-impl-review)
 
@@ -109,8 +103,7 @@ wfconfig_block() {
   [ "$status" -eq 0 ]
 }
 
-# One paragraph, five copies. Fewer than the thirteen lines it replaced, but
-# still duplicated, so still worth pinning against itself.
+# One paragraph, five copies. Duplicated, so it is pinned against itself.
 @test "every copy of the halt paragraph is identical" {
   local first skill file para
   first="$(halt_para "$DOTFILES_ROOT/agents/skills/${HALTING_SKILLS[0]}/SKILL.md")"

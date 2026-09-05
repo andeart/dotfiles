@@ -99,9 +99,9 @@ value() {
   [ "$(value verify.commands)" = "<unset>" ]
 }
 
-# The rename in DX-73. A repo still carrying the old name gets told the new one
-# rather than a bare "unknown key", because the resolver's error is the only
-# thing that will reach whoever is confused.
+# A repo still carrying the retired name is told its replacement rather than a
+# bare "unknown key": the resolver's error is the only thing that reaches
+# whoever is confused.
 @test "the old ship.test-commands name names its replacement" {
   local root; root="$(repo renamed)"
   config "$root" 'ship:
@@ -649,16 +649,13 @@ states:
   [[ "$stderr" == *"states.shaping"* ]]
 }
 
-# The other half of the multi-document story, pinned because it is a decision
-# rather than an oversight. Documents that share no key flatten into one
-# well-formed dump - every key the file declares, exactly once, no value lost -
-# so the resolver has nothing to reject and honours it. /wf-config stops on the
-# same file, because there the merge would concatenate two mappings with no
-# separator and the template's value would win over the user's. Rejecting it
-# here as well was tried and dropped: every single-fork way of counting
-# documents that yq offers breaks a behaviour this suite pins above, and a
-# second fork would cost the one-yq-fork guarantee below for a file that is
-# already resolved correctly.
+# Documents that share no key flatten into one well-formed dump - every key the
+# file declares, exactly once, no value lost - so the resolver honours it.
+# /wf-config stops on the same file, where the merge would concatenate two
+# mappings with no separator and let the template's value win over the user's.
+# The resolver does not also reject it: every single-fork way yq offers to count
+# documents breaks a behaviour pinned above, and a second fork would cost the
+# one-yq-fork guarantee for a file that already resolves correctly.
 @test "documents that share no key flatten into one dump" {
   local root; root="$(repo disjoint-docs)"
   config "$root" 'states:
@@ -749,10 +746,8 @@ EOF
 
 # ─── --require ─────────────────────────────────────────────────────────────
 
-# --require is the halt the five consuming skills used to spell out in thirteen
-# lines of prose each. It is opt-in: a caller that names no key cannot reach
-# exit 4, which is what lets /wf-wrap read a key without gaining a way to fail
-# after its cleanup has already run.
+# --require is opt-in: a caller that names no key cannot reach exit 4, so
+# /wf-wrap reads a key without gaining a way to fail after its cleanup has run.
 
 FULL="states:
   shaping: Shaping
@@ -961,11 +956,10 @@ EOF
 # under test reads these two files and nothing else, so building them directly
 # is both cheaper and closer to what is being tested.
 #
-# The two files are written differently on purpose, because git writes them
-# differently: `gitdir: ` in front of the pointer, nothing in front of the
-# back-reference. The trailing newline on both is load-bearing - without it
-# `read` returns 1 with the value set, and a case pins an abort instead of the
-# row it names.
+# The two files are written the way git writes them: `gitdir: ` in front of the
+# pointer, nothing in front of the back-reference. The trailing newline on both
+# is load-bearing - without it `read` returns 1 with the value set, and a case
+# pins an abort instead of the row it names.
 worktree() {
   BASE="$BATS_TEST_TMPDIR/$1/base"
   WT="$BATS_TEST_TMPDIR/$1/wt"
@@ -1330,22 +1324,18 @@ workspace:
   [ "$output" = "$(physical "$BASE")/.wf.yml" ]
 }
 
-# The only case here that does not use the script's entry point. No path a
+# One of the two cases that bypass the script's entry point. No path a
 # filesystem accepts reaches 4096 characters, so the cap is observable only by
-# lowering the constant; a fixture big enough to separate a capped read from an
-# uncapped one by wall clock is not an assertion tests/run.sh should carry
-# while it runs its files concurrently. Both halves matter - the same fixture
-# resolves at the real cap.
+# lowering the constant; timing a long fixture is not an assertion tests/run.sh
+# can carry while it runs its files concurrently. The same fixture resolves at
+# the real cap, which is the other half of the row.
 #
-# It also pins the `|| :` on both of base_clone's reads. `worktree` writes both
-# files with a trailing newline, which is why they are rewritten here without
-# one: a file with no trailing newline makes `read` return 1 with the value
-# correctly set, and that only matters under errexit. config_path runs
-# base_clone through a command substitution, where `inherit_errexit` (off by
-# default) keeps errexit from reaching in - so every other case in this file
-# exercises the tolerance with errexit already not in force. `call` and the
-# bare `bash -c` below are the two places it IS in force: removing `|| :` from
-# either read takes this case down instead of resolving cleanly.
+# It also pins the `|| :` on both of base_clone's reads. Both files are
+# rewritten here without the trailing newline `worktree` gives them, because a
+# file lacking one makes `read` return 1 with the value correctly set - and that
+# only matters under errexit. config_path runs base_clone through a command
+# substitution, where `inherit_errexit` (off by default) keeps errexit out, so
+# `call` and the bare `bash -c` below are the only places it is in force.
 @test "a pointer longer than the cap is truncated and declines, and both reads tolerate a missing trailing newline under errexit" {
   worktree capped
   printf 'gitdir: %s' "$REG" > "$WT/.git"
@@ -1396,14 +1386,12 @@ workspace:
   [[ "$output" != *"/trusted/"* ]]
 }
 
-# The disclosure the two spoof rows above rest on is one line inside a block of
-# key=value lines the skills emit. A directory name takes any byte but `/` and
-# NUL, so a resolved path can carry a control character where the pointer never
-# could. Each of the three below attacks that line differently: a newline forges
-# a second setting - `reviews_ignored=yes` under a gate that just said no - a CR
-# returns the cursor to column 0 so the forgery is what a reader sees, and an
-# ESC can erase the line outright. The guard is the whole [[:cntrl:]] class
-# rather than an enumeration, so all three are one row.
+# The disclosure is one line inside a block of key=value lines the skills emit.
+# A directory name takes any byte but `/` and NUL, so a resolved path can carry
+# a control character where the pointer never could: a newline forges a second
+# setting, a CR returns the cursor to column 0 so the forgery is what a reader
+# sees, and an ESC erases the line outright. The guard is the whole [[:cntrl:]]
+# class rather than an enumeration, so all three are one row.
 @test "a pointer through a base whose real name carries a control character does not fall back" {
   local dir="$BATS_TEST_TMPDIR/cntrl-base" byte attacker n=0
   for byte in $'\n' $'\r' $'\033'; do
@@ -1523,22 +1511,22 @@ workspace:
 }
 
 # run_bounded <snippet>: run one shell snippet under a deadline, with $RESOLVE
-# as $1 and $WT as $2, and assert it declined without blocking. A FIFO blocks
-# on open, so the guards that reject one cannot be pinned by a plain fixture:
+# as $1 and $WT as $2, and assert it declined without blocking. A FIFO blocks on
+# open, so the guards that reject one cannot be pinned by a plain fixture:
 # without them these cases would hang tests/run.sh rather than fail it. The
 # watchdog is the same background sleep-and-kill read_props uses, and it turns
 # the hang into a failure. `timeout` is not portable here.
 #
-# `set -m` puts the runner in its own process group, so the deadline's kill can
-# reach a blocking read that landed in a forked subshell one level below the
-# PID `$!` names - which is where config_path's command substitution puts it.
-# Left on past the fork, bash 3.2 (unlike 5.x non-interactive) announces the
-# job's completion on stderr, and these cases assert stderr is empty.
+# `set -m` puts the runner in its own process group, so the deadline's kill
+# reaches a blocking read that landed in a forked subshell one level below the
+# PID `$!` names - where config_path's command substitution puts it. It is
+# switched off past the fork: left on, bash 3.2 (unlike 5.x non-interactive)
+# announces the job's completion on stderr, and these cases assert stderr is
+# empty.
 #
-# Both kills are group-directed. `kill "$watchdog"` reaches the watchdog
-# subshell but not the `sleep` it is blocked in, and the orphan then holds the
-# captured output open until it expires - the success path paid the full
-# deadline, about 5 s per case, for a run that finishes in about 15 ms.
+# Both kills are group-directed. A bare `kill "$watchdog"` reaches the watchdog
+# subshell but not the `sleep` it blocks in, and that orphan holds the captured
+# output open for the rest of the deadline.
 run_bounded() {
   run --separate-stderr bash -c '
     snippet="$1"; shift
