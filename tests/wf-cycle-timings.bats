@@ -167,7 +167,9 @@ $FT"
   : > "$dir/agent-zzz.jsonl"
   call reviewers "$dir"
   [ "$status" -eq 0 ]
-  [ "$output" = "$(printf 'aaa\tAlia\nbbb\tBheem')" ]
+  # reviewer()'s transcripts are empty, so transcript_stats() is all zeros
+  # (id, name, then its seven fields unpacked) for both.
+  [ "$output" = "$(printf 'aaa\tAlia\t0\t0\t0\t0\t0\t0\t0\nbbb\tBheem\t0\t0\t0\t0\t0\t0\t0')" ]
 }
 
 @test "reviewers: a spec review roster is recognised too" {
@@ -175,7 +177,7 @@ $FT"
   mkdir -p "$dir"
   reviewer "$dir" aaa Cristo Spec
   call reviewers "$dir"
-  [ "$output" = "$(printf 'aaa\tCristo')" ]
+  [ "$output" = "$(printf 'aaa\tCristo\t0\t0\t0\t0\t0\t0\t0')" ]
 }
 
 @test "reviewers: roster is ordered by transcript start time, not by agent id" {
@@ -189,7 +191,10 @@ $FT"
   rec 600 user "opening prompt" > "$dir/agent-aaa.jsonl"
   call reviewers "$dir"
   [ "$status" -eq 0 ]
-  [ "$output" = "$(printf 'zzz\tZoe\naaa\tAmir')" ]
+  # Each transcript is one record with no follow-through, so read_only=0 (its
+  # own single timestamp), start=end=that timestamp, ft=0.
+  [ "$output" = "$(printf 'zzz\tZoe\t0\t0\t0\t0\t%d\t%d\t0\naaa\tAmir\t0\t0\t0\t0\t%d\t%d\t0' \
+    "$(epoch 0)" "$(epoch 0)" "$(epoch 600)" "$(epoch 600)")" ]
 }
 
 @test "fmt_duration renders minutes and zero-padded seconds" {
@@ -322,6 +327,50 @@ $FT"
   nested_agent "$dir" n1 aaa "Late but still read-only" 1700 1750
   call nested "$dir" aaa "$ft"
   [ "$output" = "$(printf 'Late but still read-only\t50\tread-only')" ]
+}
+
+@test "nested_by_parent: one pass returns every depth-2 agent's parent, description, duration and start" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  two_round_cycle "$dir"
+  call nested_by_parent "$dir"
+  [ "$status" -eq 0 ]
+  local expected
+  expected="$(
+    printf 'aaa\tDigest prior reviews\t60\t%d\n' "$(epoch 400)"
+    printf 'bbb\tRecheck the suite\t100\t%d' "$(epoch 1600)"
+  )"
+  [ "$output" = "$expected" ] || fail "nested_by_parent() output drifted:
+$output"
+}
+
+# ─── a tool result echoing the follow-through text is not the real thing ──
+#
+# Reading either review SKILL.md during read-only review - which the opening
+# prompt explicitly asks for, and which reviewing this file's own diff
+# requires - returns that file's content as a tool result. Both SKILL.md files
+# document the follow-through prompt verbatim, marker text included, so the
+# echoed content contains $FOLLOWTHROUGH_MARKER too. A tool result lands as a
+# "type":"user" record whose message.content is an array of content blocks,
+# never a bare string - only a real coordinator interjection is a plain
+# string, which is the distinction stamps() keys on.
+
+@test "a tool result containing the follow-through marker is not mistaken for the real follow-through" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  mkdir -p "$dir"
+  {
+    rec 0 user "opening prompt"
+    rec 60 assistant
+    jq -cn --arg t "$(iso 65)" --arg c "$FT" \
+      '{timestamp:$t, type:"user", message:{content:[{type:"tool_result", content:$c}]}}'
+    rec 3600 assistant
+    rec 4000 assistant
+  } > "$dir/agent-xxx.jsonl"
+  call phases "$dir/agent-xxx.jsonl"
+  [ "$status" -eq 0 ]
+  # Read-only spans the whole run, exactly as if the tool result had never
+  # happened - the marker text inside an array-shaped content block does not
+  # count.
+  [ "$output" = "4000 0 4000 0" ]
 }
 
 @test "the human-readable summary splits nested spawns by phase" {

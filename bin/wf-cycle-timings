@@ -68,16 +68,24 @@ subagents_dir() {
   fi
 }
 
-# reviewers <subagents-dir>: "id<TAB>name" per depth-1 review agent, ordered by
-# the start of its transcript so the roster reads in cycle order. Refuses a
-# directory whose depth-1 review agents mix "Impl review:" and "Spec review:"
-# prefixes: /wf-spec-review and /wf-impl-review for the same ticket can both
-# run inside one continuous session (spec review, then "you implement", then
-# impl review, per WORKFLOW.md), and without this check the two cycles'
-# rosters silently merge into one with reviewer names repeated and span/gap
-# numbers that span both cycles - wrong, but not visibly so.
+# reviewers <subagents-dir>: "id<TAB>name<TAB>read_only<TAB>follow<TAB>total<TAB>
+# turnaround<TAB>start<TAB>end<TAB>ft" per depth-1 review agent (the last seven
+# fields are transcript_stats()'s own output, unpacked), ordered by the start
+# of its transcript so the roster reads in cycle order. main() reads these
+# fields directly instead of calling transcript_stats() again per reviewer -
+# sorting the roster already requires a full transcript_stats() pass per
+# candidate for its start-time sort key, so carrying the rest of that same
+# call's output forward is free; recomputing it in main() afterward was not
+# (measured: ~0.45s for one transcript_stats() pass over a 20,000-line
+# transcript, ~0.78s for the two passes this used to cost per reviewer).
+# Refuses a directory whose depth-1 review agents mix "Impl review:" and
+# "Spec review:" prefixes: /wf-spec-review and /wf-impl-review for the same
+# ticket can both run inside one continuous session (spec review, then "you
+# implement", then impl review, per WORKFLOW.md), and without this check the
+# two cycles' rosters silently merge into one with reviewer names repeated and
+# span/gap numbers that span both cycles - wrong, but not visibly so.
 reviewers() {
-  local meta id name_kind kind name rows
+  local meta id name_kind kind name stats start rows
   rows="$(
     for meta in "$1"/agent-*.meta.json; do
       [ -e "$meta" ] || continue
@@ -90,7 +98,9 @@ reviewers() {
       [ -n "$name_kind" ] || continue
       kind="${name_kind%%$'\t'*}"
       name="${name_kind#*$'\t'}"
-      printf '%s\t%s\t%s\t%s\n' "$(bounds "$1/agent-$id.jsonl" | cut -d' ' -f1)" "$id" "$name" "$kind"
+      stats="$(transcript_stats "$1/agent-$id.jsonl")"
+      start="$(printf '%s\n' "$stats" | cut -d' ' -f5)"
+      printf '%s\t%s\t%s\t%s\t%s\n' "$start" "$id" "$name" "$kind" "${stats// /$'\t'}"
     done
   )"
   [ -n "$rows" ] || return 0
@@ -100,7 +110,7 @@ reviewers() {
   [ "$kind_count" -le 1 ] || \
     die "found both Impl review and Spec review agents under $1 - point this at one cycle's subagents directory; a session that ran both isn't one cycle"
 
-  printf '%s\n' "$rows" | sort -n | cut -f2,3
+  printf '%s\n' "$rows" | sort -n | cut -f2,3,5-11
 }
 
 # stamps <jsonl>: "<epoch>\t<ft|->" per timestamped record. Lines are parsed
@@ -112,8 +122,21 @@ reviewers() {
 # usable timestamp cannot contribute to a min or max either way, so both cases
 # fail silently rather than one of them printing a jq error every time
 # transcript_stats() reads a transcript - phases(), bounds(), followthrough(),
-# reviewers(), and main() all go through it, and stamps() itself has exactly
+# and reviewers() all go through it (main() reads reviewers()'s output instead
+# of calling transcript_stats() again itself), and stamps() itself has exactly
 # one caller now.
+#
+# The follow-through match requires `.message.content` to be a plain string,
+# not just a `.type == "user"` record containing the marker. A tool result
+# (reading either review SKILL.md, which documents this exact marker text
+# verbatim in its follow-through prompt) is also recorded as `.type == "user"`,
+# but its content is an array of content blocks, never a bare string - only a
+# real coordinator interjection lands as a plain string. Without the type
+# check, a reviewer that reads either SKILL.md during read-only review - which
+# it is explicitly told to do, and which reviewing changes to this file
+# requires - gets that text echoed back into its own transcript and this
+# script mistakes it for the actual follow-through, landing on whichever comes
+# first.
 stamps() {
   [ -f "$1" ] || return 0
   jq -R -r --arg m "$FOLLOWTHROUGH_MARKER" '
@@ -121,7 +144,8 @@ stamps() {
     | select(.timestamp != null)
     | ((.timestamp | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601?) | tostring) as $t
     | if (.type == "user")
-         and (((.message.content // "") | tostring) | contains($m))
+         and ((.message.content | type) == "string")
+         and (.message.content | contains($m))
       then $t + "\tft"
       else $t + "\t-"
       end' "$1"
@@ -132,7 +156,7 @@ stamps() {
 # followthrough() below each slice a piece out of this instead of running
 # their own `awk` over the same stream, so the boundary logic (where read-only
 # ends, where a nested spawn's phase splits) exists in exactly one place -
-# main()'s per-reviewer loop calls this directly for all seven values at once,
+# reviewers() calls this directly for all seven values at once per candidate,
 # the reason it exists in this shape rather than as a fourth standalone
 # function.
 transcript_stats() {
@@ -160,8 +184,8 @@ phases() {
   transcript_stats "$1" | cut -d' ' -f1-4
 }
 
-# bounds <jsonl>: "<start-epoch> <end-epoch>", for the inter-round gaps and for
-# reviewers()'s sort key.
+# bounds <jsonl>: "<start-epoch> <end-epoch>", for nested_by_parent()'s and
+# nested()'s duration/phase math.
 bounds() {
   transcript_stats "$1" | cut -d' ' -f5-6
 }
@@ -180,6 +204,9 @@ followthrough() {
 # read-only bear on acceptance criterion 7. A parent that never received a
 # follow-through is passed 0 and has no follow phase for a child to land in,
 # so everything under it is read-only - which is how phases() reads it too.
+# Kept as its own single-parent entry point for standalone callers and the
+# tests pinned to this exact shape; main() calls nested_by_parent() instead,
+# for the reason given there.
 nested() {
   local meta id desc b start phase
   for meta in "$1"/agent-*.meta.json; do
@@ -189,12 +216,14 @@ nested() {
       then (.description // "(no description)")
       else empty end' "$meta" 2>/dev/null || true)"
     [ -n "$desc" ] || continue
-    # A tab or newline here would corrupt the TSV row below. This is a
-    # sub-agent's own free-text description, and nested() exists precisely to
-    # surface sub-agents that already broke a rule (the no-nested-spawns one),
-    # so it's the wrong population to trust to be well-formed.
+    # A tab, newline or carriage return here would corrupt (or, for \r,
+    # visually mangle) the TSV row below. This is a sub-agent's own free-text
+    # description, and nested() exists precisely to surface sub-agents that
+    # already broke a rule (the no-nested-spawns one), so it's the wrong
+    # population to trust to be well-formed.
     desc="${desc//$'\t'/ }"
     desc="${desc//$'\n'/ }"
+    desc="${desc//$'\r'/ }"
     id="${meta##*/agent-}"
     id="${id%.meta.json}"
     b="$(bounds "$1/agent-$id.jsonl")"
@@ -202,6 +231,42 @@ nested() {
     phase=read-only
     if [ "${3:-0}" -gt 0 ] && [ "$start" -ge "${3:-0}" ]; then phase=follow; fi
     printf '%s\t%d\t%s\n' "$desc" "$(( ${b#* } - start ))" "$phase"
+  done
+}
+
+# nested_by_parent <subagents-dir>: "parent<TAB>description<TAB>duration<TAB>
+# start" per depth-2 agent under any parent, from one pass over
+# agent-*.meta.json. nested() takes one parent id and is called once per
+# reviewer in main()'s loop; since it re-globs and re-parses every meta file
+# in the directory on every call, that cost is reviewers x total-agents in the
+# directory, not just total-agents - and the directory can hold far more than
+# this cycle's own reviewers, since a long-lived session accumulates every
+# sub-agent it ever spawned. Measured against 4 reviewers plus 300 unrelated
+# agents (604 meta files, a plausible count for a busy long-lived session):
+# calling nested() once per reviewer cost 5.8s wall-clock; this single pass is
+# what main() calls instead, with the per-reviewer filter done in memory
+# against its output rather than against the filesystem again.
+nested_by_parent() {
+  local meta id parent_desc parent desc b start
+  for meta in "$1"/agent-*.meta.json; do
+    [ -e "$meta" ] || continue
+    parent_desc="$(jq -r '
+      if (.spawnDepth == 2)
+      then [(.parentAgentId // ""), (.description // "(no description)")] | @tsv
+      else empty end' "$meta" 2>/dev/null || true)"
+    [ -n "$parent_desc" ] || continue
+    parent="${parent_desc%%$'\t'*}"
+    [ -n "$parent" ] || continue
+    # @tsv already escapes tabs/newlines within desc as literal backslash
+    # sequences rather than leaving raw control characters in place, so this
+    # row's own tab-delimited grammar cannot be corrupted the way nested()'s
+    # manual sanitization above guards against.
+    desc="${parent_desc#*$'\t'}"
+    id="${meta##*/agent-}"
+    id="${id%.meta.json}"
+    b="$(bounds "$1/agent-$id.jsonl")"
+    start="${b%% *}"
+    printf '%s\t%s\t%d\t%d\n' "$parent" "$desc" "$(( ${b#* } - start ))" "$start"
   done
 }
 
@@ -226,20 +291,13 @@ main() {
   roster="$(reviewers "$dir")"
   [ -n "$roster" ] || die "no reviewer transcript found under $dir"
 
-  local id name s ro fo to tu st en ft
+  local id name ro fo to tu st en ft
   local sum_ro=0 sum_fo=0 span_start=0 span_end=0 first=1
-  local -a names=() ros=() fos=() tos=() tus=() starts=() ends=() fts=()
+  local -a ids=() names=() ros=() fos=() tos=() tus=() starts=() ends=() fts=()
 
-  while IFS="$(printf '\t')" read -r id name; do
+  while IFS="$(printf '\t')" read -r id name ro fo to tu st en ft; do
     [ -n "$id" ] || continue
-    s="$(transcript_stats "$dir/agent-$id.jsonl")"
-    ro="${s%% *}"; s="${s#* }"
-    fo="${s%% *}"; s="${s#* }"
-    to="${s%% *}"; s="${s#* }"
-    tu="${s%% *}"; s="${s#* }"
-    st="${s%% *}"; s="${s#* }"
-    en="${s%% *}"; ft="${s#* }"
-    names+=("$name"); ros+=("$ro"); fos+=("$fo"); tos+=("$to"); tus+=("$tu")
+    ids+=("$id"); names+=("$name"); ros+=("$ro"); fos+=("$fo"); tos+=("$to"); tus+=("$tu")
     starts+=("$st"); ends+=("$en"); fts+=("$ft")
     sum_ro=$(( sum_ro + ro )); sum_fo=$(( sum_fo + fo ))
     if [ "$first" -eq 1 ] || [ "$st" -lt "$span_start" ]; then span_start="$st"; fi
@@ -272,6 +330,12 @@ EOF
     echo
   fi
 
+  # One pass over the directory for every reviewer's nested spawns, instead of
+  # nested()'s one call per reviewer - see nested_by_parent()'s own comment.
+  # Each reviewer's rows are then just filtered out of this in-memory result.
+  local all_nested
+  all_nested="$(nested_by_parent "$dir")"
+
   local ro_count=0 ro_nested=0 fo_count=0 fo_nested=0 desc dur phase
   for (( i = 0; i < ${#names[@]}; i++ )); do
     while IFS="$(printf '\t')" read -r desc dur phase; do
@@ -288,7 +352,12 @@ EOF
           "${names[i]}" "$desc" "$phase" "$(fmt_duration "$dur")"
       fi
     done <<EOF
-$(nested "$dir" "$(printf '%s\n' "$roster" | awk -F'\t' -v n="${names[i]}" '$2 == n { print $1 }')" "${fts[i]}")
+$(printf '%s\n' "$all_nested" | awk -F'\t' -v p="${ids[i]}" -v ft="${fts[i]}" '
+  $1 == p {
+    phase = "read-only"
+    if (ft > 0 && $4 >= ft) phase = "follow"
+    print $2 "\t" $3 "\t" phase
+  }')
 EOF
   done
 
