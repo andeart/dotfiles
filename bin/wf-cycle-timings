@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+#
+# Report per-reviewer phase timings for a wf-impl-review or wf-spec-review
+# cycle.
+#
+# Reads only the reviewer sub-agent transcripts under a session's subagents/
+# directory. It never reads the coordinator transcript, and neither review
+# skill ever invokes it, so running this cannot appear in the numbers it
+# reports. That immunity is the reason the tool exists in this shape rather
+# than as a step inside the cycle.
+#
+# Usage: wf-cycle-timings [--porcelain] <session-dir | subagents-dir>
+#
+# Exit codes:
+#   0   timings printed for at least one reviewer.
+#   2   a usage error, or no reviewer transcript found.
+
+set -euo pipefail
+
+# The follow-through prompt's opening words, as they appear in both
+# agents/skills/wf-impl-review/SKILL.md and agents/skills/wf-spec-review/SKILL.md.
+# tests/wf-cycle-timings.bats pins this against both files: a reworded
+# follow-through must change here too, or every phase split silently becomes
+# the whole run.
+FOLLOWTHROUGH_MARKER="You're not obligated to, but you can now "
+
+usage() {
+  cat <<'EOF'
+Usage: wf-cycle-timings [--porcelain] <session-dir | subagents-dir>
+
+Report per-reviewer read-only and follow-through timings for one review cycle.
+
+  --porcelain   Tab-separated output for scripts. Row types:
+                  reviewer <name> <read_only_s> <follow_s> <total_s> <turnaround_s>
+                  nested   <parent> <description> <duration_s> <phase>
+                  gap      <from> <to> <seconds>
+                  totals   <read_only_s> <follow_s> <active_s> <span_s> <gaps_s>
+  --help        This text.
+
+Coordinator turnaround - the wait between a reviewer's last output and the
+follow-through arriving - is reported separately and counted in neither phase.
+EOF
+}
+
+die() {
+  echo "wf-cycle-timings: $1" >&2
+  exit "${2:-2}"
+}
+
+# fmt_duration <seconds>: NmSSs, e.g. 227 -> 3m47s.
+fmt_duration() {
+  printf '%dm%02ds\n' $(( $1 / 60 )) $(( $1 % 60 ))
+}
+
+# subagents_dir <path>: echo the subagents directory for a session dir, or the
+# path itself when it already is one.
+subagents_dir() {
+  if [ -d "$1/subagents" ]; then
+    printf '%s\n' "$1/subagents"
+  elif [ -d "$1" ]; then
+    printf '%s\n' "$1"
+  else
+    die "not a directory: $1"
+  fi
+}
+
+# reviewers <subagents-dir>: "id<TAB>name" per depth-1 review agent, ordered by
+# the start of its transcript so the roster reads in cycle order.
+reviewers() {
+  local meta id name
+  for meta in "$1"/agent-*.meta.json; do
+    [ -e "$meta" ] || continue
+    id="${meta##*/agent-}"
+    id="${id%.meta.json}"
+    name="$(jq -r '
+      if (.spawnDepth == 1) and (.description | test("^(Impl|Spec) review: "))
+      then (.description | sub("^(Impl|Spec) review: "; ""))
+      else empty end' "$meta" 2>/dev/null || true)"
+    if [ -n "$name" ]; then printf '%s\t%s\n' "$id" "$name"; fi
+  done | sort
+}
+
+# stamps <jsonl>: "<epoch>\t<ft|->" per timestamped record. Lines are parsed
+# one at a time with `fromjson?` so an unparseable line is skipped rather than
+# aborting the stream - a transcript can carry a truncated line if the session
+# was interrupted, and losing every record after it would silently shorten the
+# phase it lands in.
+stamps() {
+  [ -f "$1" ] || return 0
+  jq -R -r --arg m "$FOLLOWTHROUGH_MARKER" '
+    fromjson?
+    | select(.timestamp != null)
+    | ((.timestamp | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) | tostring) as $t
+    | if (.type == "user")
+         and (((.message.content // "") | tostring) | contains($m))
+      then $t + "\tft"
+      else $t + "\t-"
+      end' "$1"
+}
+
+# phases <jsonl>: "read_only follow total turnaround", integer seconds.
+phases() {
+  stamps "$1" | awk -F'\t' '
+    { t[NR] = $1 + 0; f[NR] = $2 }
+    END {
+      if (NR == 0) { print "0 0 0 0"; exit }
+      start = t[1]; end = t[1]; haveft = 0
+      for (i = 1; i <= NR; i++) {
+        if (t[i] < start) start = t[i]
+        if (t[i] > end)   end   = t[i]
+        if (f[i] == "ft" && (!haveft || t[i] < ft)) { ft = t[i]; haveft = 1 }
+      }
+      if (!haveft) { printf "%d 0 %d 0\n", end - start, end - start; exit }
+      roend = start
+      for (i = 1; i <= NR; i++) if (t[i] < ft && t[i] > roend) roend = t[i]
+      printf "%d %d %d %d\n", roend - start, end - ft, end - start, ft - roend
+    }'
+}
+
+# bounds <jsonl>: "<start-epoch> <end-epoch>", for the inter-round gaps.
+bounds() {
+  stamps "$1" | awk -F'\t' '
+    { t = $1 + 0; if (NR == 1 || t < s) s = t; if (NR == 1 || t > e) e = t }
+    END { if (NR == 0) print "0 0"; else printf "%d %d\n", s, e }'
+}
+
+# nested <subagents-dir> <parent-id>: "description<TAB>duration" per depth-2
+# agent under that parent. Reviewers are told not to spawn these; this is how
+# we find out whether that held.
+nested() {
+  local meta id desc b
+  for meta in "$1"/agent-*.meta.json; do
+    [ -e "$meta" ] || continue
+    desc="$(jq -r --arg p "$2" '
+      if (.spawnDepth == 2) and (.parentAgentId == $p)
+      then (.description // "(no description)")
+      else empty end' "$meta" 2>/dev/null || true)"
+    [ -n "$desc" ] || continue
+    id="${meta##*/agent-}"
+    id="${id%.meta.json}"
+    b="$(bounds "$1/agent-$id.jsonl")"
+    printf '%s\t%d\n' "$desc" "$(( ${b#* } - ${b%% *} ))"
+  done
+}
+
+main() {
+  local porcelain=0 target=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --porcelain) porcelain=1 ;;
+      --help|-h)   usage; exit 0 ;;
+      -*)          usage >&2; die "unknown option: $1" ;;
+      *)           [ -n "$target" ] && { usage >&2; die "more than one path given"; }
+                   target="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$target" ] || { usage >&2; exit 2; }
+
+  local dir
+  dir="$(subagents_dir "$target")"
+
+  local roster
+  roster="$(reviewers "$dir")"
+  [ -n "$roster" ] || die "no reviewer transcript found under $dir"
+
+  local id name p ro fo to tu b
+  local sum_ro=0 sum_fo=0 span_start=0 span_end=0 first=1
+  local -a names=() ros=() fos=() tos=() tus=() starts=() ends=()
+
+  while IFS="$(printf '\t')" read -r id name; do
+    [ -n "$id" ] || continue
+    p="$(phases "$dir/agent-$id.jsonl")"
+    ro="${p%% *}"; p="${p#* }"
+    fo="${p%% *}"; p="${p#* }"
+    to="${p%% *}"; tu="${p#* }"
+    b="$(bounds "$dir/agent-$id.jsonl")"
+    names+=("$name"); ros+=("$ro"); fos+=("$fo"); tos+=("$to"); tus+=("$tu")
+    starts+=("${b%% *}"); ends+=("${b#* }")
+    sum_ro=$(( sum_ro + ro )); sum_fo=$(( sum_fo + fo ))
+    if [ "$first" -eq 1 ] || [ "${b%% *}" -lt "$span_start" ]; then span_start="${b%% *}"; fi
+    if [ "$first" -eq 1 ] || [ "${b#* }" -gt "$span_end" ]; then span_end="${b#* }"; fi
+    first=0
+  done <<EOF
+$roster
+EOF
+
+  local active=$(( sum_ro + sum_fo ))
+  local span=$(( span_end - span_start ))
+  local i gaps=0 g
+  for (( i = 1; i < ${#names[@]}; i++ )); do
+    g=$(( starts[i] - ends[i-1] ))
+    [ "$g" -gt 0 ] && gaps=$(( gaps + g ))
+  done
+
+  if [ "$porcelain" -eq 1 ]; then
+    for (( i = 0; i < ${#names[@]}; i++ )); do
+      printf 'reviewer\t%s\t%d\t%d\t%d\t%d\n' \
+        "${names[i]}" "${ros[i]}" "${fos[i]}" "${tos[i]}" "${tus[i]}"
+    done
+  else
+    printf '%-10s %8s %9s %9s %11s\n' Name review follow total turnaround
+    for (( i = 0; i < ${#names[@]}; i++ )); do
+      printf '%-10s %8s %9s %9s %11s\n' "${names[i]}" \
+        "$(fmt_duration "${ros[i]}")" "$(fmt_duration "${fos[i]}")" \
+        "$(fmt_duration "${tos[i]}")" "$(fmt_duration "${tus[i]}")"
+    done
+    echo
+  fi
+
+  local total_nested=0 nested_count=0 line desc dur
+  for (( i = 0; i < ${#names[@]}; i++ )); do
+    while IFS="$(printf '\t')" read -r desc dur; do
+      [ -n "$desc" ] || continue
+      nested_count=$(( nested_count + 1 ))
+      total_nested=$(( total_nested + dur ))
+      if [ "$porcelain" -eq 1 ]; then
+        printf 'nested\t%s\t%s\t%d\tread-only\n' "${names[i]}" "$desc" "$dur"
+      else
+        printf '  nested: %-10s %-34s %8s\n' "${names[i]}" "$desc" "$(fmt_duration "$dur")"
+      fi
+    done <<EOF
+$(nested "$dir" "$(printf '%s\n' "$roster" | awk -F'\t' -v n="${names[i]}" '$2 == n { print $1 }')")
+EOF
+  done
+
+  for (( i = 1; i < ${#names[@]}; i++ )); do
+    g=$(( starts[i] - ends[i-1] ))
+    [ "$g" -gt 0 ] || continue
+    if [ "$porcelain" -eq 1 ]; then
+      printf 'gap\t%s\t%s\t%d\n' "${names[i-1]}" "${names[i]}" "$g"
+    fi
+  done
+
+  if [ "$porcelain" -eq 1 ]; then
+    printf 'totals\t%d\t%d\t%d\t%d\t%d\n' "$sum_ro" "$sum_fo" "$active" "$span" "$gaps"
+  else
+    local pct=0
+    [ "$active" -gt 0 ] && pct=$(( sum_ro * 1000 / active ))
+    printf 'read-only  %s (%d.%d%%)\n' "$(fmt_duration "$sum_ro")" $(( pct / 10 )) $(( pct % 10 ))
+    printf 'follow     %s\n' "$(fmt_duration "$sum_fo")"
+    printf 'active     %s\n' "$(fmt_duration "$active")"
+    printf 'span       %s\n' "$(fmt_duration "$span")"
+    printf 'gaps       %s across %d\n' "$(fmt_duration "$gaps")" $(( ${#names[@]} - 1 ))
+    printf 'nested     %d spawn(s), %s\n' "$nested_count" "$(fmt_duration "$total_nested")"
+  fi
+}
+
+# Sourced with _WF_CYCLE_TIMINGS_LIB_ONLY=1 (by tests): define functions and
+# stop before parsing args or reading a transcript.
+if [ -n "${_WF_CYCLE_TIMINGS_LIB_ONLY:-}" ]; then
+  return 0 2>/dev/null || exit 0
+fi
+
+main "$@"
