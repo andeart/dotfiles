@@ -32,7 +32,7 @@ Report per-reviewer read-only and follow-through timings for one review cycle.
 
   --porcelain   Tab-separated output for scripts. Row types:
                   reviewer <name> <read_only_s> <follow_s> <total_s> <turnaround_s>
-                  nested   <parent> <description> <duration_s> <phase>
+                  nested   <parent> <description> <duration_s> <read-only|follow>
                   gap      <from> <to> <seconds>
                   totals   <read_only_s> <follow_s> <active_s> <span_s> <gaps_s>
   --help        This text.
@@ -86,7 +86,9 @@ reviewers() {
 # one at a time with `fromjson?` so an unparseable line is skipped rather than
 # aborting the stream - a transcript can carry a truncated line if the session
 # was interrupted, and losing every record after it would silently shorten the
-# phase it lands in.
+# phase it lands in. A well-formed line whose `timestamp` value is not an ISO
+# date takes the other path: jq reports it on stderr and reads on, so that
+# record is dropped too but noisily rather than silently.
 stamps() {
   [ -f "$1" ] || return 0
   jq -R -r --arg m "$FOLLOWTHROUGH_MARKER" '
@@ -126,11 +128,24 @@ bounds() {
     END { if (NR == 0) print "0 0"; else printf "%d %d\n", s, e }'
 }
 
-# nested <subagents-dir> <parent-id>: "description<TAB>duration" per depth-2
-# agent under that parent. Reviewers are told not to spawn these; this is how
-# we find out whether that held.
+# followthrough <jsonl>: the epoch the follow-through prompt arrived at, or 0
+# when none did. phases() finds the same instant to split the two phases; this
+# hands it out so a nested spawn can be placed on the right side of it.
+followthrough() {
+  stamps "$1" | awk -F'\t' '
+    $2 == "ft" { t = $1 + 0; if (!have || t < ft) { ft = t; have = 1 } }
+    END { printf "%d\n", (have ? ft : 0) }'
+}
+
+# nested <subagents-dir> <parent-id> <parent-followthrough-epoch>:
+# "description<TAB>duration<TAB>phase" per depth-2 agent under that parent.
+# Reviewers are told not to spawn these; this is how we find out whether that
+# held. The phase is where the child started, since only spawns during
+# read-only bear on acceptance criterion 7. A parent that never received a
+# follow-through is passed 0 and has no follow phase for a child to land in,
+# so everything under it is read-only - which is how phases() reads it too.
 nested() {
-  local meta id desc b
+  local meta id desc b start phase
   for meta in "$1"/agent-*.meta.json; do
     [ -e "$meta" ] || continue
     desc="$(jq -r --arg p "$2" '
@@ -141,7 +156,10 @@ nested() {
     id="${meta##*/agent-}"
     id="${id%.meta.json}"
     b="$(bounds "$1/agent-$id.jsonl")"
-    printf '%s\t%d\n' "$desc" "$(( ${b#* } - ${b%% *} ))"
+    start="${b%% *}"
+    phase=read-only
+    if [ "${3:-0}" -gt 0 ] && [ "$start" -ge "${3:-0}" ]; then phase=follow; fi
+    printf '%s\t%d\t%s\n' "$desc" "$(( ${b#* } - start ))" "$phase"
   done
 }
 
@@ -168,7 +186,7 @@ main() {
 
   local id name p ro fo to tu b
   local sum_ro=0 sum_fo=0 span_start=0 span_end=0 first=1
-  local -a names=() ros=() fos=() tos=() tus=() starts=() ends=()
+  local -a names=() ros=() fos=() tos=() tus=() starts=() ends=() fts=()
 
   while IFS="$(printf '\t')" read -r id name; do
     [ -n "$id" ] || continue
@@ -179,6 +197,7 @@ main() {
     b="$(bounds "$dir/agent-$id.jsonl")"
     names+=("$name"); ros+=("$ro"); fos+=("$fo"); tos+=("$to"); tus+=("$tu")
     starts+=("${b%% *}"); ends+=("${b#* }")
+    fts+=("$(followthrough "$dir/agent-$id.jsonl")")
     sum_ro=$(( sum_ro + ro )); sum_fo=$(( sum_fo + fo ))
     if [ "$first" -eq 1 ] || [ "${b%% *}" -lt "$span_start" ]; then span_start="${b%% *}"; fi
     if [ "$first" -eq 1 ] || [ "${b#* }" -gt "$span_end" ]; then span_end="${b#* }"; fi
@@ -210,19 +229,23 @@ EOF
     echo
   fi
 
-  local total_nested=0 nested_count=0 line desc dur
+  local ro_count=0 ro_nested=0 fo_count=0 fo_nested=0 desc dur phase
   for (( i = 0; i < ${#names[@]}; i++ )); do
-    while IFS="$(printf '\t')" read -r desc dur; do
+    while IFS="$(printf '\t')" read -r desc dur phase; do
       [ -n "$desc" ] || continue
-      nested_count=$(( nested_count + 1 ))
-      total_nested=$(( total_nested + dur ))
-      if [ "$porcelain" -eq 1 ]; then
-        printf 'nested\t%s\t%s\t%d\tread-only\n' "${names[i]}" "$desc" "$dur"
+      if [ "$phase" = "read-only" ]; then
+        ro_count=$(( ro_count + 1 )); ro_nested=$(( ro_nested + dur ))
       else
-        printf '  nested: %-10s %-34s %8s\n' "${names[i]}" "$desc" "$(fmt_duration "$dur")"
+        fo_count=$(( fo_count + 1 )); fo_nested=$(( fo_nested + dur ))
+      fi
+      if [ "$porcelain" -eq 1 ]; then
+        printf 'nested\t%s\t%s\t%d\t%s\n' "${names[i]}" "$desc" "$dur" "$phase"
+      else
+        printf '  nested: %-10s %-34s %-9s %8s\n' \
+          "${names[i]}" "$desc" "$phase" "$(fmt_duration "$dur")"
       fi
     done <<EOF
-$(nested "$dir" "$(printf '%s\n' "$roster" | awk -F'\t' -v n="${names[i]}" '$2 == n { print $1 }')")
+$(nested "$dir" "$(printf '%s\n' "$roster" | awk -F'\t' -v n="${names[i]}" '$2 == n { print $1 }')" "${fts[i]}")
 EOF
   done
 
@@ -244,7 +267,9 @@ EOF
     printf 'active     %s\n' "$(fmt_duration "$active")"
     printf 'span       %s\n' "$(fmt_duration "$span")"
     printf 'gaps       %s across %d\n' "$(fmt_duration "$gaps")" $(( ${#names[@]} - 1 ))
-    printf 'nested     %d spawn(s), %s\n' "$nested_count" "$(fmt_duration "$total_nested")"
+    printf 'nested     read-only %d spawn(s), %s; follow %d spawn(s), %s\n' \
+      "$ro_count" "$(fmt_duration "$ro_nested")" \
+      "$fo_count" "$(fmt_duration "$fo_nested")"
   fi
 }
 

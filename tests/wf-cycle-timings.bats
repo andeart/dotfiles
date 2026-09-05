@@ -14,6 +14,12 @@ call() {
   run bash -c '_WF_CYCLE_TIMINGS_LIB_ONLY=1 source "$0"; "$@"' "$TIMINGS" "$@"
 }
 
+# capture <fn> [args...]: the same, but returning the output for use as an
+# argument to another function rather than through $output.
+capture() {
+  bash -c '_WF_CYCLE_TIMINGS_LIB_ONLY=1 source "$0"; "$@"' "$TIMINGS" "$@"
+}
+
 # iso <offset-seconds>: a UTC timestamp that many seconds after a fixed epoch,
 # in the millisecond-bearing form the real transcripts use. The fractional part
 # is deliberate - fromdateiso8601 rejects it, so every fixture exercises the
@@ -54,7 +60,8 @@ $FT"
   # read-only 900, follow 373, total 1500, turnaround 227.
   # The 227s between the reviewer's last output and the follow-through is
   # coordinator turnaround and belongs to neither phase - this is the Darius
-  # case that makes the baseline 84m55s rather than 80m19s.
+  # case that keeps the baseline at 80m19s. Folding turnaround into read-only
+  # instead is what produced the discarded 84m55s figure.
   [ "$output" = "900 373 1500 227" ]
 }
 
@@ -164,6 +171,117 @@ $FT"
 @test "no arguments is a usage error" {
   run "$TIMINGS"
   [ "$status" -eq 2 ]
+}
+
+# nested_agent <dir> <id> <parent> <description> <start> <end>: a depth-2
+# agent under one reviewer, with a transcript spanning those two offsets.
+nested_agent() {
+  jq -cn --arg d "$4" --arg p "$3" \
+    '{agentType:"general-purpose", description:$d, spawnDepth:2, parentAgentId:$p}' \
+    > "$1/agent-$2.meta.json"
+  { rec "$5" user "go"; rec "$6" assistant; } > "$1/agent-$2.jsonl"
+}
+
+# two_round_cycle <dir>: two reviewers, one nested spawn on each side of the
+# follow-through, and one inter-round gap between them. Every duration is
+# distinct, so no field of a porcelain row can come out right by coincidence.
+#
+#   Alia   0 .. 600 read-only, follow-through at 700, 1000 last  (gap 120)
+#     nested 400 .. 460, before her follow-through
+#   Bheem  1120 .. 1400 read-only, follow-through at 1500, 1800 last
+#     nested 1600 .. 1700, after his
+two_round_cycle() {
+  mkdir -p "$1"
+  reviewer "$1" aaa Alia Impl
+  reviewer "$1" bbb Bheem Impl
+  {
+    rec 0 user "opening prompt"
+    rec 300 assistant
+    rec 600 assistant
+    rec 700 user "The coordinator sent a message while you were working:
+$FT"
+    rec 1000 assistant
+  } > "$1/agent-aaa.jsonl"
+  {
+    rec 1120 user "opening prompt"
+    rec 1400 assistant
+    rec 1500 user "The coordinator sent a message while you were working:
+$FT"
+    rec 1800 assistant
+  } > "$1/agent-bbb.jsonl"
+  nested_agent "$1" n1 aaa "Digest prior reviews" 400 460
+  nested_agent "$1" n2 bbb "Recheck the suite" 1600 1700
+}
+
+@test "--porcelain emits every row type, with each nested spawn in its own phase" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  two_round_cycle "$dir"
+  run "$TIMINGS" --porcelain "$dir"
+  [ "$status" -eq 0 ]
+  local expected
+  expected="$(
+    printf 'reviewer\t%s\t%d\t%d\t%d\t%d\n' Alia 600 300 1000 100
+    printf 'reviewer\t%s\t%d\t%d\t%d\t%d\n' Bheem 280 300 680 100
+    printf 'nested\t%s\t%s\t%d\t%s\n' Alia 'Digest prior reviews' 60 read-only
+    printf 'nested\t%s\t%s\t%d\t%s\n' Bheem 'Recheck the suite' 100 follow
+    printf 'gap\t%s\t%s\t%d\n' Alia Bheem 120
+    printf 'totals\t%d\t%d\t%d\t%d\t%d\n' 880 600 1480 1800 120
+  )"
+  [ "$output" = "$expected" ] || fail "porcelain output drifted:
+$output"
+}
+
+@test "a nested spawn's phase follows the parent's follow-through, not a constant" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  mkdir -p "$dir"
+  reviewer "$dir" aaa Alia Impl
+  {
+    rec 0 user "opening prompt"
+    rec 600 assistant
+    rec 700 user "The coordinator sent a message while you were working:
+$FT"
+    rec 1800 assistant
+  } > "$dir/agent-aaa.jsonl"
+  local ft
+  ft="$(capture followthrough "$dir/agent-aaa.jsonl")"
+  # Same reviewer, same child duration, one on each side of that boundary.
+  nested_agent "$dir" n1 aaa "Before" 400 500
+  call nested "$dir" aaa "$ft"
+  [ "$output" = "$(printf 'Before\t100\tread-only')" ]
+  nested_agent "$dir" n1 aaa "After" 900 1000
+  call nested "$dir" aaa "$ft"
+  [ "$output" = "$(printf 'After\t100\tfollow')" ]
+}
+
+@test "a reviewer that never got a follow-through has no follow phase to spawn into" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  mkdir -p "$dir"
+  reviewer "$dir" aaa Alia Impl
+  { rec 0 user "opening prompt"; rec 1800 assistant; } > "$dir/agent-aaa.jsonl"
+  local ft
+  ft="$(capture followthrough "$dir/agent-aaa.jsonl")"
+  [ "$ft" = "0" ]
+  # phases() calls the whole run read-only, so a spawn under it is read-only
+  # too, however late it started.
+  nested_agent "$dir" n1 aaa "Late but still read-only" 1700 1750
+  call nested "$dir" aaa "$ft"
+  [ "$output" = "$(printf 'Late but still read-only\t50\tread-only')" ]
+}
+
+@test "the human-readable summary splits nested spawns by phase" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  two_round_cycle "$dir"
+  run "$TIMINGS" "$dir"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"nested     read-only 1 spawn(s), 1m00s; follow 1 spawn(s), 1m40s"* ]] \
+    || fail "summary line mixes phases or changed shape:
+$output"
+  # The per-spawn lines have to agree with the porcelain rows above.
+  local line
+  line="$(printf '%s\n' "$output" | grep -F 'Digest prior reviews')"
+  [[ "$line" == *read-only* ]] || fail "read-only spawn not labelled: $line"
+  line="$(printf '%s\n' "$output" | grep -F 'Recheck the suite')"
+  [[ "$line" == *follow* ]] || fail "follow spawn not labelled: $line"
 }
 
 # ─── the follow-through marker still matches both skills ───────────────────
