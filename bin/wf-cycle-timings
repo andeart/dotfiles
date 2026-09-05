@@ -182,6 +182,12 @@ nested() {
       then (.description // "(no description)")
       else empty end' "$meta" 2>/dev/null || true)"
     [ -n "$desc" ] || continue
+    # A tab or newline here would corrupt the TSV row below. This is a
+    # sub-agent's own free-text description, and nested() exists precisely to
+    # surface sub-agents that already broke a rule (the no-nested-spawns one),
+    # so it's the wrong population to trust to be well-formed.
+    desc="${desc//$'\t'/ }"
+    desc="${desc//$'\n'/ }"
     id="${meta##*/agent-}"
     id="${id%.meta.json}"
     b="$(bounds "$1/agent-$id.jsonl")"
