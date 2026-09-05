@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 #
 # Report per-reviewer phase timings for a wf-impl-review or wf-spec-review
-# cycle.
+# cycle. Point it at one cycle's own subagents directory - a long-lived
+# session that ran both a /wf-spec-review and a /wf-impl-review for the same
+# ticket holds two cycles' reviewer agents side by side, and this refuses to
+# guess which one you mean rather than merging both into one roster.
 #
 # Reads only the reviewer sub-agent transcripts under a session's subagents/
 # directory. It never reads the coordinator transcript, and neither review
@@ -13,7 +16,8 @@
 #
 # Exit codes:
 #   0   timings printed for at least one reviewer.
-#   2   a usage error, or no reviewer transcript found.
+#   2   a usage error, no reviewer transcript found, or the target mixes Impl
+#       review and Spec review agents from two different cycles.
 
 set -euo pipefail
 
@@ -65,21 +69,38 @@ subagents_dir() {
 }
 
 # reviewers <subagents-dir>: "id<TAB>name" per depth-1 review agent, ordered by
-# the start of its transcript so the roster reads in cycle order.
+# the start of its transcript so the roster reads in cycle order. Refuses a
+# directory whose depth-1 review agents mix "Impl review:" and "Spec review:"
+# prefixes: /wf-spec-review and /wf-impl-review for the same ticket can both
+# run inside one continuous session (spec review, then "you implement", then
+# impl review, per WORKFLOW.md), and without this check the two cycles'
+# rosters silently merge into one with reviewer names repeated and span/gap
+# numbers that span both cycles - wrong, but not visibly so.
 reviewers() {
-  local meta id name
-  for meta in "$1"/agent-*.meta.json; do
-    [ -e "$meta" ] || continue
-    id="${meta##*/agent-}"
-    id="${id%.meta.json}"
-    name="$(jq -r '
-      if (.spawnDepth == 1) and (.description | test("^(Impl|Spec) review: "))
-      then (.description | sub("^(Impl|Spec) review: "; ""))
-      else empty end' "$meta" 2>/dev/null || true)"
-    if [ -n "$name" ]; then
-      printf '%s\t%s\t%s\n' "$(bounds "$1/agent-$id.jsonl" | cut -d' ' -f1)" "$id" "$name"
-    fi
-  done | sort -n | cut -f2-
+  local meta id name_kind kind name rows
+  rows="$(
+    for meta in "$1"/agent-*.meta.json; do
+      [ -e "$meta" ] || continue
+      id="${meta##*/agent-}"
+      id="${id%.meta.json}"
+      name_kind="$(jq -r '
+        if (.spawnDepth == 1)
+        then (.description | capture("^(?<kind>Impl|Spec) review: (?<name>.*)")? // empty | [.kind, .name] | @tsv)
+        else empty end' "$meta" 2>/dev/null || true)"
+      [ -n "$name_kind" ] || continue
+      kind="${name_kind%%$'\t'*}"
+      name="${name_kind#*$'\t'}"
+      printf '%s\t%s\t%s\t%s\n' "$(bounds "$1/agent-$id.jsonl" | cut -d' ' -f1)" "$id" "$name" "$kind"
+    done
+  )"
+  [ -n "$rows" ] || return 0
+
+  local kind_count
+  kind_count="$(printf '%s\n' "$rows" | cut -f4 | sort -u | wc -l | tr -d ' ')"
+  [ "$kind_count" -le 1 ] || \
+    die "found both Impl review and Spec review agents under $1 - point this at one cycle's subagents directory; a session that ran both isn't one cycle"
+
+  printf '%s\n' "$rows" | sort -n | cut -f2,3
 }
 
 # stamps <jsonl>: "<epoch>\t<ft|->" per timestamped record. Lines are parsed
