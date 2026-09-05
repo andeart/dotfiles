@@ -21,6 +21,9 @@ echo 'repo=yes'
 root=$(git rev-parse --show-toplevel)
 echo "root=$root"
 [ -f "$root/.wf.yml" ] && echo 'wfconfig_file=yes' || echo 'wfconfig_file=no'
+[ -f "$root/.wf.yml" ] || echo "wfconfig_path=$(bash \
+  ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
+  --repo-root "$root" --print-config-path 2>/dev/null)"
 [ -f ~/.agents/skills/wf-conventions/wf.yml.template ] \
   && echo 'template=yes' || echo 'template=no'
 echo 'workitems<<<'
@@ -31,6 +34,7 @@ find "$root" -maxdepth 1 -name '.workitems.*.yml'
 
 - `repo=no` - stop and tell the user this is not a git repository.
 - `template=no` - **stop.** Say the shipped template is not on disk at `~/.agents/skills/wf-conventions/wf.yml.template`, and that `dotfiles push` puts it there. Never write the nine keys from memory: the template is the only place the shipped values live, and a skill that can reconstruct them is the guessing this contract exists to delete.
+- `wfconfig_path=` - only printed when the root has no file of its own. A non-empty value means this worktree inherits its settings from that path; Step 1 branches on it. An empty value means nothing resolved anywhere.
 
 Everything below acts on `$root/.wf.yml`, never on a path relative to the working directory. The resolver takes `--repo-root` for the same reason: a scaffolder that writes to the working directory drops a `.wf.yml` wherever the user happened to be standing.
 
@@ -38,7 +42,11 @@ Everything below acts on `$root/.wf.yml`, never on a path relative to the workin
 
 ## Step 1: Choose the path
 
-**`wfconfig_file=no`** - go to "Writing a new file".
+**`wfconfig_file=no` with a non-empty `wfconfig_path=`** - this root is a linked worktree inheriting its settings from the base clone. Report the path, say that changing those settings means running `/wf-config` in that directory, and **stop**. Write nothing here: a worktree-local file would shadow the one the base clone carries, which is the failure the fallback exists to remove.
+
+Do not resolve the file that report names. `/wf-config` run in the base clone validates it there, on the arm that can also fix it.
+
+**`wfconfig_file=no` with an absent or empty `wfconfig_path=`** - go to "Writing a new file". Nothing is inherited, so there is nothing to shadow.
 
 **`wfconfig_file=yes`** - resolve it first, and branch on the exit code:
 

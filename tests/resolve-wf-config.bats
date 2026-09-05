@@ -33,6 +33,14 @@ resolve() {
   run --separate-stderr bash "$RESOLVE" --repo-root "$root" "$@"
 }
 
+# path <root>: run --print-config-path, keeping stdout and stderr apart. The
+# flag and a resolve share config_path exactly, so the fixture cases below
+# assert both inside one test rather than growing a parallel table to drift
+# against.
+path() {
+  run --separate-stderr bash "$RESOLVE" --repo-root "$1" --print-config-path
+}
+
 # value <key>: print the resolved value for one key from $output.
 value() {
   printf '%s\n' "$output" | awk -v k="$1=" 'index($0, k) == 1 { print substr($0, length(k) + 1) }'
@@ -44,6 +52,7 @@ value() {
   run bash "$RESOLVE" --help
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage: resolve-wf-config.sh"* ]]
+  [[ "$output" == *"--print-config-path"* ]]
 }
 
 @test "an unknown flag exits 2" {
@@ -90,9 +99,9 @@ value() {
   [ "$(value verify.commands)" = "<unset>" ]
 }
 
-# The rename in DX-73. A repo still carrying the old name gets told the new one
-# rather than a bare "unknown key", because the resolver's error is the only
-# thing that will reach whoever is confused.
+# A repo still carrying the retired name is told its replacement rather than a
+# bare "unknown key": the resolver's error is the only thing that reaches
+# whoever is confused.
 @test "the old ship.test-commands name names its replacement" {
   local root; root="$(repo renamed)"
   config "$root" 'ship:
@@ -341,6 +350,25 @@ h: &h [*g,*g,*g,*g,*g,*g,*g,*g,*g]'
   [ "$status" -eq 3 ]
   [[ "$stderr" == *"gave up parsing"* ]]
   [[ "$stderr" != *"could not parse"* ]]
+}
+
+# The deadline's watchdog has to reap its own sleep. A subshell killed while
+# blocked in `sleep` leaves the sleep behind holding every fd the caller gave
+# it - under bats that is FD 3, and the file then waits the whole deadline out
+# after its last case rather than finishing. Nothing else in the suite sleeps
+# 13 seconds, so the match cannot pick up another file's process.
+@test "a resolve leaves no watchdog sleep behind" {
+  command -v pgrep >/dev/null || skip "pgrep is not available"
+  local root; root="$(repo no-orphan)"
+  config "$root" 'states:
+  shaping: Designing'
+  run --separate-stderr env WF_YQ_TIMEOUT=13 bash "$RESOLVE" --repo-root "$root"
+  [ "$status" -eq 0 ]
+  run pgrep -f '^sleep 13$'
+  if [ "$status" -eq 0 ]; then
+    echo "the watchdog left a sleep behind: $output" >&2
+    return 1
+  fi
 }
 
 @test "a non-numeric WF_YQ_TIMEOUT is a usage error" {
@@ -621,16 +649,13 @@ states:
   [[ "$stderr" == *"states.shaping"* ]]
 }
 
-# The other half of the multi-document story, pinned because it is a decision
-# rather than an oversight. Documents that share no key flatten into one
-# well-formed dump - every key the file declares, exactly once, no value lost -
-# so the resolver has nothing to reject and honours it. /wf-config stops on the
-# same file, because there the merge would concatenate two mappings with no
-# separator and the template's value would win over the user's. Rejecting it
-# here as well was tried and dropped: every single-fork way of counting
-# documents that yq offers breaks a behaviour this suite pins above, and a
-# second fork would cost the one-yq-fork guarantee below for a file that is
-# already resolved correctly.
+# Documents that share no key flatten into one well-formed dump - every key the
+# file declares, exactly once, no value lost - so the resolver honours it.
+# /wf-config stops on the same file, where the merge would concatenate two
+# mappings with no separator and let the template's value win over the user's.
+# The resolver does not also reject it: every single-fork way yq offers to count
+# documents breaks a behaviour pinned above, and a second fork would cost the
+# one-yq-fork guarantee for a file that already resolves correctly.
 @test "documents that share no key flatten into one dump" {
   local root; root="$(repo disjoint-docs)"
   config "$root" 'states:
@@ -721,10 +746,8 @@ EOF
 
 # ─── --require ─────────────────────────────────────────────────────────────
 
-# --require is the halt the five consuming skills used to spell out in thirteen
-# lines of prose each. It is opt-in: a caller that names no key cannot reach
-# exit 4, which is what lets /wf-wrap read a key without gaining a way to fail
-# after its cleanup has already run.
+# --require is opt-in: a caller that names no key cannot reach exit 4, so
+# /wf-wrap reads a key without gaining a way to fail after its cleanup has run.
 
 FULL="states:
   shaping: Shaping
@@ -884,6 +907,690 @@ wrap:
   resolve "$root" --require states.shaping
   [ "$status" -eq 3 ]
   [[ "$stderr" == *"unknown key: bogus"* ]]
+}
+
+# ─── --print-config-path ───────────────────────────────────────────────────
+
+@test "--print-config-path with --require is a usage error" {
+  local root; root="$(repo print-and-require)"
+  run --separate-stderr bash "$RESOLVE" --repo-root "$root" --print-config-path --require states.shaping
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"cannot be combined with --require"* ]]
+}
+
+@test "--print-config-path with a nonexistent --repo-root exits 2" {
+  run bash "$RESOLVE" --repo-root "$BATS_TEST_TMPDIR/absent" --print-config-path
+  [ "$status" -eq 2 ]
+}
+
+# The flag's contract is that it answers before any yq work, which is a
+# sentence in the design doc and nowhere else without this. The shim is the one
+# the "read_props makes exactly one yq fork" case above builds, counting calls
+# and delegating.
+@test "--print-config-path forks no yq" {
+  local root; root="$(repo print-no-fork)"
+  config "$root" 'states:
+  shaping: Designing'
+  local bin="$BATS_TEST_TMPDIR/bin" log="$BATS_TEST_TMPDIR/yq-calls" real
+  real="$(command -v yq)"
+  mkdir -p "$bin"
+  cat > "$bin/yq" <<EOF
+#!/usr/bin/env bash
+echo call >> "$log"
+exec "$real" "\$@"
+EOF
+  chmod +x "$bin/yq"
+  : > "$log"
+  run --separate-stderr env "PATH=$bin:$PATH" bash "$RESOLVE" \
+    --repo-root "$root" --print-config-path
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$output" = "$root/.wf.yml" ]
+  [ "$(wc -l < "$log" | tr -d ' ')" -eq 0 ]
+}
+
+# ─── a worktree's base clone ───────────────────────────────────────────────
+
+# worktree <name>: build a linked worktree beside its base clone by hand and
+# set $BASE, $WT and $REG. No git init, like every other fixture here: the code
+# under test reads these two files and nothing else, so building them directly
+# is both cheaper and closer to what is being tested.
+#
+# The two files are written the way git writes them: `gitdir: ` in front of the
+# pointer, nothing in front of the back-reference. The trailing newline on both
+# is load-bearing - without it `read` returns 1 with the value set, and a case
+# pins an abort instead of the row it names.
+worktree() {
+  BASE="$BATS_TEST_TMPDIR/$1/base"
+  WT="$BATS_TEST_TMPDIR/$1/wt"
+  REG="$BASE/.git/worktrees/$1"
+  mkdir -p "$REG" "$WT"
+  printf 'gitdir: %s\n' "$REG" > "$WT/.git"
+  printf '%s\n' "$WT/.git" > "$REG/gitdir"
+}
+
+# physical <dir>: <dir> with `..` and every symlink resolved, which is the form
+# base_clone prints an inherited path in. Asserting against a literal $BASE
+# would pass on Linux and fail on macOS, where BATS_TEST_TMPDIR sits under a
+# symlinked /var. The root's own file is printed verbatim and is not wrapped.
+physical() {
+  (cd "$1" && pwd -P)
+}
+
+# declines <root>: what every no-fallback row asserts. Exit 0 and an empty
+# stderr, not merely an empty resolution: exit 1 is the shape this arm fails in
+# - a declining branch that ends on a false test, or a read whose status `set
+# -e` takes seriously - and a row checking only the dump would pass with a
+# bound missing. The two unreadable rows below are what make the stderr half
+# earn its place: they decline correctly and still print without the redirect.
+declines() {
+  resolve "$1"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "<unset>" ]
+  path "$1"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ -z "$output" ]
+}
+
+@test "a worktree with its own .wf.yml reads its own" {
+  worktree own
+  config "$WT" 'states:
+  shaping: FromWorktree'
+  config "$BASE" 'states:
+  shaping: FromBase'
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromWorktree" ]
+  path "$WT"
+  [ "$output" = "$WT/.wf.yml" ]
+}
+
+@test "a worktree with no .wf.yml reads the base clone's" {
+  worktree inherit
+  config "$BASE" 'states:
+  shaping: FromBase
+workspace:
+  impl: worktree'
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromBase" ]
+  [ "$(value workspace.impl)" = "worktree" ]
+  # One repo, one answer, whichever root it is read from. That is the whole
+  # point of the arm, and an equality against the base clone's own dump says it
+  # better than a key-by-key check.
+  local inherited="$output"
+  resolve "$BASE"
+  [ "$output" = "$inherited" ]
+  path "$WT"
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
+}
+
+# Every other row in this section hand-writes the two files, which is faster and
+# keeps each fixture on the one malformation it names. This row asks git for
+# them instead, because the arm rests on a claim about what git writes: if that
+# shape ever changed, every hand-built row would still pass while the fallback
+# was dead, and nothing here would notice. tests/wf-status.bats already drives
+# real worktrees, and setup.bash pins the identity and defaultBranch this needs.
+@test "a worktree git itself created inherits, and carries the shape the fixtures assume" {
+  local base="$BATS_TEST_TMPDIR/real/base" wt="$BATS_TEST_TMPDIR/real/wt" reg
+  mkdir -p "$base"
+  git -C "$base" init -q -b main .
+  git -C "$base" commit -q --allow-empty -m init
+  git -C "$base" worktree add -q "$wt" -b feature
+  # The premise the worktree helper encodes, asserted against real git rather
+  # than restated: a `gitdir: ` pointer, and a back-reference beside what it
+  # names. The registration is named for the worktree's directory, not its
+  # branch, so it is read out of the pointer rather than spelled here.
+  [[ "$(cat "$wt/.git")" == "gitdir: "* ]]
+  reg="$(sed 's/^gitdir: //' "$wt/.git")"
+  [ -f "$reg/gitdir" ]
+  # An uncommitted .wf.yml in the base clone is the case DX-77 exists for, so
+  # the fixture writes one after the worktree already exists.
+  config "$base" 'states:
+  shaping: FromBase'
+  resolve "$wt"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromBase" ]
+  path "$wt"
+  [ "$output" = "$(physical "$base")/.wf.yml" ]
+  # git 2.48 and later can write both files relative, which is the layout most
+  # likely to drift and the one the hand-built relative rows only guess at. Same
+  # base clone, so it costs one more `worktree add` rather than another repo,
+  # and an `if` rather than a `skip` so older git still runs everything above.
+  if git -C "$base" worktree add --relative-paths -q \
+      "$BATS_TEST_TMPDIR/real/rel" -b relfeature 2>/dev/null; then
+    [[ "$(cat "$BATS_TEST_TMPDIR/real/rel/.git")" == "gitdir: "* ]]
+    resolve "$BATS_TEST_TMPDIR/real/rel"
+    [ "$status" -eq 0 ]
+    [ -z "$stderr" ]
+    [ "$(value states.shaping)" = "FromBase" ]
+  fi
+}
+
+@test "a worktree whose base clone has no .wf.yml either inherits nothing" {
+  worktree neither
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "<unset>" ]
+  path "$WT"
+  [ -z "$output" ]
+  # Nothing resolved anywhere, so the halt is the no-file one and names no
+  # path: there is no file to name, and present=no is what selects it.
+  resolve "$WT" --require states.shaping
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "No .wf.yml in this repo. Run /wf-config to create one." ]
+}
+
+@test "an ordinary clone whose .git is a directory resolves as before" {
+  local root; root="$(repo ordinary)"
+  mkdir -p "$root/.git"
+  config "$root" 'states:
+  shaping: FromRoot'
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromRoot" ]
+  path "$root"
+  [ "$output" = "$root/.wf.yml" ]
+}
+
+@test "a pointer shaped like a submodule does not fall back" {
+  # `.git/modules/<name>`. The segment fails the shape test, and a submodule's
+  # git dir carries no back-reference either.
+  worktree submodule
+  config "$BASE" 'states:
+  shaping: FromBase'
+  mkdir -p "$BASE/.git/modules/submodule"
+  printf 'gitdir: %s/.git/modules/submodule\n' "$BASE" > "$WT/.git"
+  declines "$WT"
+}
+
+@test "a pointer shaped like a bare repo under <name>.git does not fall back" {
+  # `<name>.git/worktrees/<name>`: the segment is `repo.git`, so there is no
+  # `/.git/` for the tail to match. The .wf.yml below sits where a wrong strip
+  # would land, so the <unset> assertion is a real one.
+  worktree bare-name
+  local dir="$BATS_TEST_TMPDIR/bare-name"
+  mkdir -p "$dir/repo.git/worktrees/w"
+  printf 'gitdir: %s/repo.git/worktrees/w\n' "$dir" > "$WT/.git"
+  printf '%s\n' "$WT/.git" > "$dir/repo.git/worktrees/w/gitdir"
+  config "$dir" 'states:
+  shaping: FromBareName'
+  declines "$WT"
+}
+
+@test "a pointer under a bare repo kept at <dir>/.git falls back to <dir>" {
+  # The `clone --bare <url> <dir>/.git` layout, which the shape test does not
+  # separate out and needs no rule for: <dir> is the directory that owns the
+  # worktree, so reading its .wf.yml is the right answer rather than an escape.
+  # The bare markers below are inert to this script, which reads only the
+  # registration's gitdir; they are here so the fixture says what it is.
+  worktree bare-dir
+  mkdir -p "$BASE/.git/objects" "$BASE/.git/refs"
+  printf 'ref: refs/heads/main\n' > "$BASE/.git/HEAD"
+  printf '[core]\n\tbare = true\n' > "$BASE/.git/config"
+  config "$BASE" 'states:
+  shaping: FromBareDir'
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromBareDir" ]
+  path "$WT"
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
+}
+
+@test "a pointer ending in worktrees/ with no name does not fall back" {
+  worktree no-name
+  config "$BASE" 'states:
+  shaping: FromBase'
+  printf 'gitdir: %s/.git/worktrees/\n' "$BASE" > "$WT/.git"
+  declines "$WT"
+}
+
+@test "a pointer whose base strips to nothing does not fall back" {
+  # `gitdir: /.git/worktrees/x` leaves an empty base, which without the
+  # non-empty clause would send the miss to `/.wf.yml` at the filesystem root
+  # and print that path into a verify.commands disclosure. Nothing writable
+  # sits there, so what declines this fixture in practice is the absent
+  # back-reference one step earlier; the clause is the guard for the case a
+  # writable registration directory would open, and it is unreachable from a
+  # test by construction.
+  worktree root-strip
+  config "$BASE" 'states:
+  shaping: FromBase'
+  printf 'gitdir: /.git/worktrees/x\n' > "$WT/.git"
+  declines "$WT"
+}
+
+@test "a .git file that is empty, malformed, or names a missing directory does not fall back" {
+  worktree malformed
+  config "$BASE" 'states:
+  shaping: FromBase'
+  : > "$WT/.git"
+  declines "$WT"
+  printf 'not a pointer\n' > "$WT/.git"
+  declines "$WT"
+  printf 'gitdir: %s/.git/worktrees/gone\n' "$BASE" > "$WT/.git"
+  declines "$WT"
+}
+
+@test "a relative pointer resolves to the base clone" {
+  worktree rel-pointer
+  config "$BASE" 'states:
+  shaping: FromBase'
+  printf 'gitdir: ../base/.git/worktrees/rel-pointer\n' > "$WT/.git"
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromBase" ]
+  # Resolved rather than printed as the pointer spelled it. The `..` a relative
+  # pointer carries is legitimate - `git worktree add --relative-paths` writes
+  # one - but the path is a disclosure three skills show beside the commands
+  # they run, so it is printed in the form that names the real directory. The
+  # spoof case below is why.
+  path "$WT"
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
+}
+
+@test "a relative back-reference resolves to the base clone" {
+  worktree rel-backref
+  config "$BASE" 'states:
+  shaping: FromBase'
+  # Four levels up from the registration is the fixture root; the kernel
+  # resolves the `..` inside -ef, which is why nothing here normalises it.
+  printf '%s\n' "../../../../wt/.git" > "$REG/gitdir"
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromBase" ]
+  path "$WT"
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
+}
+
+@test "a back-reference spelling root/.git through a symlink resolves to the base clone" {
+  # This is what forces -ef over any hand-rolled normaliser: the relative case
+  # above rules out string equality, but a normaliser collapsing `..`
+  # textually passes that one and gets this wrong. -ef stats both paths.
+  worktree symlinked
+  config "$BASE" 'states:
+  shaping: FromBase'
+  ln -s "$WT" "$BATS_TEST_TMPDIR/symlinked/link"
+  printf '%s\n' "$BATS_TEST_TMPDIR/symlinked/link/.git" > "$REG/gitdir"
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromBase" ]
+  path "$WT"
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
+}
+
+@test "a missing back-reference does not fall back" {
+  worktree no-backref
+  config "$BASE" 'states:
+  shaping: FromBase'
+  # Built by not writing the back-reference, pointing at a registration that
+  # has none, rather than by removing one.
+  mkdir -p "$BASE/.git/worktrees/absent"
+  printf 'gitdir: %s/.git/worktrees/absent\n' "$BASE" > "$WT/.git"
+  declines "$WT"
+}
+
+@test "a back-reference naming some other file does not fall back" {
+  # A worktree copied out of someone else's clone, and a pointer left by a base
+  # clone whose path was since reused, both arrive as this: the registration
+  # still names the original worktree, not this one.
+  worktree wrong-backref
+  config "$BASE" 'states:
+  shaping: FromBase'
+  : > "$BASE/.git/config"
+  printf '%s\n' "$BASE/.git/config" > "$REG/gitdir"
+  declines "$WT"
+}
+
+@test "a back-reference that is a directory does not fall back" {
+  # One [ -f ] declines a directory and a FIFO alike. This row is the cheap half
+  # of that guard; the FIFO rows below pin the half that blocks on open, which
+  # is why they need run_bounded to fail rather than hang.
+  worktree dir-backref
+  config "$BASE" 'states:
+  shaping: FromBase'
+  mkdir -p "$BASE/.git/worktrees/as-dir/gitdir"
+  printf 'gitdir: %s/.git/worktrees/as-dir\n' "$BASE" > "$WT/.git"
+  declines "$WT"
+}
+
+@test "a back-reference carrying a gitdir: prefix does not fall back" {
+  # The back-reference is a bare path. The two files are read the same way and
+  # parsed differently, and this is the row that says so: a prefixed value is
+  # not the path, so it cannot match root/.git.
+  worktree prefixed-backref
+  config "$BASE" 'states:
+  shaping: FromBase'
+  printf 'gitdir: %s\n' "$WT/.git" > "$REG/gitdir"
+  declines "$WT"
+}
+
+@test "an unreadable pointer does not fall back, and says nothing on stderr" {
+  worktree unreadable-pointer
+  config "$BASE" 'states:
+  shaping: FromBase'
+  chmod 000 "$WT/.git"
+  declines "$WT"
+}
+
+@test "an unreadable back-reference does not fall back, and says nothing on stderr" {
+  worktree unreadable-backref
+  config "$BASE" 'states:
+  shaping: FromBase'
+  chmod 000 "$REG/gitdir"
+  declines "$WT"
+}
+
+@test "a pointer file with no trailing newline resolves to the base clone" {
+  # `read` returns 1 here with the value correctly set, which is why the arm
+  # checks the value rather than the read's status.
+  worktree no-newline
+  config "$BASE" 'states:
+  shaping: FromBase'
+  printf 'gitdir: %s' "$REG" > "$WT/.git"
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromBase" ]
+  path "$WT"
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
+}
+
+@test "a pointer file with a second line resolves off the first" {
+  # The read stops at the newline, which is what keeps a newline out of every
+  # path this arm hands back - and therefore out of the wfconfig_path= line the
+  # skills echo into a block of key=value lines. Swapping the capped read for
+  # anything that slurps the file passes every other row here and fails this.
+  worktree two-lines
+  config "$BASE" 'states:
+  shaping: FromBase'
+  printf 'gitdir: %s\nsecond line\n' "$REG" > "$WT/.git"
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  [ "$(value states.shaping)" = "FromBase" ]
+  path "$WT"
+  [ "$output" = "$(physical "$BASE")/.wf.yml" ]
+}
+
+# One of the two cases that bypass the script's entry point. No path a
+# filesystem accepts reaches 4096 characters, so the cap is observable only by
+# lowering the constant; timing a long fixture is not an assertion tests/run.sh
+# can carry while it runs its files concurrently. The same fixture resolves at
+# the real cap, which is the other half of the row.
+#
+# It also pins the `|| :` on both of base_clone's reads. Both files are
+# rewritten here without the trailing newline `worktree` gives them, because a
+# file lacking one makes `read` return 1 with the value correctly set - and that
+# only matters under errexit. config_path runs base_clone through a command
+# substitution, where `inherit_errexit` (off by default) keeps errexit out, so
+# `call` and the bare `bash -c` below are the only places it is in force.
+@test "a pointer longer than the cap is truncated and declines, and both reads tolerate a missing trailing newline under errexit" {
+  worktree capped
+  printf 'gitdir: %s' "$REG" > "$WT/.git"
+  printf '%s' "$WT/.git" > "$REG/gitdir"
+  call base_clone "$WT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(physical "$BASE")" ]
+  run bash -c '_WF_LIB_ONLY=1 source "$0"; POINTER_MAX=8; base_clone "$1"' \
+    "$RESOLVE" "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+# The pointer decides the path this prints, and three skills show that path
+# beside the verify.commands they then execute. A pointer traversing out of a
+# directory the reader trusts must not leave the disclosure leading with that
+# directory's name. This tree is the one the threat model does not close - the
+# attacker assembled both the pointer and a matching back-reference - so what
+# the disclosure says is the whole of what the reader gets.
+@test "a pointer traversing out of a trusted directory discloses where it lands" {
+  local dir="$BATS_TEST_TMPDIR/traversal"
+  mkdir -p "$dir/legit/.git/worktrees/w" "$dir/attacker/.git/worktrees/x" "$dir/victim"
+  config "$dir/attacker" 'states:
+  shaping: FromAttacker'
+  printf 'gitdir: %s/legit/.git/worktrees/../../../attacker/.git/worktrees/x\n' "$dir" > "$dir/victim/.git"
+  printf '%s\n' "$dir/victim/.git" > "$dir/attacker/.git/worktrees/x/gitdir"
+  resolve "$dir/victim"
+  [ "$status" -eq 0 ]
+  [ "$(value states.shaping)" = "FromAttacker" ]
+  path "$dir/victim"
+  [ "$output" = "$(physical "$dir/attacker")/.wf.yml" ]
+  # The point of the row: it must not read as the trusted clone.
+  [[ "$output" != *"/legit/"* ]]
+}
+
+# A symlinked base is the same spoof without a `..` in sight, which is why the
+# path is resolved rather than merely stripped of traversal.
+@test "a pointer through a symlinked base discloses the directory it lands in" {
+  local dir="$BATS_TEST_TMPDIR/symlink-spoof"
+  mkdir -p "$dir/attacker/.git/worktrees/x" "$dir/victim"
+  config "$dir/attacker" 'states:
+  shaping: FromAttacker'
+  ln -s "$dir/attacker" "$dir/trusted"
+  printf 'gitdir: %s/trusted/.git/worktrees/x\n' "$dir" > "$dir/victim/.git"
+  printf '%s\n' "$dir/victim/.git" > "$dir/attacker/.git/worktrees/x/gitdir"
+  path "$dir/victim"
+  [ "$output" = "$(physical "$dir/attacker")/.wf.yml" ]
+  [[ "$output" != *"/trusted/"* ]]
+}
+
+# The disclosure is one line inside a block of key=value lines the skills emit.
+# A directory name takes any byte but `/` and NUL, so a resolved path can carry
+# a control character where the pointer never could: a newline forges a second
+# setting, a CR returns the cursor to column 0 so the forgery is what a reader
+# sees, and an ESC erases the line outright. The guard is the whole [[:cntrl:]]
+# class rather than an enumeration, so all three are one row.
+@test "a pointer through a base whose real name carries a control character does not fall back" {
+  local dir="$BATS_TEST_TMPDIR/cntrl-base" byte attacker n=0
+  for byte in $'\n' $'\r' $'\033'; do
+    n=$((n + 1))
+    attacker="$dir/$n/x${byte}reviews_ignored=yes"
+    mkdir -p "$attacker/.git/worktrees/x" "$dir/$n/victim"
+    config "$attacker" 'states:
+  shaping: FromAttacker'
+    ln -s "$attacker" "$dir/$n/trusted"
+    printf 'gitdir: %s/%s/trusted/.git/worktrees/x\n' "$dir" "$n" > "$dir/$n/victim/.git"
+    printf '%s\n' "$dir/$n/victim/.git" > "$attacker/.git/worktrees/x/gitdir"
+    declines "$dir/$n/victim"
+  done
+  # The guard must not be reachable by an ordinary name, or the three rows
+  # above would pass on a function that declines everything.
+  attacker="$dir/plain-café-🚀"
+  mkdir -p "$attacker/.git/worktrees/x" "$dir/ok"
+  config "$attacker" 'states:
+  shaping: FromAttacker'
+  printf 'gitdir: %s/.git/worktrees/x\n' "$attacker" > "$dir/ok/.git"
+  printf '%s\n' "$dir/ok/.git" > "$attacker/.git/worktrees/x/gitdir"
+  path "$dir/ok"
+  [ "$output" = "$(physical "$attacker")/.wf.yml" ]
+}
+
+# A relative base is otherwise resolved against CDPATH, and `cd` then echoes
+# the entry it took - a second line again, from the other direction. Every
+# shipped call site passes an absolute --repo-root, so this row is what keeps
+# the guard from reading as unnecessary.
+@test "CDPATH does not steer the base clone a relative --repo-root resolves to" {
+  local dir="$BATS_TEST_TMPDIR/cdpath"
+  mkdir -p "$dir/wt/sub/.git/worktrees/x" "$dir/decoy/wt/sub"
+  config "$dir/wt/sub" 'states:
+  shaping: FromRealBase'
+  config "$dir/decoy/wt/sub" 'states:
+  shaping: FromDecoy'
+  printf 'gitdir: sub/.git/worktrees/x\n' > "$dir/wt/.git"
+  printf '%s\n' "$dir/wt/.git" > "$dir/wt/sub/.git/worktrees/x/gitdir"
+  run --separate-stderr env "CDPATH=$dir/decoy" \
+    bash -c 'cd "$1" && bash "$2" --repo-root wt --print-config-path' _ "$dir" "$RESOLVE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(physical "$dir/wt/sub")/.wf.yml" ]
+}
+
+@test "a rejected config inherited from the base clone names the file it came from" {
+  # Without this, someone in a worktree reads a complaint about a key in a file
+  # they cannot see from where they are standing.
+  worktree rejected
+  config "$BASE" 'review:
+  reviewers: Ana'
+  resolve "$WT"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"review.reviewers must be a list"* ]]
+  [[ "$stderr" == *"(from $(physical "$BASE")/.wf.yml)"* ]]
+  # And unchanged for a file the root carries itself, which is what lets every
+  # exit-3 expectation already in this file stand without edit.
+  config "$WT" 'review:
+  reviewers: Ana'
+  resolve "$WT"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"review.reviewers must be a list"* ]]
+  [[ "$stderr" != *"(from "* ]]
+}
+
+# The exit-3 case above is the rarer half of the same problem: a malformed
+# inherited file would equally break the base clone that uses it daily, while a
+# key-short one halts here and is what a config written before every key became
+# required does. Both messages reach a reader who cannot see the file.
+@test "an inherited config short of a required key names the file and where to fix it" {
+  worktree short
+  config "$BASE" 'states:
+  shaping: FromBase'
+  resolve "$WT" --require review.reviewers
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "review.reviewers is unset in $(physical "$BASE")/.wf.yml. Run /wf-config in $(physical "$BASE") to set it, then retry." ]
+  # The plural message takes the same two substitutions.
+  resolve "$WT" --require review.reviewers,review.focus
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "review.reviewers, review.focus are unset in $(physical "$BASE")/.wf.yml. Run /wf-config in $(physical "$BASE") to set them, then retry." ]
+  # And unchanged for a file the root carries itself, which is what lets every
+  # exit-4 expectation already in this file stand without edit.
+  config "$WT" 'states:
+  shaping: FromWorktree'
+  resolve "$WT" --require review.reviewers
+  [ "$status" -eq 4 ]
+  [ "$stderr" = "review.reviewers is unset in .wf.yml. Run /wf-config to set it, then retry." ]
+}
+
+# Most rejection messages interpolate a value the file controls. Deciding the
+# disclosure by looking for the path inside the message let the file switch its
+# own disclosure off, which is why invalid_at_file() is a separate entry point
+# rather than a test on the text.
+@test "a value naming the inherited file does not suppress the disclosure" {
+  worktree crafted
+  config "$BASE" "workspace:
+  impl: \"$(physical "$BASE")/.wf.yml\""
+  resolve "$WT"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"workspace.impl must be base or worktree"* ]]
+  [[ "$stderr" == *"(from $(physical "$BASE")/.wf.yml)"* ]]
+}
+
+# read_props's two invalid() messages already name $file, unlike every other
+# call site which names a key. Without the suppression in invalid(), this
+# would read "could not parse /base/.wf.yml as YAML (from /base/.wf.yml)".
+@test "an inherited malformed .wf.yml exits 3 with the path named exactly once" {
+  worktree malformed-inherited
+  config "$BASE" 'states: [unterminated
+  shaping: Designing'
+  resolve "$WT"
+  [ "$status" -eq 3 ]
+  # yq's own error line (unrelated to invalid()) also carries the path, so the
+  # assertion is on this script's own line rather than on all of stderr.
+  local line
+  line="$(printf '%s\n' "$stderr" | grep '^resolve-wf-config:')"
+  [ "$line" = "resolve-wf-config: could not parse $(physical "$BASE")/.wf.yml as YAML" ]
+}
+
+# run_bounded <snippet>: run one shell snippet under a deadline, with $RESOLVE
+# as $1 and $WT as $2, and assert it declined without blocking. A FIFO blocks on
+# open, so the guards that reject one cannot be pinned by a plain fixture:
+# without them these cases would hang tests/run.sh rather than fail it. The
+# watchdog is the same background sleep-and-kill read_props uses, and it turns
+# the hang into a failure. `timeout` is not portable here.
+#
+# `set -m` puts the runner in its own process group, so the deadline's kill
+# reaches a blocking read that landed in a forked subshell one level below the
+# PID `$!` names - where config_path's command substitution puts it. It is
+# switched off past the fork: left on, bash 3.2 (unlike 5.x non-interactive)
+# announces the job's completion on stderr, and these cases assert stderr is
+# empty.
+#
+# Both kills are group-directed. A bare `kill "$watchdog"` reaches the watchdog
+# subshell but not the `sleep` it blocks in, and that orphan holds the captured
+# output open for the rest of the deadline.
+run_bounded() {
+  run --separate-stderr bash -c '
+    snippet="$1"; shift
+    set -m
+    eval "$snippet" &
+    runner=$!
+    { sleep 5; kill -TERM -- "-$runner" 2>/dev/null; } >/dev/null 2>&1 &
+    watchdog=$!
+    set +m
+    rc=0
+    wait "$runner" || rc=$?
+    kill -TERM -- "-$watchdog" 2>/dev/null || :
+    wait "$watchdog" 2>/dev/null || :
+    exit "$rc"
+  ' _ "$1" "$RESOLVE" "$WT"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+}
+
+@test "a FIFO at the back-reference does not fall back, and does not block" {
+  worktree fifo-backref
+  config "$BASE" 'states:
+  shaping: FromBase'
+  mkdir -p "$BASE/.git/worktrees/as-fifo"
+  mkfifo "$BASE/.git/worktrees/as-fifo/gitdir"
+  printf 'gitdir: %s/.git/worktrees/as-fifo\n' "$BASE" > "$WT/.git"
+  run_bounded 'bash "$1" --repo-root "$2" --print-config-path'
+}
+
+# The same bound in the other position: config_path's own `[ -f "$1/.git" ]`
+# is a hoisted copy of base_clone's first line (see the comment above
+# config_path), kept only to skip the fork base_clone would otherwise cost an
+# ordinary clone. That hoisted copy already declines a FIFO at root/.git
+# before base_clone ever runs, which makes base_clone's own copy unreachable
+# through --print-config-path for this exact condition - so pinning it means
+# calling base_clone directly, the same way the "capped" pointer case above
+# does.
+@test "a FIFO at root/.git does not fall back, and does not block" {
+  BASE="$BATS_TEST_TMPDIR/fifo-root/base"
+  WT="$BATS_TEST_TMPDIR/fifo-root/wt"
+  mkdir -p "$BASE" "$WT"
+  config "$BASE" 'states:
+  shaping: FromBase'
+  mkfifo "$WT/.git"
+  run_bounded 'bash -c "_WF_LIB_ONLY=1 source \"\$0\"; base_clone \"\$1\"" "$1" "$2"'
+}
+
+@test "a pointer whose name carries a slash does not fall back" {
+  # base_clone's `case "$name" in */*) return 0` is the only thing stopping
+  # `gitdir: <base>/.git/worktrees/a/b` from resolving the base clone to
+  # <base>/.git itself. The back-reference beside it is correct, so the case
+  # cannot pass merely because that guard fires first. The .wf.yml below sits
+  # where a wrong strip would land, so the <unset> assertion is a real one -
+  # the same pattern the bare-repo case above uses.
+  worktree slash-name
+  config "$BASE" 'states:
+  shaping: FromBase'
+  mkdir -p "$BASE/.git/worktrees/a/b"
+  printf '%s\n' "$WT/.git" > "$BASE/.git/worktrees/a/b/gitdir"
+  printf 'gitdir: %s/.git/worktrees/a/b\n' "$BASE" > "$WT/.git"
+  config "$BASE/.git" 'states:
+  shaping: FromWrongStrip'
+  declines "$WT"
 }
 
 # ─── bash 3.2 compatibility ────────────────────────────────────────────────

@@ -4,7 +4,8 @@ Repo-level settings for the `wf-*` skill family, read by
 `scripts/resolve-wf-config.sh`. The file is required, and so is every key in
 it: nothing falls back, so a key the file leaves out halts the skill that reads
 it. `/wf-config` writes the file, or fills in the keys it lacks, from
-`wf.yml.template` beside this document.
+`wf.yml.template` beside this document. See "Where the file lives" below for
+which directory is read.
 
 Sections group by concern rather than by skill, because `states` and
 `workspace` are each read by more than one skill and a per-skill layout would
@@ -35,6 +36,24 @@ The template's `review.focus`:
 3. Cleanliness and maintainability of code
 4. Succinct documentation that's not unnecessarily elaborate
 
+## Where the file lives
+
+Two directories, in order:
+
+1. The repo root - `$(git rev-parse --show-toplevel)`, which inside a linked
+   worktree is the worktree root.
+2. Only when the root has no file of its own and the root is a linked worktree,
+   the base clone that worktree was cut from.
+
+The second entry exists because a `.wf.yml` that was never committed does not
+travel into a worktree.
+
+An inherited path is reported resolved - symlinks and `..` expanded - because
+three skills show it beside the `verify.commands` they then run. A path that
+will not resolve, or that carries a control character once it has, is declined
+rather than reported: the skills state it as one line among others, where a
+newline forges another setting and a CR or ESC rewrites what a reader sees.
+
 ## Rules
 
 - **Every key is required.** There is no required/optional tier: a tier would
@@ -63,9 +82,11 @@ The template's `review.focus`:
   travels with the repo. `/wf-config`'s sign-off is the only gate on them, and
   it only ever sees a file that skill just wrote - one that arrived with a
   clone, or was edited by hand, reaches the runners without passing it. So read
-  the list before running a `wf-*` skill in a repo you did not configure. The
-  two review skills name the entries at their go-ahead gate; `/wf-ship` never
-  stops, so there it is the Report afterwards that names what ran.
+  the list before running a `wf-*` skill in a repo you did not configure. In a
+  worktree the list can come from a file that is not in the working tree at all
+  (see "Where the file lives"), so all three skills name the source: the two
+  review skills at their go-ahead gate, `/wf-ship` in the Report afterwards
+  since it never stops.
 - **`verify.commands` entries should not overlap.** Check the listed commands
   for work one already does for another, and cut it as hard as the commands
   allow: the list runs in full on every ship and once per review cycle.
@@ -157,6 +178,14 @@ deleted - so it passes none and treats `<unset>` as an outcome instead.
 `/wf-config` passes none either, for the opposite reason: a file short of keys
 is the input it exists to fix.
 
+**`--print-config-path` prints which file was resolved**, or nothing, and exits
+before any `yq` work. It reads no YAML, so it can reach exit `0` and exit `2`
+and never `3` or `4` - it cannot reject a file. Passing it with `--require` is
+a usage error rather than a precedence rule, since a caller that got a path
+back from a run it believed had validated the file would be wrong with nothing
+to tell it. The four skills that disclose an inherited source use it; a skill
+that only needs values has no reason to.
+
 A skill that needs a value still walks the dump: a key is present when a line
 starts with `key=` or `key.`, and a list arrives three ways - `key=<unset>`,
 `key=<none>`, or `key.1=` and up. To walk a list's members, read `key.1`,
@@ -176,7 +205,15 @@ Exit `0` resolved, `2` usage error (also what a missing `yq` produces), `3` a
 config that is present but wrong, with the offending key named on stderr, `4` a
 `--require` key the file never declared. An unset key is not exit 3: the file is
 incomplete rather than malformed, and `/wf-wrap` needs to tell those apart while
-treating both as non-fatal.
+treating both as non-fatal. `--print-config-path` reaches only `0` and `2`.
+
+Both exits that end in a reader name their source when the file was inherited,
+since neither reader can see it from where they stand: exit `3` appends the path
+to the rejection, and exit `4` names it in place of a bare `.wf.yml` along with
+the directory to run `/wf-config` in, because `/wf-config` declines in the
+worktree. `/wf-wrap` is the one caller that names no source - it reads its key
+out of the dump rather than through `--require`, so no halt of its own carries
+one, and nothing it does after a merge runs the repo's commands.
 
 The parse is bounded. YAML aliases expand multiplicatively, so a document under
 300 bytes can hold `yq` past any deadline at full CPU; the fork is killed at 10

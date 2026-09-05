@@ -27,6 +27,9 @@ origin=$(git remote get-url origin 2>/dev/null)
 echo "origin=$origin"
 [ -n "$origin" ] && git fetch --quiet origin
 git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
+[ -f "$root/.wf.yml" ] || echo "wfconfig_path=$(bash \
+  ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
+  --repo-root "$root" --print-config-path 2>/dev/null)"
 echo 'wfconfig<<<'
 bash ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh --repo-root "$root" \
   --require review.reviewers,review.focus,verify.commands
@@ -38,6 +41,7 @@ ls -t "$root"/docs/superpowers/specs/*.md 2>/dev/null
 - `repo=no` - stop and say this is not a git repository.
 - `origin=` empty - stop and tell the user no remote named `origin` is configured.
 - `reviews_ignored=no` - **stop.** Say that `docs/reviews/` is not gitignored here, so each reviewer's commit would sweep its own notes into the branch. Ask the user to add it, and do not edit `.gitignore` yourself - that file is gated.
+- `wfconfig_path=` - absent means the repo root carries its own `.wf.yml` and nothing below changes. A non-empty value is the file the settings actually came from, outside this working tree; Step 3 names it. An empty value means no config resolved anywhere, and nothing more - never fill it in as `$root/.wf.yml`.
 
 ## Step 1: Resolve the roster and focus
 
@@ -75,6 +79,8 @@ Print exactly this, filled in, and stop for the user's go-ahead:
 > Notes land in `docs/reviews/<id>-spec-review-<Name>.md` (gitignored).
 > Each reviewer revises the spec before the next one starts. I'll push once at the end.
 > Any concerns before we start the cycle?
+
+When Step 0's `wfconfig_path=` carried a value, add one more line directly below the `Checks:` line: ``> Settings came from `<wfconfig_path>`, not this working tree.`` The `verify.commands` entries the line above names are executed verbatim, so this gate is the place to say which file they arrived in. Leave the line out when `wfconfig_path=` was absent or empty.
 
 The snippet this skill comes from ends its setup the same way. A cycle is `<N>` sub-agents times two prompts each; the user gets to stop it before that is spent.
 

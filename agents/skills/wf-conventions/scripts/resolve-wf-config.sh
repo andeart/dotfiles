@@ -8,6 +8,7 @@
 # declare. Reasons go to stderr.
 #
 # Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]]
+#                             [--print-config-path]
 #
 # Exit codes:
 #   0   resolved; stdout holds every setting.
@@ -15,20 +16,26 @@
 #   3   a .wf.yml is present but wrong; stderr names the offending key.
 #   4   a --require key the file never declared; stderr carries the halt message.
 #
-# Reads .wf.yml and nothing else: no writes, no network, and one yq fork per
-# run, bounded by YQ_TIMEOUT below. tests/resolve-wf-config.bats pins that.
+# Reads .wf.yml, plus - only when the root has none - the worktree's .git
+# pointer and the back-reference git writes beside the registration it names.
+# No writes, no network, and at most one yq fork per run, bounded by
+# YQ_TIMEOUT below. tests/resolve-wf-config.bats pins that.
 
 set -euo pipefail
 
-# Distinct from 2 so a caller can tell a broken config apart from a broken
-# invocation. An unset key is neither: the file is incomplete rather than
-# malformed, so it resolves at 0 with `<unset>` and each consumer decides.
+# Distinct from 2 so a caller can tell a broken config from a broken invocation.
+# An unset key is neither - incomplete, not malformed - so it resolves at 0 with
+# `<unset>` and each consumer decides.
 EXIT_INVALID=3
 
-# Opt-in, and only reachable through --require. A caller that names no key never
-# sees it, which is what lets /wf-wrap read a key without gaining a way to fail
-# after its cleanup has already run.
+# Reachable only through --require. A caller that names no key never sees it, so
+# /wf-wrap reads a key without gaining a way to fail after its cleanup has run.
 EXIT_UNSET=4
+
+# The file a resolved config came from when it was not the root's own, else
+# empty. Top-level because tests source this script under `set -u` and call
+# invalid() directly, where an unset variable exits 1 instead of 3.
+INHERITED_FROM=""
 
 # Every key the family understands, in the order the dump prints them. A `.N`
 # suffix marks a list, whose members the file may set to any length. The values
@@ -51,41 +58,144 @@ die() {
   exit 2
 }
 
-# invalid <message>: a config that is present but cannot be honoured. Separate
-# from die() - see EXIT_INVALID above.
+# invalid <message>: a config that is present but cannot be honoured. The
+# trailing clause is the rejection-side disclosure - a reader in a worktree
+# cannot otherwise tell which file the key lives in.
 invalid() {
+  echo "resolve-wf-config: $*${INHERITED_FROM:+ (from $INHERITED_FROM)}" >&2
+  exit "$EXIT_INVALID"
+}
+
+# invalid_at_file <message>: for read_props's two messages, which name $file
+# themselves. A separate entry point, never a test on message text: most
+# messages interpolate a file-controlled value, so a crafted
+# `impl: /base/.wf.yml` would suppress its own disclosure.
+invalid_at_file() {
   echo "resolve-wf-config: $*" >&2
   exit "$EXIT_INVALID"
 }
 
-# halt <message>: a --require key the file never declared. Unprefixed, unlike
-# die() and invalid(): a skill prints this line to the user verbatim, and the
-# script's own name in front of it would read as a crash rather than an answer.
+# halt <message>: a --require key the file never declared. Unprefixed: a skill
+# prints this line to the user verbatim, and the script's name in front of it
+# would read as a crash rather than an answer.
 halt() {
   echo "$*" >&2
   exit "$EXIT_UNSET"
 }
 
 usage() {
-  echo "Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]]"
+  echo "Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]] [--print-config-path]"
 }
 
-# config_path <root>: print the config path, or nothing. Root only - there is no
-# tmp/ fallback, unlike the tracker config.
+# Caps both reads in base_clone. No path a filesystem accepts reaches 4096.
+POINTER_MAX=4096
+
+# base_clone <root>: print the base clone of the linked worktree at <root>, or
+# nothing. Every declining branch returns 0 explicitly; the caller reads this
+# through a command substitution under set -e.
+#
+# root/.git being a FILE is the whole of what separates a linked worktree from
+# an ordinary clone.
+#
+# root/.git is attacker-controlled under the same model .wf.yml is, and a
+# regular file passes an is-a-file test at any size, so both reads are bounded
+# four ways: [ -f ] rejects a directory, FIFO, device and missing file;
+# POINTER_MAX caps the length; a nonzero read status is tolerated because a
+# file with no trailing newline returns 1 with the value set; and the brace
+# group's stderr is discarded because a mode-000 regular file passes [ -f ] and
+# then fails at the redirect. The braces place that redirect - a bare
+# `read ... < file 2>/dev/null` applies them in the wrong order and still
+# prints.
+base_clone() {
+  local root="$1" line ptr name backref base
+  [ -f "$root/.git" ] || return 0
+  line=""
+  { IFS= read -r -n "$POINTER_MAX" line < "$root/.git"; } 2>/dev/null || :
+  case "$line" in
+    "gitdir: "?*) ptr="${line#gitdir: }" ;;
+    *) return 0 ;;
+  esac
+  case "$ptr" in
+    /*) ;;
+    *) ptr="$root/$ptr" ;;
+  esac
+  # A submodule's `/modules/` segment fails this, and so does a bare repo under
+  # the conventional `<name>.git`, whose segment leaves no `/.git/` to match.
+  case "$ptr" in
+    */.git/worktrees/?*) ;;
+    *) return 0 ;;
+  esac
+  # Longest match, so a `.git/worktrees` deeper in the path cannot leave a
+  # slash in the name. A name carrying one does not name a registration.
+  name="${ptr##*/.git/worktrees/}"
+  case "$name" in
+    */*) return 0 ;;
+  esac
+  # The pointer's shape is a string test; this is the trust boundary. git
+  # registers the relationship both ways, and <ptr>/gitdir holds the path back
+  # to this worktree's own .git. Without this check, any .git file naming a
+  # directory would have that directory's verify.commands executed by three
+  # skills.
+  [ -f "$ptr/gitdir" ] || return 0
+  backref=""
+  { IFS= read -r -n "$POINTER_MAX" backref < "$ptr/gitdir"; } 2>/dev/null || :
+  [ -n "$backref" ] || return 0
+  case "$backref" in
+    /*) ;;
+    *) backref="$ptr/$backref" ;;
+  esac
+  # -ef is a builtin in both /bin/bash 3.2 and zsh and stats both paths, so the
+  # kernel resolves a relative back-reference, any `..` in it and any symlink on
+  # either side. Nothing up to here normalises a path.
+  [ "$backref" -ef "$root/.git" ] || return 0
+  # /.git/worktrees/<name> is three segments, stripped one at a time. The
+  # non-empty check guards `gitdir: /.git/worktrees/x`, which strips to nothing
+  # and would leave the caller statting /.wf.yml at the filesystem root.
+  base="${ptr%/*}"; base="${base%/*}"; base="${base%/*}"
+  [ -n "$base" ] || return 0
+  # Resolved, not spelled: three skills show this path beside the
+  # verify.commands they execute, and `<trusted>/.git/worktrees/../../../evil`
+  # must not read as the trusted clone. This normalises the answer only, never
+  # the -ef above. A failed cd declines; `CDPATH=` keeps a relative base off it.
+  base="$(CDPATH= cd -- "$base" 2>/dev/null && pwd -P)" || base=""
+  [ -n "$base" ] || return 0
+  # A directory name stops at no byte the pointer read catches. In the
+  # key=value block the skills echo this into, a newline forges another setting
+  # and a CR or ESC rewrites the line a reader sees; the whole class costs the
+  # same one pattern.
+  case "$base" in
+    *[[:cntrl:]]*) return 0 ;;
+  esac
+  printf '%s\n' "$base"
+}
+
+# config_path <root>: print the config path, or nothing. The root's own file
+# first; on a miss, the base clone's when the root is a linked worktree. One hop
+# is the whole chain - worktrees do not nest. No tmp/ fallback, unlike the
+# tracker config.
+#
+# The is-a-file test is a hoisted copy of base_clone's first test, so an
+# ordinary clone with no config pays a stat rather than a fork.
 config_path() {
+  local base
   if [ -f "$1/.wf.yml" ]; then
     printf '%s\n' "$1/.wf.yml"
+  elif [ -f "$1/.git" ]; then
+    base="$(base_clone "$1")"
+    if [ -n "$base" ] && [ -f "$base/.wf.yml" ]; then
+      printf '%s\n' "$base/.wf.yml"
+    fi
   fi
+  # Explicit: resolve reads this through a command substitution under set -e.
+  return 0
 }
 
 # Wall clock the one yq fork gets. Nested YAML aliases expand multiplicatively,
 # so a .wf.yml under 300 bytes can hold yq past any deadline at full CPU, which
-# no cap on size or depth reaches. /wf-config is what makes the bound necessary
-# rather than merely tidy: every other caller also runs that repo's
-# verify.commands verbatim, so for them a hang is the least of what an untrusted
-# file already does, while /wf-config runs no command and a hang is the whole of
-# it. AGENTS.md also requires a SKILL.md block to fit inside the Bash tool's
-# timeout, and six of them fork this script.
+# no cap on size or depth reaches. /wf-config needs the bound most: it runs none
+# of the repo's own commands, so a hang is the whole of the damage. AGENTS.md
+# also requires a SKILL.md block to fit the Bash tool's timeout, and six of them
+# fork this script.
 YQ_TIMEOUT="${WF_YQ_TIMEOUT:-10}"
 case "$YQ_TIMEOUT" in
   ''|*[!0-9]*) die "WF_YQ_TIMEOUT must be a whole number of seconds" ;;
@@ -97,12 +207,12 @@ YQ_TIMEOUT_RC=143
 # read_props <file>: the single yq fork. Emits `key=value`, normalising yq's
 # " = " separator and its 0-based list indices.
 #
-# The expression rewrites every empty sequence to a one-member sentinel first.
-# yq -o=props drops an empty sequence entirely, so `reviewers: []` would emit no
-# lines and be indistinguishable from an absent key. Traversing the whole
-# document rather than the known keys also gives `bogus: []` and a scalar
-# written as `[]` a line to be rejected on. It does not reach an empty map:
-# `{}` is still dropped, so a list mistyped as a map reports <unset>.
+# The expression rewrites every empty sequence to a one-member sentinel first,
+# because yq -o=props drops an empty sequence entirely and `reviewers: []` would
+# then be indistinguishable from an absent key. Traversing the whole document
+# rather than the known keys gives `bogus: []` and a scalar written as `[]` a
+# line to be rejected on. An empty map is out of reach: `{}` is still dropped,
+# so a list mistyped as a map reports <unset>.
 read_props() {
   local file="$1" out rc=0
   command -v yq >/dev/null 2>&1 || die "yq is required to read .wf.yml"
@@ -114,17 +224,25 @@ read_props() {
   out="$(
     yq -o=props '(.. | select(tag == "!!seq" and length == 0)) |= ["<none>"]' -- "$file" &
     parser=$!
-    { sleep "$YQ_TIMEOUT"; kill -TERM "$parser" 2>/dev/null; } >/dev/null 2>&1 &
+    # Blocked in `wait`, not in `sleep`: a subshell killed while blocked in
+    # `sleep` orphans the sleep, which holds every fd the caller gave it for the
+    # whole deadline - under bats, FD 3. `wait` is interruptible, so the TERM
+    # trap takes the sleep with it. Not a group-directed kill: this script sets
+    # no `set -m`, so the group is its own.
+    { trap 'kill "$napper" 2>/dev/null; exit' TERM
+      sleep "$YQ_TIMEOUT" & napper=$!
+      wait "$napper" && kill -TERM "$parser" 2>/dev/null; } >/dev/null 2>&1 &
     watchdog=$!
     rc=0
     wait "$parser" || rc=$?
-    kill "$watchdog" 2>/dev/null || :
+    kill -TERM "$watchdog" 2>/dev/null || :
+    wait "$watchdog" 2>/dev/null || :
     exit "$rc"
   )" || rc=$?
   if [ "$rc" -eq "$YQ_TIMEOUT_RC" ]; then
-    invalid "gave up parsing $file after ${YQ_TIMEOUT}s; a YAML alias chain can expand without bound"
+    invalid_at_file "gave up parsing $file after ${YQ_TIMEOUT}s; a YAML alias chain can expand without bound"
   fi
-  [ "$rc" -eq 0 ] || invalid "could not parse $file as YAML"
+  [ "$rc" -eq 0 ] || invalid_at_file "could not parse $file as YAML"
   printf '%s\n' "$out" | awk '
     {
       # yq -o=props emits YAML comments verbatim as their own lines. Skip them
@@ -342,15 +460,15 @@ emit() {
 }
 
 # require <dump> <present> <csv>: halt on any named key the dump reports
-# <unset>. The halt lives here rather than in five SKILL.md copies of the same
-# thirteen lines: the message is one string, the comparison is not a judgment,
-# and a skill already forks this script once.
+# <unset>. Centralised here so the message is one string rather than five
+# SKILL.md copies of it.
 #
-# Naming a key the script does not know is a usage error, not a halt - it is a
-# typo in the caller, and reporting it as "unset" would be a halt that no
-# /wf-config run could ever clear.
+# Naming a key the script does not know is a usage error, not a halt: it is a
+# typo in the caller, and reporting it as "unset" would be a halt no /wf-config
+# run could clear.
 require() {
   local dump="$1" present="$2" csv="$3" key missing="" seen="|" n=0 total=0 oldifs hadf
+  local where=".wf.yml" run_in=""
   # Same flag discipline as emit(): restore what the caller had rather than
   # assuming globbing was on.
   case $- in
@@ -370,9 +488,9 @@ require() {
     [ -n "$key" ] || continue
     # One index dropped, never two. A skill names a list member
     # (`review.reviewers.1`) as readily as the list, and the dump's <unset> line
-    # carries the bare key either way; `review.reviewers.1.2` is a spelling no
-    # file can declare, so accepting it would match no dump line and halt on
-    # nothing - the silent no-halt this die exists to prevent.
+    # carries the bare key either way. `review.reviewers.1.2` is a spelling no
+    # file can declare; accepting it would match no dump line and halt on
+    # nothing.
     case "${key##*.}" in
       ''|*[!0-9]*) ;;
       *) key="${key%.*}" ;;
@@ -399,26 +517,37 @@ $key=<unset>"*)
   done
   [ "$n" -gt 0 ] || return 0
   missing="${missing#, }"
+  # The same disclosure invalid() carries, on the exit a key-short base clone
+  # reaches: bare ".wf.yml" names no file a worktree has, and /wf-config
+  # declines there, so the directory to run it in is named too. Empty outside a
+  # worktree, which keeps every message below byte-identical there.
+  if [ -n "$INHERITED_FROM" ]; then
+    where="$INHERITED_FROM"
+    run_in=" in ${INHERITED_FROM%/*}"
+  fi
   # Every named key unset AND no file at all is one condition with one cause,
   # and naming nine keys for it would bury the cause under its symptoms.
   if [ "$n" -eq "$total" ] && [ "$present" = no ]; then
     halt "No .wf.yml in this repo. Run /wf-config to create one."
   fi
   if [ "$n" -eq 1 ]; then
-    halt "$missing is unset in .wf.yml. Run /wf-config to set it, then retry."
+    halt "$missing is unset in $where. Run /wf-config$run_in to set it, then retry."
   fi
-  halt "$missing are unset in .wf.yml. Run /wf-config to set them, then retry."
+  halt "$missing are unset in $where. Run /wf-config$run_in to set them, then retry."
 }
 
 # resolve <root> <csv>: the whole decision. See the exit codes above.
 resolve() {
   local root="$1" csv="$2" file kv dump present
-  [ -d "$root" ] || die "no such directory: $root"
   file="$(config_path "$root")"
   if [ -z "$file" ]; then
     present=no
     dump="$(emit "")"
   else
+    # config_path prints the root's own file verbatim on its first arm, so this
+    # comparison is the whole test for inheritance. Not in config_path, which
+    # --print-config-path shares and must leave no side effect behind.
+    [ "$file" = "$root/.wf.yml" ] || INHERITED_FROM="$file"
     present=yes
     kv="$(read_props "$file")"
     validate "$kv"
@@ -431,7 +560,7 @@ resolve() {
 }
 
 main() {
-  local repo_root="." require=""
+  local repo_root="." require="" print_path=no
   while [ $# -gt 0 ]; do
     case "$1" in
       --repo-root)
@@ -444,12 +573,31 @@ main() {
         # Repeats accumulate rather than replace, so a caller can build the
         # list up without the last flag silently winning.
         require="${require:+$require,}$2"; shift 2 ;;
+      --print-config-path)
+        print_path=yes; shift ;;
       -h|--help)
         usage; exit 0 ;;
       *)
         usage >&2; die "unknown argument: $1" ;;
     esac
   done
+
+  # Refused rather than ordered; CONFIG.md gives why a silent precedence rule
+  # between the two would be worse.
+  if [ "$print_path" = yes ] && [ -n "$require" ]; then
+    die "--print-config-path cannot be combined with --require"
+  fi
+
+  # Here rather than in resolve(), because --print-config-path shares
+  # config_path and needs the same answer: printing nothing for a root that
+  # does not exist would report a broken invocation as "this repo has no
+  # config", the one answer a caller cannot tell apart from the truth.
+  [ -d "$repo_root" ] || die "no such directory: $repo_root"
+
+  if [ "$print_path" = yes ]; then
+    config_path "$repo_root"
+    exit 0
+  fi
 
   resolve "$repo_root" "$require"
 }
