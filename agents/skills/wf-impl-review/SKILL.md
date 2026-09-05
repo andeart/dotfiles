@@ -28,7 +28,6 @@ echo "origin=$origin"
 [ -n "$origin" ] && git fetch --quiet origin
 default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
 echo "default=$default"
-git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
 [ -f "$root/.wf.yml" ] || echo "wfconfig_path=$(bash \
   ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
   --repo-root "$root" --print-config-path 2>/dev/null)"
@@ -41,7 +40,6 @@ echo "resolver_exit=$?"
 - `repo=no` - stop and say this is not a git repository.
 - `origin=` empty - stop and tell the user no remote named `origin` is configured.
 - `default=` - if empty, neither `main` nor `master` exists; stop and say so.
-- `reviews_ignored=no` - **stop.** Say that `docs/reviews/` is not gitignored here, so each reviewer's commit would sweep its own notes into the branch. Ask the user to add it, and do not edit `.gitignore` yourself - that file is gated.
 - `wfconfig_path=` - absent means the repo root carries its own `.wf.yml` and nothing below changes. A non-empty value is the file the settings actually came from, outside this working tree; Step 3 names it. An empty value means no config resolved anywhere, and nothing more - never fill it in as `$root/.wf.yml`.
 
 ## Step 1: Resolve the roster and focus
@@ -75,7 +73,7 @@ Print exactly this, filled in, and stop for the user's go-ahead:
 > Reviewing this branch's committed changes against `<default>` with `<N>` reviewers: `<names>`.
 > Focus: `<focus list, comma-separated, or "none - holistic">`.
 > Checks: `<verify.commands entries, comma-separated, or "none configured">`.
-> Notes land in `docs/reviews/<id>-impl-review-<Name>.md` (gitignored).
+> Notes land outside the repo, in `<notes dir>/<id>-impl-review-<Name>.md`.
 > Each reviewer revises the branch before the next one starts. I'll push once at the end.
 > Any concerns before we start the cycle?
 
@@ -105,14 +103,14 @@ Naming the commands matters as much as the state does: a reviewer left to discov
 
 A failing state is still handed forward. It is a fact the next reviewer needs more than a passing one, and hiding it would have the next reviewer attribute the failure to its own change.
 
-**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the worktree path, the identifier, the focus list, the resolved default branch, and `<CHECK_STATE>`. Give it nothing else about the review - no summary of earlier reviewers, no repo orientation, no account of what has already been found. The genericity of the prompt is what makes each pass holistic.
+**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the worktree path, the notes path, the identifier, the focus list, the resolved default branch, and `<CHECK_STATE>`. Give it nothing else about the review - no summary of earlier reviewers, no repo orientation, no account of what has already been found. The genericity of the prompt is what makes each pass holistic.
 
 The one exception is the check state below, and it is bounded deliberately: what crosses between reviewers is a fact about the tree, never a fact about the review. A reviewer learns that the checks pass at the commit it starts from; it does not learn who made them pass or what they thought.
 
 The numbered focus list carries one line per `review.focus` entry, however many the repo configures. On `review.focus=<none>`, drop the `Focus your review of this on:` line and the numbered list with it, and leave the rest of the prompt as it stands.
 
 ```text
-I have changes committed in my worktree checked out at <ABSOLUTE WORKTREE PATH>. Review these changes against the latest `origin/<default>` holistically. Write your review feedback in normal markdown format to docs/reviews/<id>-impl-review-YourName.md within this branch. Note that docs/reviews/ is gitignored, which is fine.
+I have changes committed in my worktree checked out at <ABSOLUTE WORKTREE PATH>. Review these changes against the latest `origin/<default>` holistically. Write your review feedback in normal markdown format to <ABSOLUTE NOTES PATH>. That path is outside the repository, which is deliberate and fine.
 You are reviewing as YourName. Focus your review of this on:
 1. <focus.1>
 2. <focus.2>
@@ -153,4 +151,6 @@ gh pr view --json url --jq '.url' 2>/dev/null
 
 A URL means a pull request already exists for this branch; the push updated it - report the URL. No output means there is none yet.
 
-Report, one line per reviewer: its name, whether it wrote its notes file, whether its follow-through ran or was skipped for raising no bullet items, and whether it committed a revision. Then the check state the cycle ended on, and the push result.
+Report, one line per reviewer: its name, whether it wrote its notes file, whether its follow-through ran or was skipped for raising no bullet items, and whether it committed a revision. Then the check state the cycle ended on, the directory the notes were written to, and the push result.
+
+The notes are outside the working tree and are not cleaned up by `/wf-ship`. Name the directory so they can be read while the session's scratchpad still exists.
