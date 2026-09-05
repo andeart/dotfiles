@@ -107,7 +107,7 @@ Naming what they cost matters for the same reason. Measured on the 2026-09-04 `w
 
 A failing state is still handed forward. It is a fact the next reviewer needs more than a passing one, and hiding it would have the next reviewer attribute the failure to its own change.
 
-**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the worktree path, the notes path, the identifier, the focus list, the resolved default branch, and `<CHECK_STATE>`. Give it nothing else about the review - no summary of earlier reviewers, no repo orientation, no account of what has already been found. The genericity of the prompt is what makes each pass holistic.
+**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the worktree path, the notes path, the identifier, the focus list, the resolved default branch, and `<CHECK_STATE>`. Give it nothing else about the review - no summary of earlier reviewers, no repo orientation, no account of what has already been found. The genericity of the prompt is what makes each pass holistic. Give the Agent tool call itself a `description` of exactly `Impl review: YourName` - `wf-cycle-timings` identifies and names every reviewer by matching that literal prefix against each sub-agent's own description, and a differently phrased one makes it find none.
 
 The one exception is the check state below, and it is bounded deliberately: what crosses between reviewers is a fact about the tree, never a fact about the review. A reviewer learns that the checks pass at the commit it starts from; it does not learn who made them pass or what they thought.
 

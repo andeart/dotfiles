@@ -68,13 +68,53 @@ subagents_dir() {
   fi
 }
 
-# reviewers <subagents-dir>: "id<TAB>name<TAB>read_only<TAB>follow<TAB>total<TAB>
-# turnaround<TAB>start<TAB>end<TAB>ft" per depth-1 review agent (the last seven
-# fields are transcript_stats()'s own output, unpacked), ordered by the start
-# of its transcript so the roster reads in cycle order. main() reads these
-# fields directly instead of calling transcript_stats() again per reviewer -
-# sorting the roster already requires a full transcript_stats() pass per
-# candidate for its start-time sort key, so carrying the rest of that same
+# _meta_scan <subagents-dir>: "1<TAB>id<TAB>kind<TAB>name" per depth-1 review
+# agent, "2<TAB>id<TAB>parent<TAB>description" per depth-2 agent - one row per
+# agent-*.meta.json file that matches either shape. reviewers() and
+# nested_by_parent() each used to run this same classification as their own
+# bash loop, launching one jq process per file - two full-directory passes,
+# each spawning one jq process per file. Measured against 604 meta files (a
+# plausible count for a busy long-lived session - see nested_by_parent()'s own
+# history below): those two loops cost 3.8s combined; this one process reading
+# every file directly costs 0.02-0.08s. `input_filename` recovers each file's
+# own path without slurping, so per-file `id` extraction still works and
+# memory stays one record at a time rather than the whole directory.
+#
+# A parse error in one file aborts jq's read of every file ordered after it in
+# the argument list - streaming many files through one process trades away the
+# per-file fault isolation the old one-jq-per-file loops had for free. Falls
+# back to that slower, isolated loop whenever the fast path's process exits
+# nonzero, so a single corrupt meta file costs this function its speed rather
+# than costing every reviewer or nested spawn ordered after it in the glob.
+_meta_scan() {
+  local -a files=("$1"/agent-*.meta.json)
+  [ -e "${files[0]}" ] || return 0
+  local filter out
+  filter='
+    (input_filename | sub(".*/agent-";"") | sub("\\.meta\\.json$";"")) as $id
+    | if (.spawnDepth == 1) then
+        (.description | capture("^(?<kind>Impl|Spec) review: (?<name>.*)")?) as $m
+        | if ($m == null) then empty else [1, $id, $m.kind, $m.name] | @tsv end
+      elif (.spawnDepth == 2) then
+        [2, $id, (.parentAgentId // ""), (.description // "(no description)")] | @tsv
+      else empty end'
+  if out="$(jq -r "$filter" "${files[@]}" 2>/dev/null)"; then
+    printf '%s\n' "$out"
+    return 0
+  fi
+  local meta
+  for meta in "${files[@]}"; do
+    jq -r "$filter" "$meta" 2>/dev/null || true
+  done
+}
+
+# reviewers <subagents-dir> [scan]: "id<TAB>name<TAB>read_only<TAB>follow<TAB>
+# total<TAB>turnaround<TAB>start<TAB>end<TAB>ft" per depth-1 review agent (the
+# last seven fields are transcript_stats()'s own output, unpacked), ordered by
+# the start of its transcript so the roster reads in cycle order. main() reads
+# these fields directly instead of calling transcript_stats() again per
+# reviewer - sorting the roster already requires a full transcript_stats() pass
+# per candidate for its start-time sort key, so carrying the rest of that same
 # call's output forward is free; recomputing it in main() afterward was not
 # (measured: ~0.45s for one transcript_stats() pass over a 20,000-line
 # transcript, ~0.78s for the two passes this used to cost per reviewer).
@@ -84,20 +124,20 @@ subagents_dir() {
 # implement", then impl review, per WORKFLOW.md), and without this check the
 # two cycles' rosters silently merge into one with reviewer names repeated and
 # span/gap numbers that span both cycles - wrong, but not visibly so.
+# The optional second argument is _meta_scan()'s own output for this
+# directory, for a caller (main()) that also needs nested_by_parent()'s
+# classification of the same directory and would otherwise pay for that one
+# pass twice. Omitted, this scans the directory itself, so calling this alone
+# still works exactly as before.
 reviewers() {
-  local meta id name_kind kind name stats start rows
+  local scan="${2:-}"
+  [ -n "$scan" ] || scan="$(_meta_scan "$1")"
+  [ -n "$scan" ] || return 0
+
+  local id kind name stats start rows
   rows="$(
-    for meta in "$1"/agent-*.meta.json; do
-      [ -e "$meta" ] || continue
-      id="${meta##*/agent-}"
-      id="${id%.meta.json}"
-      name_kind="$(jq -r '
-        if (.spawnDepth == 1)
-        then (.description | capture("^(?<kind>Impl|Spec) review: (?<name>.*)")? // empty | [.kind, .name] | @tsv)
-        else empty end' "$meta" 2>/dev/null || true)"
-      [ -n "$name_kind" ] || continue
-      kind="${name_kind%%$'\t'*}"
-      name="${name_kind#*$'\t'}"
+    printf '%s\n' "$scan" | awk -F'\t' '$1 == 1' | while IFS=$'\t' read -r _ id kind name; do
+      [ -n "$id" ] || continue
       stats="$(transcript_stats "$1/agent-$id.jsonl")"
       start="$(printf '%s\n' "$stats" | cut -d' ' -f5)"
       printf '%s\t%s\t%s\t%s\t%s\n' "$start" "$id" "$name" "$kind" "${stats// /$'\t'}"
@@ -178,21 +218,30 @@ transcript_stats() {
 }
 
 # phases <jsonl>: "read_only follow total turnaround", integer seconds - the
-# first four transcript_stats() fields. Kept as its own entry point for
-# standalone callers and the tests pinned to this exact shape.
+# first four transcript_stats() fields. Nothing in this file calls phases()
+# or followthrough() below - reviewers() reads transcript_stats()'s full
+# output directly instead, for the reason given in reviewers()'s own comment.
+# Both are kept anyway as a stable one-purpose entry point onto
+# transcript_stats(), for a future caller in this file or elsewhere that wants
+# just one of its fields without learning the other six, and are exercised
+# only by their own tests today - if that's no longer worth the upkeep, delete
+# them and fold their tests into transcript_stats()'s.
 phases() {
   transcript_stats "$1" | cut -d' ' -f1-4
 }
 
 # bounds <jsonl>: "<start-epoch> <end-epoch>", for nested_by_parent()'s and
-# nested()'s duration/phase math.
+# nested()'s duration/phase math. Unlike phases()/followthrough() below, this
+# one has live callers.
 bounds() {
   transcript_stats "$1" | cut -d' ' -f5-6
 }
 
 # followthrough <jsonl>: the epoch the follow-through prompt arrived at, or 0
 # when none did. phases() finds the same instant to split the two phases; this
-# hands it out so a nested spawn can be placed on the right side of it.
+# hands it out so a nested spawn can be placed on the right side of it. See
+# phases()'s own comment above - no in-file caller today, kept as a named
+# entry point for whoever needs just this one field next.
 followthrough() {
   transcript_stats "$1" | cut -d' ' -f7
 }
@@ -234,36 +283,32 @@ nested() {
   done
 }
 
-# nested_by_parent <subagents-dir>: "parent<TAB>description<TAB>duration<TAB>
-# start" per depth-2 agent under any parent, from one pass over
-# agent-*.meta.json. nested() takes one parent id and is called once per
-# reviewer in main()'s loop; since it re-globs and re-parses every meta file
-# in the directory on every call, that cost is reviewers x total-agents in the
-# directory, not just total-agents - and the directory can hold far more than
-# this cycle's own reviewers, since a long-lived session accumulates every
-# sub-agent it ever spawned. Measured against 4 reviewers plus 300 unrelated
-# agents (604 meta files, a plausible count for a busy long-lived session):
-# calling nested() once per reviewer cost 5.8s wall-clock; this single pass is
-# what main() calls instead, with the per-reviewer filter done in memory
-# against its output rather than against the filesystem again.
+# nested_by_parent <subagents-dir> [scan]: "parent<TAB>description<TAB>
+# duration<TAB>start" per depth-2 agent under any parent. nested() takes one
+# parent id and is called once per reviewer in main()'s loop; since it
+# re-globs and re-parses every meta file in the directory on every call, that
+# cost is reviewers x total-agents in the directory, not just total-agents -
+# and the directory can hold far more than this cycle's own reviewers, since a
+# long-lived session accumulates every sub-agent it ever spawned. Measured
+# against 4 reviewers plus 300 unrelated agents (604 meta files, a plausible
+# count for a busy long-lived session): calling nested() once per reviewer
+# cost 5.8s wall-clock; classifying the whole directory through _meta_scan()
+# once, as this does, costs 0.02-0.08s - the per-reviewer filter runs in
+# memory against that output rather than against the filesystem again. The
+# optional second argument is the same _meta_scan() cache reviewers() takes,
+# for the same reason; omitted, this scans the directory itself.
 nested_by_parent() {
-  local meta id parent_desc parent desc b start
-  for meta in "$1"/agent-*.meta.json; do
-    [ -e "$meta" ] || continue
-    parent_desc="$(jq -r '
-      if (.spawnDepth == 2)
-      then [(.parentAgentId // ""), (.description // "(no description)")] | @tsv
-      else empty end' "$meta" 2>/dev/null || true)"
-    [ -n "$parent_desc" ] || continue
-    parent="${parent_desc%%$'\t'*}"
+  local scan="${2:-}"
+  [ -n "$scan" ] || scan="$(_meta_scan "$1")"
+  [ -n "$scan" ] || return 0
+
+  local id parent desc b start
+  printf '%s\n' "$scan" | awk -F'\t' '$1 == 2' | while IFS=$'\t' read -r _ id parent desc; do
     [ -n "$parent" ] || continue
     # @tsv already escapes tabs/newlines within desc as literal backslash
     # sequences rather than leaving raw control characters in place, so this
     # row's own tab-delimited grammar cannot be corrupted the way nested()'s
     # manual sanitization above guards against.
-    desc="${parent_desc#*$'\t'}"
-    id="${meta##*/agent-}"
-    id="${id%.meta.json}"
     b="$(bounds "$1/agent-$id.jsonl")"
     start="${b%% *}"
     printf '%s\t%s\t%d\t%d\n' "$parent" "$desc" "$(( ${b#* } - start ))" "$start"
@@ -287,8 +332,14 @@ main() {
   local dir
   dir="$(subagents_dir "$target")"
 
+  # One _meta_scan() pass over the directory, shared by reviewers() and
+  # nested_by_parent() below - see _meta_scan()'s own comment for why calling
+  # each of those alone would otherwise pay for that pass twice.
+  local scan
+  scan="$(_meta_scan "$dir")"
+
   local roster
-  roster="$(reviewers "$dir")"
+  roster="$(reviewers "$dir" "$scan")"
   [ -n "$roster" ] || die "no reviewer transcript found under $dir"
 
   local id name ro fo to tu st en ft
@@ -333,8 +384,9 @@ EOF
   # One pass over the directory for every reviewer's nested spawns, instead of
   # nested()'s one call per reviewer - see nested_by_parent()'s own comment.
   # Each reviewer's rows are then just filtered out of this in-memory result.
+  # Reuses the scan computed above rather than re-running _meta_scan().
   local all_nested
-  all_nested="$(nested_by_parent "$dir")"
+  all_nested="$(nested_by_parent "$dir" "$scan")"
 
   local ro_count=0 ro_nested=0 fo_count=0 fo_nested=0 desc dur phase
   for (( i = 0; i < ${#names[@]}; i++ )); do

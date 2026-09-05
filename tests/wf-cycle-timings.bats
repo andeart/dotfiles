@@ -197,6 +197,45 @@ $FT"
     "$(epoch 0)" "$(epoch 0)" "$(epoch 600)" "$(epoch 600)")" ]
 }
 
+@test "reviewers: a directory mixing Impl review and Spec review agents is refused" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  mkdir -p "$dir"
+  # Built the way cbc4635's own commit message describes finding this bug: one
+  # cycle's worth of Impl review agents and one cycle's worth of Spec review
+  # agents under the same subagents directory, as a long-lived session running
+  # both /wf-spec-review and /wf-impl-review for the same ticket would leave
+  # behind. Without the kind_count guard this silently merges into one roster
+  # instead of refusing - regression-tests the fix, since nothing else here did.
+  reviewer "$dir" aaa Alia Impl
+  reviewer "$dir" bbb Bheem Impl
+  reviewer "$dir" ccc Cristo Spec
+  call reviewers "$dir"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"found both Impl review and Spec review agents under $dir"* ]] \
+    || fail "expected the mixed-cycle refusal message, got:
+$output"
+}
+
+@test "_meta_scan: a corrupt meta file falls back to one-file-at-a-time instead of dropping every file after it" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  mkdir -p "$dir"
+  reviewer "$dir" aaa Alia Impl
+  reviewer "$dir" bbb Bheem Impl
+  jq -cn '{agentType:"general-purpose", description:"Digest prior reviews", spawnDepth:2, parentAgentId:"aaa"}' \
+    > "$dir/agent-nnn.meta.json"
+  : > "$dir/agent-nnn.jsonl"
+  # "ccc" sorts between "bbb" and "nnn", so a naive single jq pass over the
+  # glob would read this file, hit the parse error, and never reach "nnn" -
+  # this is exactly the failure _meta_scan()'s fallback loop exists to avoid.
+  echo 'not json at all' > "$dir/agent-ccc.meta.json"
+  call reviewers "$dir"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf 'aaa\tAlia\t0\t0\t0\t0\t0\t0\t0\nbbb\tBheem\t0\t0\t0\t0\t0\t0\t0')" ]
+  call nested_by_parent "$dir"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf 'aaa\tDigest prior reviews\t0\t0')" ]
+}
+
 @test "fmt_duration renders minutes and zero-padded seconds" {
   call fmt_duration 227
   [ "$output" = "3m47s" ]
@@ -416,4 +455,26 @@ marker_from_script() {
   spec="$(grep -c -F "$m" "$SPEC" || true)"
   [ "$impl" = "1" ] || fail "marker found $impl times in $IMPL, expected 1"
   [ "$spec" = "1" ] || fail "marker found $spec times in $SPEC, expected 1"
+}
+
+# ─── the reviewer-naming convention still matches both skills ──────────────
+#
+# reviewers() identifies and names review agents by matching each spawned
+# sub-agent's own `description` against ^(Impl|Spec) review: (.*) - a
+# convention that has to be documented somewhere the coordinator spawning
+# those sub-agents reads, or a differently phrased description silently makes
+# every reviewer invisible to this script (roster empty, "no reviewer
+# transcript found", with nothing connecting that message back to this
+# convention). Pinned the same way the follow-through marker is pinned above.
+
+@test "wf-cycle-timings' reviewer regex still matches on the literal 'Impl review:'/'Spec review:' prefixes" {
+  run grep -c -F '"^(?<kind>Impl|Spec) review: (?<name>.*)"' "$TIMINGS"
+  [ "$output" = "1" ]
+}
+
+@test "both review skills document the exact sub-agent description wf-cycle-timings matches on" {
+  run grep -c -F 'a `description` of exactly `Impl review: YourName`' "$IMPL"
+  [ "$output" = "1" ]
+  run grep -c -F 'a `description` of exactly `Spec review: YourName`' "$SPEC"
+  [ "$output" = "1" ]
 }
