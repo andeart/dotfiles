@@ -28,6 +28,13 @@ iso() {
   python3 -c "import sys,datetime as d; print((d.datetime(2026,9,4,20,0,0,tzinfo=d.timezone.utc)+d.timedelta(seconds=int(sys.argv[1]))).strftime('%Y-%m-%dT%H:%M:%S.268Z'))" "$1"
 }
 
+# epoch <offset-seconds>: the real Unix epoch iso()'s fixed reference date plus
+# that offset maps to - what bounds()/transcript_stats() actually return, as
+# opposed to the offset itself.
+epoch() {
+  python3 -c "import sys,datetime as d; print(int((d.datetime(2026,9,4,20,0,0,tzinfo=d.timezone.utc)+d.timedelta(seconds=int(sys.argv[1]))).timestamp()))" "$1"
+}
+
 # rec <offset> <type> [content]: one JSONL record.
 rec() {
   local content="${3:-}"
@@ -112,6 +119,39 @@ $FT"
   [ "$output" = "300 0 300 0" ]
   [ -z "$stderr" ] || fail "an unparseable timestamp value printed to stderr:
 $stderr"
+}
+
+@test "transcript_stats: agrees with phases(), bounds(), and followthrough() on the same transcript" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  mkdir -p "$dir"
+  {
+    rec 0 user "opening prompt"
+    rec 600 assistant
+    rec 900 assistant
+    rec 1127 user "The coordinator sent a message while you were working:
+$FT"
+    rec 1500 assistant
+  } > "$dir/agent-aaa.jsonl"
+  call transcript_stats "$dir/agent-aaa.jsonl"
+  [ "$status" -eq 0 ]
+  # phases: 900 373 1500 227. bounds/followthrough are real epochs, not offsets.
+  [ "$output" = "900 373 1500 227 $(epoch 0) $(epoch 1500) $(epoch 1127)" ]
+}
+
+@test "transcript_stats: no follow-through means read-only spans the whole run, with start/end/ft still reported" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  mkdir -p "$dir"
+  { rec 0 user "opening prompt"; rec 480 assistant; } > "$dir/agent-bbb.jsonl"
+  call transcript_stats "$dir/agent-bbb.jsonl"
+  [ "$output" = "480 0 480 0 $(epoch 0) $(epoch 480) 0" ]
+}
+
+@test "transcript_stats: an empty transcript reports all-zero fields" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  mkdir -p "$dir"
+  : > "$dir/agent-ggg.jsonl"
+  call transcript_stats "$dir/agent-ggg.jsonl"
+  [ "$output" = "0 0 0 0 0 0 0" ]
 }
 
 @test "reviewers: depth-1 review agents are listed, nested and non-review agents are not" {
