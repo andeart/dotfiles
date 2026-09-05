@@ -27,6 +27,19 @@ check_state_block() {
   }
 }
 
+# The three paragraphs below are read out of the block by the text each one
+# starts with, not by position - a paragraph landing above or below them in a
+# future edit changes their line number without changing their content, and
+# pinning by position would then need recomputing for a change that has
+# nothing to do with what these three tests actually check. sibling_line(),
+# reestablish_line() and spawn_line() each grep for a prefix that appears
+# exactly once in the block; a rewording that drops the prefix itself is
+# exactly the drift this file exists to catch, and shows up as that grep
+# coming back empty rather than as a silently wrong line.
+sibling_line() { check_state_block "$1" | grep -F 'The check-state paragraphs below'; }
+reestablish_line() { check_state_block "$1" | grep -F '**Re-establish it after any round that committed.**'; }
+spawn_line() { check_state_block "$1" | grep -F '**Spawn a sub-agent**'; }
+
 @test "both files still carry the check-state block where this test expects it" {
   local impl_lines spec_lines
   impl_lines="$(check_state_block "$IMPL" | wc -l | tr -d ' ')"
@@ -44,32 +57,38 @@ check_state_block() {
   local impl spec impl_trimmed spec_trimmed
   impl="$(check_state_block "$IMPL")"
   spec="$(check_state_block "$SPEC")"
-  # Line 1 names the sibling file the paragraph below is identical to (so it
-  # has to differ - each file names the other one). Line 17 is
-  # "Re-establish it after any round that committed.", where wf-spec-review
-  # alone explains the <SPEC_TRACKED> case. Line 21 is "Spawn a sub-agent",
-  # where the substitution list names a worktree path plus a resolved default
-  # branch for wf-impl-review, and only a spec path for wf-spec-review. All
-  # three are read separately in the two tests below; every other line has to
-  # match exactly, or the two copies have drifted apart.
-  impl_trimmed="$(printf '%s\n' "$impl" | sed '1d;17d;21d')"
-  spec_trimmed="$(printf '%s\n' "$spec" | sed '1d;17d;21d')"
+  # The sibling-file line names the sibling file the paragraph is identical
+  # to (so it has to differ - each file names the other one). The
+  # re-establish paragraph is where wf-spec-review alone explains the
+  # <SPEC_TRACKED> case. The spawn paragraph's substitution list names a
+  # worktree path plus a resolved default branch for wf-impl-review, and only
+  # a spec path for wf-spec-review. All three are read separately in the two
+  # tests below; every other line has to match exactly, or the two copies
+  # have drifted apart.
+  impl_trimmed="$(printf '%s\n' "$impl" | grep -v -F \
+    -e 'The check-state paragraphs below' \
+    -e '**Re-establish it after any round that committed.**' \
+    -e '**Spawn a sub-agent**')"
+  spec_trimmed="$(printf '%s\n' "$spec" | grep -v -F \
+    -e 'The check-state paragraphs below' \
+    -e '**Re-establish it after any round that committed.**' \
+    -e '**Spawn a sub-agent**')"
   [ "$impl_trimmed" = "$spec_trimmed" ]
 }
 
-@test "the check-state block's line 1 names its own sibling file" {
-  [[ "$(check_state_block "$IMPL" | sed -n '1p')" == *'`wf-spec-review/SKILL.md`'* ]]
-  [[ "$(check_state_block "$SPEC" | sed -n '1p')" == *'`wf-impl-review/SKILL.md`'* ]]
+@test "the check-state block's sibling-file line names its own sibling file" {
+  [[ "$(sibling_line "$IMPL")" == *'`wf-spec-review/SKILL.md`'* ]]
+  [[ "$(sibling_line "$SPEC")" == *'`wf-impl-review/SKILL.md`'* ]]
 }
 
 @test "only wf-spec-review's re-establish paragraph carries the SPEC_TRACKED case" {
-  [[ "$(check_state_block "$IMPL" | sed -n '17p')" != *SPEC_TRACKED* ]]
-  [[ "$(check_state_block "$SPEC" | sed -n '17p')" == *SPEC_TRACKED* ]]
+  [[ "$(reestablish_line "$IMPL")" != *SPEC_TRACKED* ]]
+  [[ "$(reestablish_line "$SPEC")" == *SPEC_TRACKED* ]]
 }
 
 @test "only wf-impl-review's spawn paragraph substitutes a worktree path and a resolved default branch" {
-  [[ "$(check_state_block "$IMPL" | sed -n '21p')" == *"the worktree path"* ]]
-  [[ "$(check_state_block "$IMPL" | sed -n '21p')" == *"the resolved default branch"* ]]
-  [[ "$(check_state_block "$SPEC" | sed -n '21p')" == *"the spec path"* ]]
-  [[ "$(check_state_block "$SPEC" | sed -n '21p')" != *"the resolved default branch"* ]]
+  [[ "$(spawn_line "$IMPL")" == *"the worktree path"* ]]
+  [[ "$(spawn_line "$IMPL")" == *"the resolved default branch"* ]]
+  [[ "$(spawn_line "$SPEC")" == *"the spec path"* ]]
+  [[ "$(spawn_line "$SPEC")" != *"the resolved default branch"* ]]
 }
