@@ -45,15 +45,15 @@ check_state_block() {
   impl="$(check_state_block "$IMPL")"
   spec="$(check_state_block "$SPEC")"
   # Line 1 names the sibling file the paragraph below is identical to (so it
-  # has to differ - each file names the other one). Line 15 is
+  # has to differ - each file names the other one). Line 17 is
   # "Re-establish it after any round that committed.", where wf-spec-review
-  # alone explains the <SPEC_TRACKED> case. Line 19 is "Spawn a sub-agent",
+  # alone explains the <SPEC_TRACKED> case. Line 21 is "Spawn a sub-agent",
   # where the substitution list names a worktree path plus a resolved default
   # branch for wf-impl-review, and only a spec path for wf-spec-review. All
   # three are read separately in the two tests below; every other line has to
   # match exactly, or the two copies have drifted apart.
-  impl_trimmed="$(printf '%s\n' "$impl" | sed '1d;15d;19d')"
-  spec_trimmed="$(printf '%s\n' "$spec" | sed '1d;15d;19d')"
+  impl_trimmed="$(printf '%s\n' "$impl" | sed '1d;17d;21d')"
+  spec_trimmed="$(printf '%s\n' "$spec" | sed '1d;17d;21d')"
   [ "$impl_trimmed" = "$spec_trimmed" ]
 }
 
@@ -63,13 +63,13 @@ check_state_block() {
 }
 
 @test "only wf-spec-review's re-establish paragraph carries the SPEC_TRACKED case" {
-  [[ "$(check_state_block "$IMPL" | sed -n '15p')" != *SPEC_TRACKED* ]]
-  [[ "$(check_state_block "$SPEC" | sed -n '15p')" == *SPEC_TRACKED* ]]
+  [[ "$(check_state_block "$IMPL" | sed -n '17p')" != *SPEC_TRACKED* ]]
+  [[ "$(check_state_block "$SPEC" | sed -n '17p')" == *SPEC_TRACKED* ]]
 }
 
 @test "only wf-impl-review's spawn paragraph substitutes a worktree path and a resolved default branch" {
-  [[ "$(check_state_block "$IMPL" | sed -n '19p')" == *"the worktree path"* ]]
-  [[ "$(check_state_block "$IMPL" | sed -n '19p')" == *"the resolved default branch"* ]]
-  [[ "$(check_state_block "$SPEC" | sed -n '19p')" == *"the spec path"* ]]
-  [[ "$(check_state_block "$SPEC" | sed -n '19p')" != *"the resolved default branch"* ]]
+  [[ "$(check_state_block "$IMPL" | sed -n '21p')" == *"the worktree path"* ]]
+  [[ "$(check_state_block "$IMPL" | sed -n '21p')" == *"the resolved default branch"* ]]
+  [[ "$(check_state_block "$SPEC" | sed -n '21p')" == *"the spec path"* ]]
+  [[ "$(check_state_block "$SPEC" | sed -n '21p')" != *"the resolved default branch"* ]]
 }

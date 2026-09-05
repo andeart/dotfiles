@@ -94,11 +94,13 @@ The check-state paragraphs below, through the no-bullet-items gate after the pro
 
 Carry that state into every reviewer's opening prompt as `<CHECK_STATE>`, using these literal sentences:
 
-- Every command passed - ``verify.commands is green at <SHA> - the exact command(s): <verify.commands.1>, <verify.commands.2>, ... - run them after you've changed something, not before.``
-- Any command failed - ``verify.commands is red at <SHA>, the commit you are starting from: <failing command> failed. The exact command(s): <verify.commands.1>, <verify.commands.2>, ... - it was already red before you started, so the failure is not from anything you did.``
+- Every command passed - ``verify.commands is green at <SHA> - the exact command(s), with what each cost when I ran it: <verify.commands.1> (<elapsed>), <verify.commands.2> (<elapsed>), ... - run them after you've changed something, not before.``
+- Any command failed - ``verify.commands is red at <SHA>, the commit you are starting from: <failing command> failed. The exact command(s), with what each cost when I ran it: <verify.commands.1> (<elapsed>), <verify.commands.2> (<elapsed>), ... - it was already red before you started, so the failure is not from anything you did.``
 - No entries configured - ``this repo configures no verify.commands - there is nothing to run before or after your change.``
 
-Naming the commands matters as much as the state does: a reviewer left to discover the command for itself finds `bats tests/` and takes the 84s path instead of the 26s one.
+Naming the commands matters as much as the state does: a reviewer left to discover the command for itself finds `bats tests/` and takes the slow path instead of the fast one.
+
+Naming what they cost matters for the same reason. Measured on the 2026-09-04 `wf-impl-review` run, reviewers timed the suite for themselves in repeat loops during their read-only phase; the coordinator had already timed it and was discarding the number. Time each command as you run it and carry the elapsed time through, so a reviewer weighing a performance claim does not have to re-derive it.
 
 **Re-establish it after any round that committed.** When a reviewer's follow-through produced a commit, re-run the commands at the new tip and carry the new state and sha forward. A round that committed nothing carries the previous state forward unchanged, with no re-run. That covers two cases: no revision was made, or one was made to a spec this repo doesn't track (`docs/` is gitignored here, so `<SPEC_TRACKED>` is `no` and nothing was committed to re-check) - either way, the checks have nothing new to see.
 
@@ -124,6 +126,7 @@ You are reviewing as YourName. Focus your review of this on:
 - If your feedback includes references to specific lines in files, make them local links to the local files with line numbers.
 - Keep single lines on single lines, don't split them to forcefully wrap them (editors are capable of wrapping them in the UI).
 - Do not make any other changes to this repo on your own, or run any write/deploy operations.
+- Do the reading yourself. Do not dispatch sub-agents to summarise the code, the history, or anyone else's notes - the round trip costs more than the reading it replaces.
 - <CHECK_STATE>
 ```
 
