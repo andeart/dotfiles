@@ -67,6 +67,8 @@ Read the roster and the focus list from the dump, `key.1`, `key.2`, ... in order
 
 **Whether the spec is tracked** decides whether a reviewer's revision gets committed. Run `git ls-files --error-unmatch <spec path>` from the repo root, discarding output; exit `0` sets `<SPEC_TRACKED>` to `yes`, anything else sets it to `no`. This repo gitignores all of `docs/`, so it is always `no` here; some repos in this family track `docs/superpowers/specs/` instead, where it is `yes`.
 
+**The notes directory** is the session's scratchpad, the absolute path this session was given for temporary files; with none on offer, `mktemp -d` prints a usable one. Whichever it is, it has to clear two conditions before the first reviewer is spawned: absolute, and outside the `$root` Step 0 resolved. Notes written under the working tree are readable by every reviewer that follows, which is the one thing this path exists to prevent, and nothing further down re-checks it. A `mktemp -d` directory stays where it is afterwards - an agent-run `rm` trips the deletion hook these repos carry, so expect the leftover.
+
 ## Step 3: Pre-flight, then wait
 
 Print exactly this, filled in, and stop for the user's go-ahead:
@@ -88,7 +90,7 @@ For each reviewer in roster order, one at a time. Never run two concurrently - e
 
 The check-state paragraphs below, through the no-bullet-items gate after the prompt template, are identical in `wf-impl-review/SKILL.md`'s Step 4 by design - the check-state chain and the follow-through gate apply to both skills the same way. Keep the two in sync: a wording change to one belongs in the other too.
 
-**Establish the check state before the roster starts.** Run every `verify.commands` entry named in Step 0's resolver output, from the repo root and in order, and record the outcome with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
+**Establish the check state before the roster starts.** Run every `verify.commands` entry named in Step 0's resolver output, from the repo root and in order, timing each one as it runs, and record both the outcome and each elapsed time with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run, before the prompt named the commands at all, all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
 
 **`verify.commands=<none>`** - establish no check state; there is nothing to run and nothing to call green. Guessing a check command runs something arbitrary in a repo that never asked for it, the same reason `wf-ship`'s checks step declines to invent one.
 
@@ -100,7 +102,7 @@ Carry that state into every reviewer's opening prompt as `<CHECK_STATE>`, using 
 
 Naming the commands matters as much as the state does: a reviewer left to discover the command for itself finds `bats tests/` and takes the slow path instead of the fast one.
 
-Naming what they cost matters for the same reason. Measured on the 2026-09-04 `wf-impl-review` run, reviewers timed the suite for themselves in repeat loops during their read-only phase; the coordinator had already timed it and was discarding the number. Time each command as you run it and carry the elapsed time through, so a reviewer weighing a performance claim does not have to re-derive it.
+Naming what they cost matters for the same reason. Measured on the 2026-09-04 `wf-impl-review` run, one reviewer timed the suite for itself in a repeat loop during its read-only phase; the coordinator had already timed it and was discarding the number. Carry each elapsed time through, so a reviewer weighing a performance claim does not have to re-derive it.
 
 **Re-establish it after any round that committed.** When a reviewer's follow-through produced a commit, re-run the commands at the new tip and carry the new state and sha forward. A round that committed nothing carries the previous state forward unchanged, with no re-run. That covers two cases: no revision was made, or one was made to a spec this repo doesn't track (`docs/` is gitignored here, so `<SPEC_TRACKED>` is `no` and nothing was committed to re-check) - either way, the checks have nothing new to see.
 
