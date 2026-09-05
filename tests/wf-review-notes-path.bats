@@ -65,6 +65,8 @@ step_two() {
       || fail "Step 2 of $f does not require the notes path be absolute"
     [[ "$block" == *'$root'* ]] \
       || fail "Step 2 of $f does not hold the notes path outside Step 0's \$root"
+    [[ "$block" == *"fresh"*"subdirectory"* ]] \
+      || fail "Step 2 of $f hands out the bare scratchpad instead of a fresh subdirectory of it - a long-lived session's scratchpad can already hold another cycle's leftover notes"
   done
 }
 
