@@ -70,6 +70,29 @@ step_two() {
   done
 }
 
+# notes_directory_paragraph <file>: the single "**The notes directory**" line.
+# Unlike the check-state block a few lines below it in both files - which
+# genuinely differs by one spec-review-only sentence, and is pinned against
+# that in tests/wf-review-check-state.bats - this paragraph describes the same
+# mechanism in both skills with no per-skill variation. It had already drifted
+# into different wording in each file before this test existed; pin the two
+# copies to agree word for word so a future edit to one doesn't quietly leave
+# the other stale.
+notes_directory_paragraph() {
+  grep -F '**The notes directory**' "$1"
+}
+
+@test "the notes directory paragraph is identical between the two review skills" {
+  local impl spec
+  impl="$(notes_directory_paragraph "$IMPL")"
+  spec="$(notes_directory_paragraph "$SPEC")"
+  [ -n "$impl" ] || fail "$IMPL has no notes directory paragraph"
+  [ -n "$spec" ] || fail "$SPEC has no notes directory paragraph"
+  [ "$impl" = "$spec" ] || fail "the notes directory paragraph has drifted between the two skills:
+impl: $impl
+spec: $spec"
+}
+
 @test "the notes directory is resolved before the prompt that substitutes it" {
   local f resolved used
   for f in "$IMPL" "$SPEC"; do
