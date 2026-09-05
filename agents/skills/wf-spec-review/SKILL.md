@@ -67,7 +67,7 @@ Read the roster and the focus list from the dump, `key.1`, `key.2`, ... in order
 
 **Whether the spec is tracked** decides whether a reviewer's revision gets committed. Run `git ls-files --error-unmatch <spec path>` from the repo root, discarding output; exit `0` sets `<SPEC_TRACKED>` to `yes`, anything else sets it to `no`. This repo gitignores all of `docs/`, so it is always `no` here; some repos in this family track `docs/superpowers/specs/` instead, where it is `yes`.
 
-**The notes directory** is a fresh `<identifier>-review-notes` subdirectory created under this session's own scratchpad, the absolute path the session was handed for temporary files. Create the subdirectory rather than handing out the scratchpad root itself - a long-lived session's scratchpad can already hold another cycle's leftovers (a prior review's notes among them), and reusing it as-is puts every reviewer's notes in among whatever else is already sitting there. When the session has no scratchpad, run `mktemp -d` and use the fresh directory it creates directly. Either way, check the result before spawning anyone: it must be absolute, and it must not sit under the `$root` Step 0 resolved. A directory inside the working tree is what every reviewer after the first can read, and no step below re-checks the path. Leave the directory where it is when the cycle ends - an agent-run `rm` trips the deletion hook these repos carry, so the leftover is the expected outcome rather than a failure.
+**The notes directory** is a fresh `<identifier>-review-notes` subdirectory created under this session's own scratchpad, the absolute path the session was handed for temporary files. Create the subdirectory rather than handing out the scratchpad root itself - a long-lived session's scratchpad can already hold another cycle's leftovers (a prior review's notes among them), and reusing it as-is puts every reviewer's notes in among whatever else is already sitting there. When the session has no scratchpad, run `mktemp -d` and use the fresh directory it creates directly. Either way, check the result before spawning anyone: it must be absolute, and it must not sit under the `$root` Step 0 resolved. A directory inside the working tree is what every reviewer after the first can read, and no step below re-checks the path. Leave the directory where it is when the cycle ends - an agent-run `rm` trips the deletion hook these repos carry, so the leftover is the expected outcome rather than a failure. Each reviewer's own notes file lives one level deeper, in a `<Name>` subdirectory of it rather than directly inside it - the reviewer's own write creates that subdirectory, so nothing above needs to. A flat directory shared by every reviewer would let one that lists its own target path's parent see every other reviewer's notes sitting right next to it; the per-reviewer subdirectory keeps that listing down to its own file.
 
 ## Step 3: Pre-flight, then wait
 
@@ -76,7 +76,7 @@ Print exactly this, filled in, and stop for the user's go-ahead:
 > Reviewing `<spec path>` with `<N>` reviewers: `<names>`.
 > Focus: `<focus list, comma-separated, or "none - holistic">`.
 > Checks: `<verify.commands entries, comma-separated, or "none configured">`.
-> Notes land outside the repo, in `<notes dir>/<id>-spec-review-<Name>.md`.
+> Notes land outside the repo, in `<notes dir>/<Name>/<id>-spec-review-<Name>.md`.
 > Each reviewer revises the spec before the next one starts. I'll push once at the end.
 > Any concerns before we start the cycle?
 

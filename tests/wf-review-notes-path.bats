@@ -109,3 +109,24 @@ spec: $spec"
   [ "$status" -ne 0 ] || fail "docs/reviews is back in $SHIP:
 $output"
 }
+
+# One shared cycle directory still leaves every reviewer's notes file sitting
+# in the same place - a reviewer that lists its own target path's parent sees
+# every other reviewer's notes right next to it. Each reviewer's file lives in
+# its own `<Name>` subdirectory instead, so that listing surfaces only its own.
+
+@test "the notes directory paragraph gives each reviewer its own subdirectory" {
+  local f paragraph
+  for f in "$IMPL" "$SPEC"; do
+    paragraph="$(notes_directory_paragraph "$f")"
+    [[ "$paragraph" == *"<Name>"*"subdirectory"* ]] \
+      || fail "$f's notes directory paragraph gives no reviewer its own subdirectory"
+  done
+}
+
+@test "both preflight previews show the per-reviewer subdirectory in the notes path" {
+  run grep -c -F '<notes dir>/<Name>/' "$IMPL"
+  [ "$output" = "1" ]
+  run grep -c -F '<notes dir>/<Name>/' "$SPEC"
+  [ "$output" = "1" ]
+}
