@@ -20,8 +20,8 @@ review:
     - Darius
   focus:
     - Security hardening
-    - Performance
-    - Cleanliness and maintainability of code
+    - "Performance: reducing wall-clock time, CPU time, and memory usage"
+    - Clean modularity, maintainability, and scalability of code
     - Succinct documentation that's not unnecessarily elaborate
 
 ship:
