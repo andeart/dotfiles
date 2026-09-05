@@ -98,6 +98,22 @@ $FT"
   [ "$output" = "300 0 300 0" ]
 }
 
+@test "phases: a record with an unparseable timestamp value is dropped silently" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  mkdir -p "$dir"
+  {
+    rec 0 user "opening prompt"
+    jq -cn --arg t "not-a-real-timestamp" '{timestamp:$t, type:"assistant"}'
+    rec 300 assistant
+  } > "$dir/agent-fff.jsonl"
+  run --separate-stderr bash -c '_WF_CYCLE_TIMINGS_LIB_ONLY=1 source "$0"; phases "$1"' \
+    "$TIMINGS" "$dir/agent-fff.jsonl"
+  [ "$status" -eq 0 ]
+  [ "$output" = "300 0 300 0" ]
+  [ -z "$stderr" ] || fail "an unparseable timestamp value printed to stderr:
+$stderr"
+}
+
 @test "reviewers: depth-1 review agents are listed, nested and non-review agents are not" {
   local dir="$BATS_TEST_TMPDIR/sub"
   mkdir -p "$dir"

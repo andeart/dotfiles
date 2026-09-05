@@ -87,14 +87,16 @@ reviewers() {
 # aborting the stream - a transcript can carry a truncated line if the session
 # was interrupted, and losing every record after it would silently shorten the
 # phase it lands in. A well-formed line whose `timestamp` value is not an ISO
-# date takes the other path: jq reports it on stderr and reads on, so that
-# record is dropped too but noisily rather than silently.
+# date is dropped the same way, via `fromdateiso8601?` - a record with no
+# usable timestamp cannot contribute to a min or max either way, so both cases
+# fail silently rather than one of them printing a jq error three times per
+# transcript (stamps() is called from phases(), bounds(), and reviewers()).
 stamps() {
   [ -f "$1" ] || return 0
   jq -R -r --arg m "$FOLLOWTHROUGH_MARKER" '
     fromjson?
     | select(.timestamp != null)
-    | ((.timestamp | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) | tostring) as $t
+    | ((.timestamp | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601?) | tostring) as $t
     | if (.type == "user")
          and (((.message.content // "") | tostring) | contains($m))
       then $t + "\tft"

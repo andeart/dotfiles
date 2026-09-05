@@ -15,6 +15,15 @@ scrub_git_env() {
 }
 scrub_git_env
 
+# fail <message>: print a diagnosable failure message to stderr, then fail.
+# Neither bats-core nor any helper loaded here defines `fail` - without this,
+# the `[ cond ] || fail "..."` idiom used across several test files fails on
+# an undefined command instead of printing why.
+fail() {
+  printf '%s\n' "$1" >&2
+  return 1
+}
+
 # Point git at a fixed config instead of the caller's. scrub_git_env cannot do
 # this: --local-env-vars covers GIT_CONFIG and GIT_CONFIG_COUNT but not
 # GIT_CONFIG_GLOBAL/GIT_CONFIG_SYSTEM, so ~/.gitconfig still applied. An

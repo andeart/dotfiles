@@ -25,9 +25,11 @@ $output"
 
 @test "neither review skill still probes whether docs/reviews is ignored" {
   run grep -n -F 'reviews_ignored' "$IMPL"
-  [ "$status" -ne 0 ] || fail "reviews_ignored probe is back in $IMPL"
+  [ "$status" -ne 0 ] || fail "reviews_ignored probe is back in $IMPL:
+$output"
   run grep -n -F 'reviews_ignored' "$SPEC"
-  [ "$status" -ne 0 ] || fail "reviews_ignored probe is back in $SPEC"
+  [ "$status" -ne 0 ] || fail "reviews_ignored probe is back in $SPEC:
+$output"
 }
 
 @test "both opening prompts name an absolute notes path placeholder" {
