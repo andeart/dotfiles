@@ -112,9 +112,6 @@
       }
     ]
   },
-  "worktree": {
-    "baseRef": "fresh"
-  },
   "statusLine": {
     "type": "command",
     "command": "bash $HOME/.claude/statusline-command.sh"
@@ -139,12 +136,8 @@
     }
   },
   "effortLevel": "xhigh",
-  "timeFormat": "24-hour",
   "skipWorkflowUsageWarning": true,
-  "editorMode": "normal",
   "preferredNotifChannel": "auto",
-  "switchModelsOnFlag": true,
-  "autoContinueAtUsageLimit": true,
   "remoteControlAtStartup": false,
   "agentPushNotifEnabled": true
 }
