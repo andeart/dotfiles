@@ -115,11 +115,25 @@ $FT"
   [ "$output" = "$(printf 'aaa\tCristo')" ]
 }
 
+@test "reviewers: roster is ordered by transcript start time, not by agent id" {
+  local dir="$BATS_TEST_TMPDIR/sub"
+  mkdir -p "$dir"
+  # zzz's id sorts after aaa's, but zzz's transcript starts first - the roster
+  # must follow the transcript, not the filename.
+  reviewer "$dir" zzz Zoe Impl
+  reviewer "$dir" aaa Amir Impl
+  rec 0 user "opening prompt" > "$dir/agent-zzz.jsonl"
+  rec 600 user "opening prompt" > "$dir/agent-aaa.jsonl"
+  call reviewers "$dir"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf 'zzz\tZoe\naaa\tAmir')" ]
+}
+
 @test "fmt_duration renders minutes and zero-padded seconds" {
   call fmt_duration 227
   [ "$output" = "3m47s" ]
-  call fmt_duration 5095
-  [ "$output" = "84m55s" ]
+  call fmt_duration 4819
+  [ "$output" = "80m19s" ]
   call fmt_duration 8
   [ "$output" = "0m08s" ]
 }

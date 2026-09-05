@@ -76,8 +76,10 @@ reviewers() {
       if (.spawnDepth == 1) and (.description | test("^(Impl|Spec) review: "))
       then (.description | sub("^(Impl|Spec) review: "; ""))
       else empty end' "$meta" 2>/dev/null || true)"
-    if [ -n "$name" ]; then printf '%s\t%s\n' "$id" "$name"; fi
-  done | sort
+    if [ -n "$name" ]; then
+      printf '%s\t%s\t%s\n' "$(bounds "$1/agent-$id.jsonl" | cut -d' ' -f1)" "$id" "$name"
+    fi
+  done | sort -n | cut -f2-
 }
 
 # stamps <jsonl>: "<epoch>\t<ft|->" per timestamped record. Lines are parsed
