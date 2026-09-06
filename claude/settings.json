@@ -143,7 +143,7 @@
   "skipWorkflowUsageWarning": true,
   "editorMode": "normal",
   "preferredNotifChannel": "auto",
-  "switchModelsOnFlag": true,
+  "switchModelsOnFlag": false,
   "autoContinueAtUsageLimit": true,
   "remoteControlAtStartup": false,
   "agentPushNotifEnabled": true
