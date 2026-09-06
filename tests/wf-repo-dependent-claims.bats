@@ -26,6 +26,10 @@ bats_require_minimum_version 1.5.0
 BANNED=(
   'gitignored here'
   'so it is always `no` here'
+  'Merges here are squashes'
+  'A squash merge guarantees this'
+  'in the psychfam repos'
+  'in every repo this family runs in'
 )
 
 # The clause the AGENTS.md rule cannot lose and still be the same rule. Reword
@@ -59,13 +63,20 @@ skill_files() {
 }
 
 @test "no skill states the answer to a check the repo decides" {
-  local phrase f hits
+  # One grep over every phrase and every file, rather than one per pair: the
+  # list is meant to grow an entry per real incident, and grep's own
+  # `file:line:` prefix already names what a per-pair failure message would
+  # have had to assemble.
+  local phrase f pats=() files=() hits
   for phrase in "${BANNED[@]}"; do
-    while IFS= read -r f; do
-      hits="$(grep -n -F -e "$phrase" "$f" || true)"
-      [ -z "$hits" ] || fail "$(printf '%s carries "%s":\n%s\n\nA skill may say "if the repo does X, the answer is Y". It may not say "the answer is Y" - state the rule and let the check answer. See the rule in AGENTS.md.' "${f#"$DOTFILES_ROOT"/}" "$phrase" "$hits")"
-    done < <(skill_files)
+    pats+=(-e "$phrase")
   done
+  while IFS= read -r f; do
+    files+=("$f")
+  done < <(skill_files)
+
+  hits="$(grep -n -F "${pats[@]}" -- "${files[@]}" || true)"
+  [ -z "$hits" ] || fail "$(printf 'A skill states an answer the repo decides:\n%s\n\nA skill may say "if the repo does X, the answer is Y". It may not say "the answer is Y" - state the rule and let the check answer. See the rule in AGENTS.md.' "${hits//$DOTFILES_ROOT\//}")"
 }
 
 @test "AGENTS.md still carries the written rule" {
@@ -79,6 +90,10 @@ skill_files() {
 @test "a correctly phrased repo-dependent paragraph does not trip the list" {
   local line phrase
   line="$(grep -F -e "$WELL_PHRASED" "$DOTFILES_ROOT/agents/skills/wf-ship/SKILL.md")"
+  # Read from the live file rather than held as a literal here on purpose: the
+  # case is that the list is not over-broad, and it only proves that against
+  # prose a skill actually carries. If the paragraph was reworded, re-point
+  # WELL_PHRASED at the new wording rather than inlining a copy.
   [ -n "$line" ] || fail "wf-ship no longer carries the docs-only-push paragraph this case is about"
   for phrase in "${BANNED[@]}"; do
     printf '%s\n' "$line" | grep -F -e "$phrase" > /dev/null \

@@ -65,13 +65,15 @@ setup() {
 
 # ─── temp-repo scaffolding ─────────────────────────────────────────────────
 
-# A fresh repo with one tracked file and one commit, cd'd into. Never inside
-# the dotfiles working tree: AGENTS.md forbids a test writing there, and
-# helpers/setup's scrub_git_env keeps an inherited GIT_DIR from redirecting
-# these commits into the outer repo.
+# A fresh repo with one tracked file and one commit, cd'd into. Under
+# $BATS_TEST_TMPDIR so bats clears it with the test - a bare `mktemp -d` leaves
+# one git repo per case behind on every run, forever. Never inside the dotfiles
+# working tree: AGENTS.md forbids a test writing there, and helpers/setup's
+# scrub_git_env keeps an inherited GIT_DIR from redirecting these commits into
+# the outer repo.
 new_repo() {
   local tmp
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d "$BATS_TEST_TMPDIR/repo.XXXXXX")"
   cd "$tmp" || fail "cd $tmp failed"
   git init --quiet .
   printf 'seed\n' > tracked.txt
@@ -98,6 +100,22 @@ new_conflicted_repo() {
 run_block() {
   run bash "$BLOCK"
   [ "$status" -eq 0 ] || fail "the block itself exited $status: $output"
+}
+
+# The shells AGENTS.md requires a SKILL.md block to run under, resolved and
+# deduplicated, skipping any this machine does not have. `bash` and /bin/bash
+# are the same binary on the ubuntu-latest runner and different ones on macOS,
+# where /bin/bash is still 3.2 - which is the leg `run_block` never reaches,
+# since it takes whichever bash is first on PATH.
+portable_shells() {
+  local sh path seen=" "
+  for sh in /bin/bash bash /bin/zsh zsh; do
+    path="$(command -v "$sh" 2>/dev/null)" || continue
+    [ -n "$path" ] || continue
+    case "$seen" in *" $path "*) continue ;; esac
+    seen="$seen$path "
+    printf '%s\n' "$path"
+  done
 }
 
 # val <key>: the value of a `key=value` line the block printed.
@@ -350,4 +368,38 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
     *'$('*) fail "a git add invocation carries a command substitution: $adds" ;;
     *'`'*) fail "a git add invocation carries a backtick substitution: $adds" ;;
   esac
+}
+
+# ─── portability ───────────────────────────────────────────────────────────
+
+# Every other case runs the block under one shell. AGENTS.md requires three,
+# and this is the only file in the suite that executes a SKILL.md block at all,
+# so if the requirement is pinned anywhere it is here.
+@test "the block answers identically under every shell AGENTS.md names" {
+  new_repo
+  printf 'work\n' >> tracked.txt
+  printf 'x\n' > new.txt
+  printf 'x\n' > left.orig
+
+  local sh out first= ran=0
+  while IFS= read -r sh; do
+    # Back to the same starting index for each shell, or the second one grades
+    # the first one's work.
+    git reset --quiet
+    out="$("$sh" "$BLOCK" 2>/dev/null)"
+    if [ "$ran" -eq 0 ]; then
+      first="$out"
+    else
+      [ "$out" = "$first" ] \
+        || fail "$(printf '%s disagreed with the first shell:\n--- first ---\n%s\n--- %s ---\n%s' "$sh" "$first" "$sh" "$out")"
+    fi
+    ran=$((ran + 1))
+  done < <(portable_shells)
+
+  [ "$ran" -ge 1 ] || fail "no shell available to run the block"
+  # Without this the case passes on a block that prints nothing, identically,
+  # under every shell.
+  printf '%s\n' "$first" | grep -qF 'staged=yes' || fail "unexpected output: $first"
+  printf '%s\n' "$first" | grep -qF 'residue_total=1' || fail "unexpected output: $first"
+  printf '%s\n' "$first" | grep -qF 'left.orig' || fail "unexpected output: $first"
 }

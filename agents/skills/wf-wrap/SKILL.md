@@ -9,7 +9,7 @@ Run the post-merge cleanup sequence in one shot: mark the associated Plane work 
 
 Two facts shape the order below, and both are load-bearing:
 
-- **Merges here are squashes.** The default branch gets a brand-new commit, so the feature branch tip is never an ancestor of it, and every ancestry test (`git merge-base --is-ancestor`, `git branch --merged`, `git branch -d`) reports fully-merged work as unmerged. Step 1 works around this once by comparing patch content; later steps inherit that result.
+- **A squash or rebase merge defeats every ancestry test.** Either one gives the default branch a brand-new commit, so the feature branch tip is never an ancestor of it and `git merge-base --is-ancestor`, `git branch --merged` and `git branch -d` all report fully-merged work as unmerged. Which merge methods a repo allows is a setting on the repo, so Step 1 does not ask: it compares patch content once instead, which is correct under all three. Later steps inherit that result.
 - **The work often happens in a linked worktree.** From inside one you cannot check out the default branch, and you cannot delete the branch you are standing on. So the worktree comes down before the pull, and the pull before the branch deletion.
 
 ## Output
@@ -20,7 +20,7 @@ The one exception: a step that does something a reader would otherwise be surpri
 
 Everything else still reports in full. Every stop condition below, every failure, and every piece of work that was skipped rather than done gets the whole message it defines. Silence on the happy path is what makes the output that does appear worth reading.
 
-A squash merge is the normal case here, not a finding. Step 1's `-` result is the normal case too. Neither gets a line.
+A merge that rewrote the commit is not a finding. Step 1's `-` result is the normal case too. Neither gets a line.
 
 ## Step 0: Detect context and run the safety checks
 
@@ -151,7 +151,7 @@ git cherry origin/<DEFAULT> "$(git commit-tree "$(git rev-parse <FEATURE>^{tree}
 
 This squashes the branch's tree onto its own merge base and asks whether that patch is already upstream. A `head=` line comes back, then the probe's:
 
-- `- <sha>` - an equivalent patch is on the default branch. The squash landed everything; discarding the branch loses nothing. Proceed silently: this is the expected result on every wrap, and saying so turns the guard into noise.
+- `- <sha>` - an equivalent patch is on the default branch. The merge landed everything; discarding the branch loses nothing. Proceed silently: this is the expected result on every wrap, and saying so turns the guard into noise.
 - `+ <sha>` - it did not. Show `git diff --stat $(git merge-base origin/<DEFAULT> <FEATURE>) <FEATURE>` in either case below, since that diff is the only thing that says what the branch is carrying and an unpushed commit produces a `+` under both. Then let `head=` name the case, and stop. **Equal to `<HEAD_OID>`** - the local branch is what merged, so the content should be upstream and is not. **Not equal** - the local branch is not what merged: `Local <FEATURE> is at <head>, PR <number> merged <HEAD_OID>. Fetch that tip with git fetch origin refs/pull/<number>/head before discarding anything.`
 
 Compare against `<HEAD_OID>` rather than `@{upstream}`. A plain fetch does not prune, so once the merge deletes the head branch the tracking ref freezes at whatever Step 0 last saw - and a push made during an armed wait, which is the whole window this check exists for, never reaches it. That deletion is also why the recovery above names `refs/pull/<number>/head`: GitHub keeps that ref once the branch is gone, where `git pull` has nothing left to pull.
@@ -211,7 +211,7 @@ Never `git checkout <DEFAULT>` from a linked worktree - git refuses, because the
 **Start with `ExitWorktree`, `action: "remove"`.** Three outcomes:
 
 - **It removes the worktree and its branch.** Done, continue to the landing check.
-- **It refuses, listing commits not on the original branch.** A squash merge guarantees this for every branch, so it is the expected outcome rather than a problem to report. Step 1 already proved the content is upstream, so re-invoke with `discard_changes: true`. **Never pass that flag without Step 1's `-` result in hand** - it is the one place in this skill where work can actually be lost.
+- **It refuses, listing commits not on the original branch.** Any merge that rewrote the commit guarantees this, so it is the expected outcome rather than a problem to report. Step 1 already proved the content is upstream, so re-invoke with `discard_changes: true`. **Never pass that flag without Step 1's `-` result in hand** - it is the one place in this skill where work can actually be lost.
 - **It reports no active worktree session, or declines to remove this worktree.** It only manages worktrees it created this session; one made with `git worktree add`, one from an earlier session, or one entered by path is out of scope. Re-invoke with `action: "keep"` to restore the session's working directory before the directory disappears (harmless if that is a no-op too), then use the fallback.
 
 **Fallback:**
@@ -248,7 +248,7 @@ if git show-ref --verify --quiet refs/heads/<FEATURE>; then git branch -D <FEATU
 
 Do not write this as `... && git branch -D <FEATURE> || true`. The `|| true` also masks `cannot delete branch '<FEATURE>' used by worktree at ...`, which means Step 4's teardown silently failed and the report would claim a cleanup that did not happen. If `git branch -D` errors, stop and show it.
 
-Use `show-ref --verify refs/heads/...` rather than `git rev-parse --verify <FEATURE>`, which also matches a same-named tag. Use `-D` (uppercase) for the reason at the top of this skill: `git branch -d` does not recognize a squash merge, even though Step 1 proved the content landed.
+Use `show-ref --verify refs/heads/...` rather than `git rev-parse --verify <FEATURE>`, which also matches a same-named tag. Use `-D` (uppercase) for the reason at the top of this skill: `git branch -d` does not recognize a rewritten merge, even though Step 1 proved the content landed.
 
 ## Step 6: Watch the post-merge run
 
@@ -270,7 +270,7 @@ No `--require` on that call, deliberately, and this is the only skill in the fam
 
 `<unset>` - the repo's `.wf.yml` does not declare the key. Set Step 6's outcome to `config-error` with `wrap.watch-post-merge-ci is unset in .wf.yml - run /wf-config to set it` as the stderr, and skip the rest of this step. The rule above that keeps exit 2 and exit 3 non-fatal covers this the same way.
 
-`true`, and `<MERGE_SHA>` is empty - set Step 6's outcome to `unidentified` and skip the rest of this step. A squash merge always produces a merge commit, so an empty value means the `gh` call changed shape, not that there is nothing to watch.
+`true`, and `<MERGE_SHA>` is empty - set Step 6's outcome to `unidentified` and skip the rest of this step. Every merge method lands a commit on the default branch, so an empty value means the `gh` call changed shape, not that there is nothing to watch.
 
 Otherwise, before polling, print one line naming what is being watched and the cap - the Output section's stated exception for a genuine surprise, since by this point the worktree and branch are already gone and a silent wait of up to 15 minutes would leave the user with no report of that irreversible work:
 
