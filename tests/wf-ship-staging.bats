@@ -19,30 +19,13 @@ SKILL="$DOTFILES_ROOT/agents/skills/wf-ship/SKILL.md"
 
 # ─── extraction ────────────────────────────────────────────────────────────
 
-# The one fenced bash block inside "## Staging what belongs to the work".
-# `^## ` closes the section without closing on `### Reporting the residue`,
-# which is nested under it.
-staging_block() {
-  awk '
-    /^## Staging what belongs to the work$/ { insec = 1; next }
-    insec && /^## / { insec = 0 }
-    insec && /^```bash$/ { fence = 1; next }
-    insec && fence && /^```$/ { fence = 0; next }
-    insec && fence { print }
-  ' "$SKILL"
-}
+# The one fenced bash block inside "## Staging what belongs to the work". The
+# default `^## ` close is what is wanted here: it must not close on
+# `### Reporting the residue`, which is nested under the section.
+SECTION='^## Staging what belongs to the work$'
 
-# How many fenced bash blocks that section holds. A restructure that added a
-# second one would leave staging_block emitting both concatenated, which runs
-# and grades something nobody wrote.
-staging_fence_count() {
-  awk '
-    /^## Staging what belongs to the work$/ { insec = 1; next }
-    insec && /^## / { insec = 0 }
-    insec && /^```bash$/ { n++ }
-    END { print n + 0 }
-  ' "$SKILL"
-}
+staging_block() { skill_bash_block "$SKILL" "$SECTION"; }
+staging_fence_count() { skill_bash_fence_count "$SKILL" "$SECTION"; }
 
 # The exclusion suffixes, parsed out of the block rather than retyped. The set
 # already exists in the block and in the prose beside it; a third copy here
@@ -323,7 +306,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   # git add -u already wrote its index update, so the tracked change survives
   # over a half-staged index - which is why this stops the ship.
   [ "$(staged_paths)" = "tracked.txt" ]
-  printf '%s\n' "$output" | grep -qF 'residue<<<' && fail "residue was read after a failed add"
+  ! printf '%s\n' "$output" | grep -qF 'residue<<<' || fail "residue was read after a failed add"
   [ -z "$(val residue_total)" ]
 }
 
@@ -353,7 +336,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ "$(val add_tracked_exit)" -ne 0 ]
   [ "$(val add_rest_exit)" -eq 0 ]
   [ "$(val staged)" = "yes" ]
-  printf '%s\n' "$output" | grep -qF 'residue<<<' && fail "residue was read after a failed add"
+  ! printf '%s\n' "$output" | grep -qF 'residue<<<' || fail "residue was read after a failed add"
   [ -z "$(val residue_total)" ]
 }
 
@@ -388,6 +371,12 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
 
 @test "run from a subdirectory the block still stages and reads the whole tree" {
   new_repo
+  # tracked.txt is the only path here the bare `git add -u` is responsible for.
+  # Every other one is untracked and reached by the second add's `:/`, so
+  # without this the case grades the exclusions and never the first add - and a
+  # directory-scoped `git add -u` would drop a tracked edit outside the cwd
+  # from the commit with nothing turning red.
+  printf 'work\n' >> tracked.txt
   printf 'x\n' > root.orig
   printf 'x\n' > rootwork.txt
   mkdir -p sub/deep
@@ -401,7 +390,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   # A mis-rooted exclusion fails silently in the dangerous direction: the
   # exclusions bind to sub/ while `:/` still pulls in the whole repo, so every
   # leftover is staged and the residue read comes back empty.
-  [ "$(staged_paths)" = "$(printf 'rootwork.txt\nsub/work.txt')" ]
+  [ "$(staged_paths)" = "$(printf 'rootwork.txt\nsub/work.txt\ntracked.txt')" ]
   [ "$(residue_lines)" = "$(printf 'root.orig\nsub/deep/b.orig')" ]
 }
 

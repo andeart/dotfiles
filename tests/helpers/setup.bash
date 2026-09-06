@@ -24,6 +24,39 @@ fail() {
   return 1
 }
 
+# skill_bash_block <file> <open-regex> [<close-regex>]: the fenced bash blocks
+# inside one section of a SKILL.md. A skill's block is read out of the file
+# rather than copied into a test, so a copy cannot grade a stale expression and
+# pass while the real one rots. <close-regex> defaults to the next `## `
+# heading; a section that is itself a `### ` wants `^(## |### )`.
+#
+# The open line is consumed by the first rule, so it never reaches the closing
+# one even when both patterns match it. The awk vars are `openpat`/`closepat`
+# because `close` is an awk builtin, and naming a variable after it is a syntax
+# error rather than a shadowing warning.
+skill_bash_block() {
+  awk -v openpat="$2" -v closepat="${3:-^## }" '
+    $0 ~ openpat { insec = 1; next }
+    insec && $0 ~ closepat { insec = 0 }
+    insec && /^```bash$/ { fence = 1; next }
+    insec && fence && /^```$/ { fence = 0; next }
+    insec && fence { print }
+  ' "$1"
+}
+
+# skill_bash_fence_count <file> <open-regex> [<close-regex>]: how many fenced
+# bash blocks that section holds. Assert it is 1 before running an extracted
+# block - a restructure that added a second one leaves skill_bash_block
+# emitting both concatenated, which runs and grades something nobody wrote.
+skill_bash_fence_count() {
+  awk -v openpat="$2" -v closepat="${3:-^## }" '
+    $0 ~ openpat { insec = 1; next }
+    insec && $0 ~ closepat { insec = 0 }
+    insec && /^```bash$/ { n++ }
+    END { print n + 0 }
+  ' "$1"
+}
+
 # Point git at a fixed config instead of the caller's. scrub_git_env cannot do
 # this: --local-env-vars covers GIT_CONFIG and GIT_CONFIG_COUNT but not
 # GIT_CONFIG_GLOBAL/GIT_CONFIG_SYSTEM, so ~/.gitconfig still applied. An

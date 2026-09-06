@@ -14,28 +14,25 @@ SKILL="$DOTFILES_ROOT/agents/skills/wf-wrap/SKILL.md"
 # What the cases below grade is the one thing the probe is for - whether a
 # branch whose work is already on the default branch is recognised as such. The
 # answer differs per merge method, and which methods a repo allows is a repo
-# setting the skill cannot read, so all three have to come out `landed=` and
-# the unmerged branch has to come out silent.
+# setting the skill cannot read, so all three have to come out `landed=`.
+# Everything else has to come out silent, including the probe that could not
+# run: `landed=` is what authorises Step 4 to discard the branch, so a probe
+# that answers when it cannot see the default branch is worse than no probe.
 
 # The one fenced bash block under "### Step 1c", with the skill's two
-# placeholders bound to this fixture's refs.
+# placeholders bound to this fixture's refs. Step 1c is a `### ` section, so
+# the closing pattern has to take a sibling `### ` as well as the next `## ` -
+# otherwise a later subsection's bash block gets swept in with this one.
+SECTION='^### Step 1c'
+SECTION_END='^(## |### )'
+
 probe_block() {
-  awk '
-    /^### Step 1c/ { insec = 1; next }
-    insec && /^## / { insec = 0 }
-    insec && /^```bash$/ { fence = 1; next }
-    insec && fence && /^```$/ { fence = 0; next }
-    insec && fence { print }
-  ' "$SKILL" | sed -e 's|origin/<DEFAULT>|origin/main|g' -e 's|<FEATURE>|feature|g'
+  skill_bash_block "$SKILL" "$SECTION" "$SECTION_END" \
+    | sed -e 's|origin/<DEFAULT>|origin/main|g' -e 's|<FEATURE>|feature|g'
 }
 
 probe_fence_count() {
-  awk '
-    /^### Step 1c/ { insec = 1; next }
-    insec && /^## / { insec = 0 }
-    insec && /^```bash$/ { n++ }
-    END { print n + 0 }
-  ' "$SKILL"
+  skill_bash_fence_count "$SKILL" "$SECTION" "$SECTION_END"
 }
 
 setup() {
@@ -123,9 +120,10 @@ landed() { printf '%s\n' "$output" | sed -n 's/^landed=//p' | sort | tr '\n' ' '
   git merge --no-ff feature -m 'merge (#1)' > /dev/null
 
   run_probe
-  # The merge base becomes the branch tip here, so the squashed patch is empty
-  # and matches nothing - ancestry is the only probe with an answer.
-  [ "$(landed)" = "ancestor replayed " ] || fail "expected ancestry, got: $(landed)"
+  # The merge base becomes the branch tip here, so `mb..feature` is empty: the
+  # squashed patch matches nothing and the sweep has no commit to speak for.
+  # Ancestry is the only probe with an answer.
+  [ "$(landed)" = "ancestor " ] || fail "expected ancestry alone, got: $(landed)"
 }
 
 # ─── and the stop the probe exists for ─────────────────────────────────────
@@ -153,6 +151,23 @@ landed() { printf '%s\n' "$output" | sed -n 's/^landed=//p' | sort | tr '\n' ' '
   # moved since. Every probe has to stay silent or Step 4 discards the commit.
   run_probe
   [ -z "$(landed | tr -d ' ')" ] || fail "an unpushed commit was called landed: $(landed)"
+}
+
+@test "a probe that cannot resolve the default branch reports nothing landed" {
+  new_repo
+  git merge --squash feature > /dev/null
+  git commit --quiet -m 'squash (#1)'
+  git checkout --quiet feature
+
+  # No publish_main, so origin/main does not resolve and all three probes fail.
+  # git cherry writes its errors to stderr, so the per-commit sweep sees the
+  # same empty stdout it sees for a branch that fully landed - which is why it
+  # requires a commit to have been read before it answers. Without that, a
+  # broken probe prints the one line that authorises Step 4's discard.
+  run bash "$PROBE"
+  printf '%s\n' "$output" | grep -qF 'probed=yes' \
+    || fail "the block did not run to completion: $output"
+  [ -z "$(landed | tr -d ' ')" ] || fail "a failed probe was called landed: $(landed)"
 }
 
 @test "the head line names the local branch tip" {
