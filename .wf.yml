@@ -16,8 +16,8 @@ review:
   reviewers:
     - Alia
     - Bheem
-    - Cristo
-    - Darius
+    - Chidi
+    - Dulce
   focus:
     - Security hardening
     - "Performance: reducing wall-clock time, CPU time, and memory usage"

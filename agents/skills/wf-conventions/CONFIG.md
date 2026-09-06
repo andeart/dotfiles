@@ -19,7 +19,7 @@ force an arbitrary owner.
 | `states.implementing` | string | `Implementing` | `/wf-ship`, `/wf-status` |
 | `states.in-review` | string | `In Review` | `/wf-ship`, `/wf-status` |
 | `workspace.impl` | `base` \| `worktree` | `base` | `/wf-shape` |
-| `review.reviewers` | list | `Alia`, `Bheem`, `Cristo`, `Darius` | `/wf-spec-review`, `/wf-impl-review` |
+| `review.reviewers` | list | `Alia`, `Bheem`, `Chidi`, `Dulce` | `/wf-spec-review`, `/wf-impl-review` |
 | `review.focus` | list | the four headings below | `/wf-spec-review`, `/wf-impl-review` |
 | `ship.draft-by-default` | bool | `true` | `/wf-ship` |
 | `verify.commands` | list | `[]` | `/wf-ship`, `/wf-spec-review`, `/wf-impl-review` |
