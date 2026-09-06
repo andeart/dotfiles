@@ -9,7 +9,7 @@ Run the post-merge cleanup sequence in one shot: mark the associated Plane work 
 
 Two facts shape the order below, and both are load-bearing:
 
-- **A squash or rebase merge defeats every ancestry test.** Either one gives the default branch a brand-new commit, so the feature branch tip is never an ancestor of it and `git merge-base --is-ancestor`, `git branch --merged` and `git branch -d` all report fully-merged work as unmerged. Which merge methods a repo allows is a setting on the repo, so Step 1 does not ask: it compares patch content once instead, which is correct under all three. Later steps inherit that result.
+- **A squash or rebase merge defeats every ancestry test.** Either one gives the default branch a brand-new commit, so the feature branch tip is never an ancestor of it and `git merge-base --is-ancestor`, `git branch --merged` and `git branch -d` all report fully-merged work as unmerged. Which merge methods a repo allows is a setting on the repo, so Step 1 does not ask. It runs three probes in one call and takes the first that proves the content landed, because no single probe is right under all three methods: measured 2026-09-06 on a two-commit branch, ancestry answers only the merge commit, a squashed patch-id answers only the squash, and a per-commit patch-id sweep answers only the rebase. Later steps inherit that result.
 - **The work often happens in a linked worktree.** From inside one you cannot check out the default branch, and you cannot delete the branch you are standing on. So the worktree comes down before the pull, and the pull before the branch deletion.
 
 ## Output
@@ -20,7 +20,7 @@ The one exception: a step that does something a reader would otherwise be surpri
 
 Everything else still reports in full. Every stop condition below, every failure, and every piece of work that was skipped rather than done gets the whole message it defines. Silence on the happy path is what makes the output that does appear worth reading.
 
-A merge that rewrote the commit is not a finding. Step 1's `-` result is the normal case too. Neither gets a line.
+A merge that rewrote the commit is not a finding. Step 1's `landed=` result is the normal case too. Neither gets a line.
 
 ## Step 0: Detect context and run the safety checks
 
@@ -146,13 +146,19 @@ The fetch is required and is not a duplicate of Step 0's. The probe below compar
 ```bash
 mb=$(git merge-base origin/<DEFAULT> <FEATURE>)
 echo "head=$(git rev-parse <FEATURE>)"
-git cherry origin/<DEFAULT> "$(git commit-tree "$(git rev-parse <FEATURE>^{tree})" -p "$mb" -m squash-probe)"
+git merge-base --is-ancestor <FEATURE> origin/<DEFAULT> && echo 'landed=ancestor'
+git cherry origin/<DEFAULT> "$(git commit-tree "$(git rev-parse <FEATURE>^{tree})" -p "$mb" -m squash-probe)" \
+  | awk '$1 == "-" { print "landed=squash" }'
+git cherry origin/<DEFAULT> <FEATURE> | awk '$1 == "+" { n++ } END { if (!n) print "landed=replayed" }'
+echo 'probed=yes'
 ```
 
-This squashes the branch's tree onto its own merge base and asks whether that patch is already upstream. A `head=` line comes back, then the probe's:
+Three questions, one per merge method, and any one of them answering is the whole proof. `landed=ancestor` - the branch tip is reachable from the default branch, which is what a merge commit leaves behind. `landed=squash` - the branch's tree squashed onto its own merge base is a patch already upstream, which is what a squash merge leaves behind. `landed=replayed` - every commit in `mb..<FEATURE>` has an equivalent patch upstream, which is what a rebase merge leaves behind. `probed=yes` closes the block: without it a result cut short is indistinguishable from three probes that all came back silent, and the skill would stop over a truncation while blaming the branch. Then:
 
-- `- <sha>` - an equivalent patch is on the default branch. The merge landed everything; discarding the branch loses nothing. Proceed silently: this is the expected result on every wrap, and saying so turns the guard into noise.
-- `+ <sha>` - it did not. Show `git diff --stat $(git merge-base origin/<DEFAULT> <FEATURE>) <FEATURE>` in either case below, since that diff is the only thing that says what the branch is carrying and an unpushed commit produces a `+` under both. Then let `head=` name the case, and stop. **Equal to `<HEAD_OID>`** - the local branch is what merged, so the content should be upstream and is not. **Not equal** - the local branch is not what merged: `Local <FEATURE> is at <head>, PR <number> merged <HEAD_OID>. Fetch that tip with git fetch origin refs/pull/<number>/head before discarding anything.`
+- **One or more `landed=` lines** - the merge landed everything; discarding the branch loses nothing. Proceed silently: this is the expected result on every wrap, and saying so turns the guard into noise. Which line came back is not interesting and does not get reported - it names the repo's merge method, not a property of this work.
+- **No `landed=` line** - it did not. Show `git diff --stat $(git merge-base origin/<DEFAULT> <FEATURE>) <FEATURE>` in either case below, since that diff is the only thing that says what the branch is carrying and an unpushed commit produces silence under both. Then let `head=` name the case, and stop. **Equal to `<HEAD_OID>`** - the local branch is what merged, so the content should be upstream and is not. **Not equal** - the local branch is not what merged: `Local <FEATURE> is at <head>, PR <number> merged <HEAD_OID>. Fetch that tip with git fetch origin refs/pull/<number>/head before discarding anything.`
+
+Do not drop any of the three for being redundant. Measured 2026-09-06 against a two-commit branch merged each way, each probe answers exactly one method and stays silent on the other two: a rebase merge reports `+` for the squashed patch-id because upstream holds the pieces rather than the whole, and a merge commit makes `mb` the branch tip, so the squashed patch is empty and matches nothing. Dropping one turns that method's every wrap into a false stop. `tests/wf-wrap-landing-probe.bats` pins each of those rows, plus the two that have to stay silent - a branch that never merged, and one carrying a commit made after the merge. The two added probes are cheap next to the one that was already here: measured on a branch 500 commits behind a real repo, ancestry is 0.01s and the per-commit sweep 0.04s beside the squashed patch-id's 0.05s.
 
 Compare against `<HEAD_OID>` rather than `@{upstream}`. A plain fetch does not prune, so once the merge deletes the head branch the tracking ref freezes at whatever Step 0 last saw - and a push made during an armed wait, which is the whole window this check exists for, never reaches it. That deletion is also why the recovery above names `refs/pull/<number>/head`: GitHub keeps that ref once the branch is gone, where `git pull` has nothing left to pull.
 
@@ -211,7 +217,7 @@ Never `git checkout <DEFAULT>` from a linked worktree - git refuses, because the
 **Start with `ExitWorktree`, `action: "remove"`.** Three outcomes:
 
 - **It removes the worktree and its branch.** Done, continue to the landing check.
-- **It refuses, listing commits not on the original branch.** Any merge that rewrote the commit guarantees this, so it is the expected outcome rather than a problem to report. Step 1 already proved the content is upstream, so re-invoke with `discard_changes: true`. **Never pass that flag without Step 1's `-` result in hand** - it is the one place in this skill where work can actually be lost.
+- **It refuses, listing commits not on the original branch.** Any merge that rewrote the commit guarantees this, so it is the expected outcome rather than a problem to report. Step 1 already proved the content is upstream, so re-invoke with `discard_changes: true`. **Never pass that flag without Step 1's `landed=` result in hand** - it is the one place in this skill where work can actually be lost.
 - **It reports no active worktree session, or declines to remove this worktree.** It only manages worktrees it created this session; one made with `git worktree add`, one from an earlier session, or one entered by path is out of scope. Re-invoke with `action: "keep"` to restore the session's working directory before the directory disappears (harmless if that is a no-op too), then use the fallback.
 
 **Fallback:**

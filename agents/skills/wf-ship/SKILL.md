@@ -278,13 +278,15 @@ if [ -n "$inprogress" ] || [ -n "$(git ls-files -u)" ]; then
   echo "blocked=${inprogress:-unmerged-index}"
 else
   echo 'blocked=no'
-  git add -u; echo "add_tracked_exit=$?"
+  git add -u; add_tracked_exit=$?; echo "add_tracked_exit=$add_tracked_exit"
   git add -- ':(top,exclude,icase)*.orig' ':(top,exclude,icase)*.rej' ':(top,exclude,icase)*.bak' \
              ':(top,exclude,icase)*.swp' ':(top,exclude,icase)*.swo' ':(top,exclude,icase)*~' ':/'
   add_rest_exit=$?; echo "add_rest_exit=$add_rest_exit"
-  git diff --cached --quiet && echo 'staged=no' || echo 'staged=yes'
-  git diff --cached --raw | awk '$1 == ":000000" && $2 == "160000" { print "gitlink=" substr($0, index($0, "\t") + 1) }'
-  if [ "$add_rest_exit" -eq 0 ]; then
+  git diff --cached --raw | awk '
+    { n++ }
+    $1 == ":000000" && $2 == "160000" { print "gitlink=" substr($0, index($0, "\t") + 1) }
+    END { print "staged=" (n ? "yes" : "no"); print "staged_total=" (n + 0) }'
+  if [ "$add_tracked_exit" -eq 0 ] && [ "$add_rest_exit" -eq 0 ]; then
     residue=$(git ls-files -o --exclude-standard --full-name -- :/)
     if [ -n "$residue" ]; then
       echo "residue_total=$(printf '%s\n' "$residue" | wc -l | tr -d ' ')"
@@ -305,9 +307,12 @@ Route on the values the block printed, never on git's own prose:
 - A `gitlink=` line - the add staged an embedded git repository as a gitlink, one line per path. Stop, name the paths, and name `git rm --cached <path>` as the way out: the add succeeded, so the gitlink is sitting in the index beside the real work and a bare `git commit` would carry a pointer to a repository no reviewer can fetch. No line means none was added, which is the normal case. Read this before acting on `staged=`, which says `yes`.
 - `staged=no` - nothing to commit. Skip `suggest-commit` and the commit both, and fall through to the flow's own handling.
 - `staged=yes` - call `suggest-commit` for a message describing what is now staged, then commit.
+- `staged_total=` is how many paths that is. Read it against the change you expect: a count far larger says a directory nobody meant to track came in with the work, and Step 0's `git status --porcelain` carries no `-uall`, so an untracked directory reached you collapsed to one line and the count is the only place its size shows. Name it and stop rather than committing on a number you cannot account for.
 - `residue_total=` is how many untracked paths survived the adds. Everything after `residue<<<` is `<RESIDUE>`: the first ten of them, one path per line. Ignored files never appear. Read every `key=` value from above the marker and none from below it - a leftover can be named `staged=no.orig`, and its own line is a path rather than an answer.
 
 The suffix set is six entries, each with a reason to exist: `.orig` and `.rej` are merge and patch leftovers, `~` and `.bak` are editor backups, `.swp` and `.swo` are vim swap files. Adding a seventh requires a case where it actually happened; it is not a secret-safety net.
+
+What stands between an untracked secret and the PR is the repo's `.gitignore`. Both adds skip ignored paths and so does the residue read, so an ignored `.env` is neither staged nor reported - and one the repo does not ignore is staged like any other new file, under a message that describes it only as much as `suggest-commit` saw. `staged_total=` is the signal that says so; there is no pattern list here that would catch it.
 
 Two things the exclusions deliberately do not reach. A tracked file's modification is always staged, even when the file is named `foo.orig`: somebody committed that file deliberately, so a change to it is work. And residue the user staged by hand before invoking `/wf-ship` stays staged, so it never reaches `<RESIDUE>`.
 

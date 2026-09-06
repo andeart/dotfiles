@@ -184,8 +184,28 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   printf 'x\n' > new.txt
   run_block
   [ "$(val staged)" = "yes" ]
+  [ "$(val staged_total)" -eq 1 ]
   [ "$(staged_paths)" = "new.txt" ]
   [ "$(val residue_total)" -eq 0 ]
+}
+
+# staged_total is the only place an untracked directory's size reaches the
+# agent: Step 0's `git status --porcelain` carries no -uall, so a directory
+# arrives collapsed to one porcelain line however many files are under it.
+@test "staged_total counts every path inside a collapsed untracked directory" {
+  new_repo
+  mkdir -p vendored/deep
+  local i=1
+  while [ "$i" -le 12 ]; do
+    printf 'x\n' > "vendored/deep/f$i.js"
+    i=$((i + 1))
+  done
+  # What the agent would have been handed for this tree, one line.
+  [ "$(git status --porcelain)" = "?? vendored/" ]
+
+  run_block
+  [ "$(val staged)" = "yes" ]
+  [ "$(val staged_total)" -eq 12 ]
 }
 
 @test "a tracked file named *.orig has its modification staged" {
@@ -240,6 +260,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
 
   run_block
   [ "$(val staged)" = "no" ]
+  [ "$(val staged_total)" -eq 0 ]
   [ -z "$(staged_paths)" ]
   [ "$(val residue_total)" -eq 2 ]
 }
@@ -302,6 +323,36 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   # git add -u already wrote its index update, so the tracked change survives
   # over a half-staged index - which is why this stops the ship.
   [ "$(staged_paths)" = "tracked.txt" ]
+  printf '%s\n' "$output" | grep -qF 'residue<<<' && fail "residue was read after a failed add"
+  [ -z "$(val residue_total)" ]
+}
+
+# The mirror of the case above, and the reason the residue read is gated on
+# both adds rather than the second alone: the exclusions carry the unreadable
+# path out of the second add's way, so `git add -u` can fail while `git add`
+# succeeds. Reading residue there would have the report name leftovers for a
+# run that stopped over a part-staged index.
+@test "an unreadable tracked file fails only the first add and still reports no residue" {
+  new_repo
+  printf 'v1\n' > keep.orig
+  git add -f keep.orig
+  git commit --quiet -m 'track an orig'
+  printf 'v2\n' > keep.orig
+  printf 'x\n' > work.txt
+  printf 'x\n' > loose.bak
+  chmod 000 keep.orig
+  # root reads a 000 file regardless, which would make the first add succeed
+  # and grade nothing.
+  if [ -r keep.orig ]; then
+    chmod 644 keep.orig
+    skip "this user can read a chmod 000 file"
+  fi
+
+  run_block
+  chmod 644 keep.orig
+  [ "$(val add_tracked_exit)" -ne 0 ]
+  [ "$(val add_rest_exit)" -eq 0 ]
+  [ "$(val staged)" = "yes" ]
   printf '%s\n' "$output" | grep -qF 'residue<<<' && fail "residue was read after a failed add"
   [ -z "$(val residue_total)" ]
 }
@@ -397,6 +448,28 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   done < <(portable_shells)
 
   [ "$ran" -ge 1 ] || fail "no shell available to run the block"
+
+  # How many legs this actually covered is a property of the host, not of the
+  # block. Measured 2026-09-06, the ubuntu-latest image documents Bash 5.2.21
+  # and no zsh, and `bash` resolves to /bin/bash there - so in CI this loop
+  # runs once and the bash 3.2 and zsh legs are not reachable at all. Local
+  # macOS runs cover all three. That is allowed; a host that *has* a named
+  # shell and silently skips it is not, and a dedup bug in portable_shells is
+  # exactly how that would happen with nothing turning red.
+  local want wantpath covered listed skipped=
+  for want in /bin/bash bash /bin/zsh zsh; do
+    wantpath="$(command -v "$want" 2>/dev/null)" || continue
+    covered=no
+    # Whole-line comparison, not a substring one: /opt/homebrew/bin/bash ends
+    # in /bin/bash, so a `case` glob would count the homebrew build as coverage
+    # of the 3.2 one macOS ships - hiding the exact leg this is here to find.
+    while IFS= read -r listed; do
+      [ "$listed" = "$wantpath" ] && covered=yes
+    done < <(portable_shells)
+    [ "$covered" = yes ] || skipped="$skipped $want"
+  done
+  [ -z "$skipped" ] || fail "shells installed here but never run:$skipped"
+
   # Without this the case passes on a block that prints nothing, identically,
   # under every shell.
   printf '%s\n' "$first" | grep -qF 'staged=yes' || fail "unexpected output: $first"

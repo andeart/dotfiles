@@ -22,7 +22,15 @@ bats_require_minimum_version 1.5.0
 
 # Literals, matched with grep -F. An entry earns its place by having been seen
 # in a real skill - this is not a list of phrasings someone might one day
-# write.
+# write. Each has to be long enough to be unique to the sentence it came from:
+# a short entry would flag the conditional phrasings the rule explicitly
+# allows, and then a correct skill could not be written at all.
+#
+# The last entry is the other shape of the same defect. wf-wrap replaced "this
+# repo squash-merges" with a claim that its one probe "is correct under all
+# three" merge methods, which names no repo and is still an answer handed to
+# an agent that then has no reason to check - and, measured, was wrong for two
+# of the three.
 BANNED=(
   'gitignored here'
   'so it is always `no` here'
@@ -30,17 +38,18 @@ BANNED=(
   'A squash merge guarantees this'
   'in the psychfam repos'
   'in every repo this family runs in'
+  'which is correct under all three'
 )
 
-# The clause the AGENTS.md rule cannot lose and still be the same rule. Reword
-# freely around it.
-RULE_ANCHOR='it must never say "the answer is Y"'
-
-# A paragraph in wf-ship that is phrased the way the rule asks - it names the
-# repo property as a condition and says outright that it is not a special case
-# here. It has to stay clear of the literal list, or the list is over-broad and
-# a correct skill cannot be written.
-WELL_PHRASED='A repo that gitignores all of `docs/` can never produce a docs-only push'
+# The two clauses the AGENTS.md rule cannot lose and still be the same rule:
+# the ban itself, and the half that reaches a claim widened out of one repo
+# into all of them - wf-wrap shipped "correct under all three merge methods"
+# that way, obeying the first clause and breaking the second. Reword freely
+# around both.
+RULE_ANCHORS=(
+  'it must never say "the answer is Y"'
+  'Widening a repo-specific claim into a universal one'
+)
 
 skill_files() {
   printf '%s\n' "$DOTFILES_ROOT"/agents/skills/*/SKILL.md
@@ -80,26 +89,13 @@ skill_files() {
 }
 
 @test "AGENTS.md still carries the written rule" {
-  # Decision 5's two halves are complements. Without this, the rule can be
-  # deleted while the phrase list above stays green, leaving one half of a
-  # pair doing the work of both.
-  grep -n -F -e "$RULE_ANCHOR" "$DOTFILES_ROOT/AGENTS.md" > /dev/null \
-    || fail "AGENTS.md no longer carries the repo-dependent-claims rule"
-}
-
-@test "a correctly phrased repo-dependent paragraph does not trip the list" {
-  local line phrase
-  line="$(grep -F -e "$WELL_PHRASED" "$DOTFILES_ROOT/agents/skills/wf-ship/SKILL.md")"
-  # Read from the live file rather than held as a literal here on purpose: the
-  # case is that the list is not over-broad, and it only proves that against
-  # prose a skill actually carries. If the paragraph was reworded, re-point
-  # WELL_PHRASED at the new wording rather than inlining a copy.
-  [ -n "$line" ] || fail "wf-ship no longer carries the docs-only-push paragraph this case is about"
-  for phrase in "${BANNED[@]}"; do
-    printf '%s\n' "$line" | grep -F -e "$phrase" > /dev/null \
-      && fail "the banned-phrase list flags a correctly phrased paragraph: $phrase"
+  # The written rule and the phrase list are complements: the list catches the
+  # wordings already used, the rule reaches the ones nobody has written yet.
+  # Without this the rule can be deleted while the list stays green, leaving
+  # one half of a pair doing the work of both.
+  local anchor
+  for anchor in "${RULE_ANCHORS[@]}"; do
+    grep -n -F -e "$anchor" "$DOTFILES_ROOT/AGENTS.md" > /dev/null \
+      || fail "AGENTS.md no longer carries the repo-dependent-claims rule: $anchor"
   done
-  # `grep` inside the loop above exits 1 on the pass, which is the outcome
-  # this case wants; land on a zero status so the test does not turn on it.
-  true
 }
