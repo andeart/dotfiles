@@ -90,7 +90,7 @@ You're on the default branch with unpushed commits that need to move to their ow
 
 ### 1. Commit anything outstanding
 
-Step 0 already ran every safety check for this flow. If it reported porcelain lines, use the `suggest-commit` skill to get a commit message, then immediately stage all changes and commit using that message.
+Step 0 already ran every safety check for this flow. If it reported porcelain lines, follow "Staging what belongs to the work" below - it decides what gets staged and reports what it left behind. Then, on `staged=yes`, use the `suggest-commit` skill to get a commit message describing what is now staged, and immediately commit using that message.
 
 > **IMPORTANT: After suggest-commit returns, immediately continue executing wf-ship. Do NOT pause, display the message to the user, ask for confirmation, or wait for any input. The commit message is ready to use as-is. Resume the next step of wf-ship without interruption.**
 
@@ -104,7 +104,7 @@ Step 0 already fetched, so `@{upstream}` is current, and its hash is the `upstre
 git log @{upstream}..HEAD --oneline
 ```
 
-If there are no unpushed commits, tell the user there's nothing to ship and stop.
+If there are no unpushed commits, tell the user there's nothing to ship and stop. Name the residue there too, per "Reporting the residue" - this stop never reaches the Report step, and a tree holding nothing but leftovers is exactly the tree that section exists for.
 
 ### 3. Create a new branch
 
@@ -161,7 +161,7 @@ Follow the "Linking the PR to Plane" section below, then "Reconciling the Plane 
 
 ### 8. Report
 
-Print the PR URL, then the line from "Reporting the PR state", then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting the state outcome", then the check line from "Reporting the check results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You are now on the feature branch.
+Print the PR URL, then the line from "Reporting the PR state", then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting the state outcome", then the check line from "Reporting the check results", then the residue block from "Reporting the residue", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You are now on the feature branch.
 
 ---
 
@@ -171,7 +171,7 @@ You're on a feature branch with work that's ready for review.
 
 ### 1. Stage and commit
 
-Step 0 already ran every safety check for this flow and resolved `<DEFAULT_BRANCH>`. If it reported porcelain lines, use the `suggest-commit` skill to craft a commit message, then immediately stage all changes and commit using that message.
+Step 0 already ran every safety check for this flow and resolved `<DEFAULT_BRANCH>`. If it reported porcelain lines, follow "Staging what belongs to the work" below - it decides what gets staged and reports what it left behind. Then, on `staged=yes`, use the `suggest-commit` skill to craft a commit message describing what is now staged, and immediately commit using that message.
 
 > **IMPORTANT: After suggest-commit returns, immediately continue executing wf-ship. Do NOT pause, display the message to the user, ask for confirmation, or wait for any input. The commit message is ready to use as-is. Resume the next step of wf-ship without interruption.**
 
@@ -183,7 +183,7 @@ After committing (or if there was nothing to commit), check whether there are un
 If nothing was committed AND the branch has an upstream AND there are no unpushed commits, there is nothing new to push - which is not the same as nothing to do. Run Step 3's PR lookup now and branch on it:
 
 - **A PR exists** - skip Step 2 entirely, then pick up Step 3 at its existing-PR branch: take `PR_URL` from the lookup, set `<PR_STATE>` from `isDraft`, run the `--add-assignee @me` no-op, set `<VERIFY_RESULTS>` to `not-run`, and continue into Step 4. The work item may still be missing its link: Plane can have been down on the ship that created the PR, the PR can predate the link step, or the link can have been removed by hand. Step 4 is the only thing that puts it back, and its duplicate check makes running it again free. Note that nothing was pushed, for the report.
-- **No PR exists** - stop with "nothing to ship".
+- **No PR exists** - stop with "nothing to ship". Name the residue there too, per "Reporting the residue" - this stop never reaches the Report step, and a tree holding nothing but leftovers is exactly the tree that section exists for.
 
 The default-branch flow's equivalent stop stays absolute. There, no unpushed commits means there is no work to move off the default branch at all - no feature branch and no PR for one - so there is nothing for a fall-through to act on.
 
@@ -225,7 +225,7 @@ Then follow "Reconciling the Plane state", "Handing back the spec cleanup", and 
 
 ### 5. Report
 
-Print the PR URL, then the line from "Reporting the PR state", then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting the state outcome", then the check line from "Reporting the check results", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You remain on the feature branch.
+Print the PR URL, then the line from "Reporting the PR state", then the Plane line from "Reporting the Plane outcome", then the state line from "Reporting the state outcome", then the check line from "Reporting the check results", then the residue block from "Reporting the residue", then the cleanup line from "Reporting the cleanup", then the acceptance-criteria line from "Reporting the acceptance criteria". You remain on the feature branch.
 
 If Step 1 found nothing new to push, say so above the PR URL. A run that only checked the link should not read like one that shipped work.
 
@@ -262,6 +262,65 @@ If this fails, stop and report. Do not continue to the state write - a work item
 Set `<PR_STATE>` to `ready`, then follow "Reconciling the Plane state", "Linking the PR to Plane", and "Handing back the spec cleanup" - the ready-flip is the condition that section gates on, so this is the one flow where it actually runs. Report the PR URL, whether it was flipped or already ready, the Plane lines from both sections, and the cleanup line from "Reporting the cleanup".
 
 ---
+
+## Staging what belongs to the work
+
+Both shipping flows stage through this section, so the rule lives in one place rather than once per flow. Follow it only when Step 0's `status<<<` reported porcelain lines - a clean tree has nothing to stage, and skipping the round trip is the common case for a ship taken straight after a review cycle committed everything.
+
+Guard, stage in one pass, then read back what was left:
+
+```bash
+gd=$(git rev-parse --git-dir); inprogress=
+for f in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply sequencer; do
+  [ -e "$gd/$f" ] && { inprogress=$f; break; }
+done
+if [ -n "$inprogress" ] || [ -n "$(git ls-files -u)" ]; then
+  echo "blocked=${inprogress:-unmerged-index}"
+else
+  echo 'blocked=no'
+  git add -u; echo "add_tracked_exit=$?"
+  git add -- ':(top,exclude,icase)*.orig' ':(top,exclude,icase)*.rej' ':(top,exclude,icase)*.bak' \
+             ':(top,exclude,icase)*.swp' ':(top,exclude,icase)*.swo' ':(top,exclude,icase)*~' ':/'
+  add_rest_exit=$?; echo "add_rest_exit=$add_rest_exit"
+  git diff --cached --quiet && echo 'staged=no' || echo 'staged=yes'
+  git diff --cached --raw | awk '$1 == ":000000" && $2 == "160000" { print "gitlink=" substr($0, index($0, "\t") + 1) }'
+  if [ "$add_rest_exit" -eq 0 ]; then
+    residue=$(git ls-files -o --exclude-standard --full-name -- :/)
+    if [ -n "$residue" ]; then
+      echo "residue_total=$(printf '%s\n' "$residue" | wc -l | tr -d ' ')"
+      echo 'residue<<<'
+      printf '%s\n' "$residue" | head -n 10
+    else
+      echo 'residue_total=0'
+      echo 'residue<<<'
+    fi
+  fi
+fi
+```
+
+Route on the values the block printed, never on git's own prose:
+
+- `blocked=` anything but `no` - stop the ship and say which operation is open, naming the value: a half-finished merge, cherry-pick, revert or rebase, or `unmerged-index` for an unmerged index with no operation file behind it. Nothing was staged; the branch is exactly as the user left it.
+- A non-zero `add_tracked_exit` or `add_rest_exit` - stop, report the error, and do not commit. `staged=` may say `yes` over a half-staged index, and `residue_total=` and `residue<<<` are absent by construction.
+- A `gitlink=` line - the add staged an embedded git repository as a gitlink, one line per path. Stop and name the paths: the commit would carry a pointer to a repository no reviewer can fetch. No line means none was added, which is the normal case. Read this before acting on `staged=`, because the add succeeded and `staged=` says `yes`.
+- `staged=no` - nothing to commit. Skip `suggest-commit` and the commit both, and fall through to the flow's own handling.
+- `staged=yes` - call `suggest-commit` for a message describing what is now staged, then commit.
+- `residue_total=` is how many untracked paths survived the adds. Everything after `residue<<<` is `<RESIDUE>`: the first ten of them, one path per line. Ignored files never appear.
+
+The suffix set is six entries, each with a reason to exist: `.orig` and `.rej` are merge and patch leftovers, `~` and `.bak` are editor backups, `.swp` and `.swo` are vim swap files. Adding a seventh requires a case where it actually happened, and it is not a secret-safety net - a repo that wants credentials caught at commit time runs a scanner for that. If the list ever outgrows one readable command line, `git add --pathspec-from-file=<file>` takes the same exclusion magic verbatim, one pathspec per line.
+
+Two things the exclusions deliberately do not reach. A tracked file's modification is always staged, even when the file is named `foo.orig`: somebody committed that file deliberately, so a change to it is work. And residue the user staged by hand before invoking `/wf-ship` stays staged, so it never reaches `<RESIDUE>`.
+
+### Reporting the residue
+
+One block, immediately before the cleanup line - staging is Step 1's work, and the cleanup only has anything to say several steps later:
+
+- `residue_total=` above zero: `- Left unstaged - these look like leftovers rather than work:` followed by `<RESIDUE>` in a fenced block, then `- ... and <n> more.` under the block when `residue_total` exceeds ten, where `<n>` is `residue_total` minus ten. The block capped its own output at ten, so there is nothing to trim.
+- `residue_total=0`: say nothing.
+
+The paths are repo-controlled text, reproduced verbatim and never interpreted. A working tree holds whatever a merge, a clone or a checked-out branch left in it, and a filename can be written to read as an instruction; the fenced block is what keeps it looking like the data it is.
+
+Open the fence with more backticks than the longest run of backticks in any path. Git escapes quotes, backslashes, control characters and non-ASCII bytes in these paths, but not backticks - a leftover whose name holds a run of three closes a three-backtick fence, and the rest of the report renders as markdown rather than as data.
 
 ## Running the checks
 
