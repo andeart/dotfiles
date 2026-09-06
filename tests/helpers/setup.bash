@@ -30,31 +30,30 @@ fail() {
 # pass while the real one rots. <close-regex> defaults to the next `## `
 # heading; a section that is itself a `### ` wants `^(## |### )`.
 #
-# The open line is consumed by the first rule, so it never reaches the closing
-# one even when both patterns match it. The awk vars are `openpat`/`closepat`
-# because `close` is an awk builtin, and naming a variable after it is a syntax
-# error rather than a shadowing warning.
-skill_bash_block() {
-  awk -v openpat="$2" -v closepat="${3:-^## }" '
-    $0 ~ openpat { insec = 1; next }
-    insec && $0 ~ closepat { insec = 0 }
-    insec && /^```bash$/ { fence = 1; next }
-    insec && fence && /^```$/ { fence = 0; next }
-    insec && fence { print }
-  ' "$1"
-}
-
 # skill_bash_fence_count <file> <open-regex> [<close-regex>]: how many fenced
 # bash blocks that section holds. Assert it is 1 before running an extracted
 # block - a restructure that added a second one leaves skill_bash_block
 # emitting both concatenated, which runs and grades something nobody wrote.
-skill_bash_fence_count() {
-  awk -v openpat="$2" -v closepat="${3:-^## }" '
+#
+# Both are one awk program in two modes rather than two programs: the section
+# scoping is the part with the subtleties, and a second copy of it is a second
+# place to keep in step.
+skill_bash_block() { _skill_bash_section print "$@"; }
+skill_bash_fence_count() { _skill_bash_section count "$@"; }
+
+# The open line is consumed by the first rule, so it never reaches the closing
+# one even when both patterns match it. The awk vars are `openpat`/`closepat`
+# because `close` is an awk builtin, and naming a variable after it is a syntax
+# error rather than a shadowing warning.
+_skill_bash_section() {
+  awk -v mode="$1" -v openpat="$3" -v closepat="${4:-^## }" '
     $0 ~ openpat { insec = 1; next }
     insec && $0 ~ closepat { insec = 0 }
-    insec && /^```bash$/ { n++ }
-    END { print n + 0 }
-  ' "$1"
+    insec && /^```bash$/ { n++; fence = 1; next }
+    insec && fence && /^```$/ { fence = 0; next }
+    insec && fence && mode == "print" { print }
+    END { if (mode == "count") print n + 0 }
+  ' "$2"
 }
 
 # Point git at a fixed config instead of the caller's. scrub_git_env cannot do

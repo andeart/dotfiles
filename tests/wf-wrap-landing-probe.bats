@@ -18,6 +18,22 @@ SKILL="$DOTFILES_ROOT/agents/skills/wf-wrap/SKILL.md"
 # Everything else has to come out silent, including the probe that could not
 # run: `landed=` is what authorises Step 4 to discard the branch, so a probe
 # that answers when it cannot see the default branch is worse than no probe.
+#
+# Why each piece of the block is load-bearing, since the skill now points here
+# for it rather than carrying it as prose an agent reads on every wrap:
+#
+# - Each merge method has exactly one probe that answers it, so dropping one
+#   for looking redundant turns that method's every wrap into a false stop.
+# - `NR &&` keeps the per-commit sweep from reading its own failure as a
+#   landing. `git cherry` writes errors to stderr, so a probe that cannot
+#   resolve `origin/<DEFAULT>` leaves the same empty stdout as a branch whose
+#   every commit is upstream. The last case below is that one.
+# - `git cherry` skips merge commits, so the sweep speaks only for the
+#   non-merge commits in `mb..<FEATURE>`. A branch that merged the default
+#   branch into itself to resolve a conflict and then landed by replay would
+#   report `landed=replayed` with the resolution still only on the branch.
+#   Recorded as a bound rather than fixed - GitHub declines the rebase button
+#   in that shape, so nothing here can reproduce it.
 
 # The one fenced bash block under "### Step 1c", with the skill's two
 # placeholders bound to this fixture's refs. Step 1c is a `### ` section, so

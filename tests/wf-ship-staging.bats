@@ -27,9 +27,12 @@ SECTION='^## Staging what belongs to the work$'
 staging_block() { skill_bash_block "$SKILL" "$SECTION"; }
 staging_fence_count() { skill_bash_fence_count "$SKILL" "$SECTION"; }
 
-# The exclusion suffixes, parsed out of the block rather than retyped. The set
-# already exists in the block and in the prose beside it; a third copy here
-# would let a seventh suffix ship with no case behind it.
+# The exclusion suffixes, parsed out of the block rather than retyped, so the
+# loop below generates one case per suffix the block actually carries. The
+# count is asserted separately: a seventh has to be a deliberate edit here as
+# well as there, and it earns its place by having actually been seen.
+# `.orig` and `.rej` are merge and patch leftovers, `~` and `.bak` editor
+# backups, `.swp` and `.swo` vim swap files.
 block_suffixes() {
   grep -o "':(top,exclude,icase)[^']*'" "$BLOCK" | sed "s/^':(top,exclude,icase)//; s/'\$//"
 }

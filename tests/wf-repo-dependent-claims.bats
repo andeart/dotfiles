@@ -41,6 +41,22 @@ BANNED=(
   'which is correct under all three'
 )
 
+# The negative control, and the only thing holding the line the comment above
+# draws: correctly phrased prose, taken from the skills it actually lives in
+# rather than invented here, that the list must not match. Shorten an entry
+# until it reaches conditional phrasing and this goes red before a correct
+# skill becomes unwritable - `gitignored here` down to `gitignor` trips the
+# first two, and down to `here` trips the third.
+#
+# The third is a fragment rather than its whole sentence only because that
+# sentence carries an apostrophe. Each has to be a literal substring of a
+# skill, which the case below re-checks.
+CONTROL=(
+  'A repo that gitignores all of `docs/` answers `no`'
+  'A repo that gitignores all of `docs/` can never produce a docs-only push'
+  'not a special case here'
+)
+
 # The two clauses the AGENTS.md rule cannot lose and still be the same rule:
 # the ban itself, and the half that reaches a claim widened out of one repo
 # into all of them - wf-wrap shipped "correct under all three merge methods"
@@ -86,6 +102,26 @@ skill_files() {
 
   hits="$(grep -n -F "${pats[@]}" -- "${files[@]}" || true)"
   [ -z "$hits" ] || fail "$(printf 'A skill states an answer the repo decides:\n%s\n\nA skill may say "if the repo does X, the answer is Y". It may not say "the answer is Y" - state the rule and let the check answer. See the rule in AGENTS.md.' "${hits//$DOTFILES_ROOT\//}")"
+}
+
+@test "a correctly phrased conditional does not trip the list" {
+  local phrase f sentence pats=() files=()
+  for phrase in "${BANNED[@]}"; do
+    pats+=(-e "$phrase")
+  done
+  while IFS= read -r f; do
+    files+=("$f")
+  done < <(skill_files)
+
+  for sentence in "${CONTROL[@]}"; do
+    # A control that drifted out of the skills would grade nothing, so it has
+    # to still be a real sentence in a real one.
+    grep -F -e "$sentence" -- "${files[@]}" > /dev/null \
+      || fail "the control sentence is no longer in any skill: $sentence"
+    if printf '%s\n' "$sentence" | grep -F "${pats[@]}" > /dev/null; then
+      fail "the banned list matches a correctly phrased conditional: $sentence"
+    fi
+  done
 }
 
 @test "AGENTS.md still carries the written rule" {
