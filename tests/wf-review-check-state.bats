@@ -10,11 +10,11 @@ SPEC="$DOTFILES_ROOT/agents/skills/wf-spec-review/SKILL.md"
 # wf-impl-review/SKILL.md and wf-spec-review/SKILL.md both say the check-state
 # block - establish it, carry it as <CHECK_STATE>, re-establish it after a
 # commit, the no-bullet-items gate - is identical between them "by design" and
-# ask an editor to "keep the two in sync." Nothing enforced that until now:
-# this extracts both copies straight out of the markdown and pins them against
-# each other, the same way tests/wf-wrap-gh-jq.bats pins a jq program against
-# the SKILL.md it still lives in, so a wording change to one that forgets the
-# other fails here instead of surfacing in a review three months later.
+# ask an editor to "keep the two in sync." This enforces that: it extracts both
+# copies straight out of the markdown and pins them against each other, the way
+# tests/wf-wrap-gh-jq.bats pins a jq program against the SKILL.md it lives in,
+# so a wording change to one that forgets the other fails here rather than
+# surfacing in a review months later.
 
 # check_state_block <file>: the check-state paragraphs through the
 # no-bullet-items gate, in two ranges - the fenced opening-prompt template

@@ -74,10 +74,9 @@ step_two() {
 # Unlike the check-state block a few lines below it in both files - which
 # genuinely differs by one spec-review-only sentence, and is pinned against
 # that in tests/wf-review-check-state.bats - this paragraph describes the same
-# mechanism in both skills with no per-skill variation. It had already drifted
-# into different wording in each file before this test existed; pin the two
-# copies to agree word for word so a future edit to one doesn't quietly leave
-# the other stale.
+# mechanism in both skills with no per-skill variation, so the two copies are
+# pinned to agree word for word and an edit to one cannot quietly leave the
+# other stale.
 notes_directory_paragraph() {
   grep -F '**The notes directory**' "$1"
 }
@@ -104,16 +103,15 @@ spec: $spec"
   done
 }
 
-@test "wf-ship's cleanup path list no longer names docs/reviews" {
+@test "wf-ship's cleanup path list does not name docs/reviews" {
   run grep -n -F 'docs/reviews' "$SHIP"
   [ "$status" -ne 0 ] || fail "docs/reviews is back in $SHIP:
 $output"
 }
 
-# One shared cycle directory still leaves every reviewer's notes file sitting
-# in the same place - a reviewer that lists its own target path's parent sees
-# every other reviewer's notes right next to it. Each reviewer's file lives in
-# its own `<Name>` subdirectory instead, so that listing surfaces only its own.
+# Each reviewer's file lives in its own `<Name>` subdirectory, so listing its
+# own notes directory surfaces nothing from a sibling. A single shared cycle
+# directory would put every reviewer's notes side by side.
 
 @test "the notes directory paragraph gives each reviewer its own subdirectory" {
   local f paragraph
