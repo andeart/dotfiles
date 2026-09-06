@@ -66,8 +66,8 @@ $FT"
   [ "$status" -eq 0 ]
   # read-only 900, follow 373, total 1500, turnaround 227.
   # The 227s between the reviewer's last output and the follow-through is
-  # coordinator turnaround and belongs to neither phase - this is the Darius
-  # case that keeps the baseline at 80m19s. Folding turnaround into read-only
+  # coordinator turnaround and belongs to neither phase - this is the case
+  # that keeps the baseline at 80m19s. Folding turnaround into read-only
   # instead is what produced the discarded 84m55s figure.
   [ "$output" = "900 373 1500 227" ]
 }
@@ -175,9 +175,9 @@ $FT"
 @test "reviewers: a spec review roster is recognised too" {
   local dir="$BATS_TEST_TMPDIR/sub"
   mkdir -p "$dir"
-  reviewer "$dir" aaa Cristo Spec
+  reviewer "$dir" aaa Chidi Spec
   call reviewers "$dir"
-  [ "$output" = "$(printf 'aaa\tCristo\t0\t0\t0\t0\t0\t0\t0')" ]
+  [ "$output" = "$(printf 'aaa\tChidi\t0\t0\t0\t0\t0\t0\t0')" ]
 }
 
 @test "reviewers: roster is ordered by transcript start time, not by agent id" {
@@ -208,7 +208,7 @@ $FT"
   # instead of refusing - regression-tests the fix, since nothing else here did.
   reviewer "$dir" aaa Alia Impl
   reviewer "$dir" bbb Bheem Impl
-  reviewer "$dir" ccc Cristo Spec
+  reviewer "$dir" ccc Chidi Spec
   call reviewers "$dir"
   [ "$status" -eq 2 ]
   [[ "$output" == *"found both Impl review and Spec review agents under $dir"* ]] \
