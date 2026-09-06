@@ -28,7 +28,6 @@ echo "origin=$origin"
 [ -n "$origin" ] && git fetch --quiet origin
 default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
 echo "default=$default"
-git check-ignore -q "$root/docs/reviews" && echo 'reviews_ignored=yes' || echo 'reviews_ignored=no'
 [ -f "$root/.wf.yml" ] || echo "wfconfig_path=$(bash \
   ~/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh \
   --repo-root "$root" --print-config-path 2>/dev/null)"
@@ -41,7 +40,6 @@ echo "resolver_exit=$?"
 - `repo=no` - stop and say this is not a git repository.
 - `origin=` empty - stop and tell the user no remote named `origin` is configured.
 - `default=` - if empty, neither `main` nor `master` exists; stop and say so.
-- `reviews_ignored=no` - **stop.** Say that `docs/reviews/` is not gitignored here, so each reviewer's commit would sweep its own notes into the branch. Ask the user to add it, and do not edit `.gitignore` yourself - that file is gated.
 - `wfconfig_path=` - absent means the repo root carries its own `.wf.yml` and nothing below changes. A non-empty value is the file the settings actually came from, outside this working tree; Step 3 names it. An empty value means no config resolved anywhere, and nothing more - never fill it in as `$root/.wf.yml`.
 
 ## Step 1: Resolve the roster and focus
@@ -68,6 +66,8 @@ Read the roster and the focus list from the dump, `key.1`, `key.2`, ... in order
 
 **The identifier** comes from the branch name's leading identifier, read the way `wf-wrap` reads it: strip a leading `worktree-` if present, then match the remainder against `^([a-zA-Z]+)-(\d+)` and uppercase the prefix (`dx-57-wf-authoring-skills` → `DX-57`). If the branch carries none and the user named none, ask for it - it names the review files and a wrong one writes into another work item's notes.
 
+**The notes directory** is a fresh `<identifier>-review-notes` subdirectory created under this session's own scratchpad, the absolute path the session was handed for temporary files. Create the subdirectory rather than handing out the scratchpad root itself - a long-lived session's scratchpad can already hold another cycle's leftovers (a prior review's notes among them), and reusing it as-is puts every reviewer's notes in among whatever else is already sitting there. When the session has no scratchpad, run `mktemp -d` and use the fresh directory it creates directly. Either way, check the result before spawning anyone: it must be absolute, and it must not sit under the `$root` Step 0 resolved. A directory inside the working tree is what every reviewer after the first can read, and no step below re-checks the path. Leave the directory where it is when the cycle ends - an agent-run `rm` trips the deletion hook these repos carry, so the leftover is the expected outcome rather than a failure. Each reviewer's own notes file lives one level deeper, in a `<Name>` subdirectory of it rather than directly inside it - the reviewer's own write creates that subdirectory, so nothing above needs to. A flat directory shared by every reviewer would let one that lists its own target path's parent see every other reviewer's notes sitting right next to it; the per-reviewer subdirectory keeps that listing down to its own file.
+
 ## Step 3: Pre-flight, then wait
 
 Print exactly this, filled in, and stop for the user's go-ahead:
@@ -75,7 +75,7 @@ Print exactly this, filled in, and stop for the user's go-ahead:
 > Reviewing this branch's committed changes against `<default>` with `<N>` reviewers: `<names>`.
 > Focus: `<focus list, comma-separated, or "none - holistic">`.
 > Checks: `<verify.commands entries, comma-separated, or "none configured">`.
-> Notes land in `docs/reviews/<id>-impl-review-<Name>.md` (gitignored).
+> Notes land outside the repo, in `<notes dir>/<Name>/<id>-impl-review-<Name>.md`.
 > Each reviewer revises the branch before the next one starts. I'll push once at the end.
 > Any concerns before we start the cycle?
 
@@ -89,30 +89,32 @@ For each reviewer in roster order, one at a time. Never run two concurrently - e
 
 The check-state paragraphs below, through the no-bullet-items gate after the prompt template, are identical in `wf-spec-review/SKILL.md`'s Step 4 by design - the check-state chain and the follow-through gate apply to both skills the same way. Keep the two in sync: a wording change to one belongs in the other too.
 
-**Establish the check state before the roster starts.** Run every `verify.commands` entry named in Step 0's resolver output, from the repo root and in order, and record the outcome with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
+**Establish the check state before the roster starts.** Run every `verify.commands` entry named in Step 0's resolver output, from the repo root and in order, timing each one as it runs, and record both the outcome and each elapsed time with `git rev-parse --short HEAD`. Reviewers otherwise each re-establish this for themselves: on the 2026-08-30 `wf-impl-review` run, before the prompt named the commands at all, all four ran the suite during their read-only phase, 25 invocations totalling roughly 40 minutes.
 
 **`verify.commands=<none>`** - establish no check state; there is nothing to run and nothing to call green. Guessing a check command runs something arbitrary in a repo that never asked for it, the same reason `wf-ship`'s checks step declines to invent one.
 
 Carry that state into every reviewer's opening prompt as `<CHECK_STATE>`, using these literal sentences:
 
-- Every command passed - ``verify.commands is green at <SHA> - the exact command(s): <verify.commands.1>, <verify.commands.2>, ... - run them after you've changed something, not before.``
-- Any command failed - ``verify.commands is red at <SHA>, the commit you are starting from: <failing command> failed. The exact command(s): <verify.commands.1>, <verify.commands.2>, ... - it was already red before you started, so the failure is not from anything you did.``
+- Every command passed - ``verify.commands is green at <SHA> - the exact command(s), with what each cost when I ran it: <verify.commands.1> (<elapsed>), <verify.commands.2> (<elapsed>), ... - run them after you've changed something, not before.``
+- Any command failed - ``verify.commands is red at <SHA>, the commit you are starting from: <failing command> failed. The exact command(s), with what each cost when I ran it: <verify.commands.1> (<elapsed>), <verify.commands.2> (<elapsed>), ... - it was already red before you started, so the failure is not from anything you did.``
 - No entries configured - ``this repo configures no verify.commands - there is nothing to run before or after your change.``
 
-Naming the commands matters as much as the state does: a reviewer left to discover the command for itself finds `bats tests/` and takes the 84s path instead of the 26s one.
+Naming the commands matters as much as the state does: a reviewer left to discover the command for itself finds `bats tests/` and takes the slow path instead of the fast one.
+
+Naming what they cost matters for the same reason. Measured on the 2026-09-04 `wf-impl-review` run, one reviewer timed the suite for itself in a repeat loop during its read-only phase; the coordinator had already timed it and was discarding the number. Carry each elapsed time through, so a reviewer weighing a performance claim does not have to re-derive it.
 
 **Re-establish it after any round that committed.** When a reviewer's follow-through produced a commit, re-run the commands at the new tip and carry the new state and sha forward. A round that committed nothing carries the previous state forward unchanged, with no re-run - the commit has not moved.
 
 A failing state is still handed forward. It is a fact the next reviewer needs more than a passing one, and hiding it would have the next reviewer attribute the failure to its own change.
 
-**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the worktree path, the identifier, the focus list, the resolved default branch, and `<CHECK_STATE>`. Give it nothing else about the review - no summary of earlier reviewers, no repo orientation, no account of what has already been found. The genericity of the prompt is what makes each pass holistic.
+**Spawn a sub-agent** with the opening prompt below, verbatim. Substitute only `YourName`, the worktree path, the notes path, the identifier, the focus list, the resolved default branch, and `<CHECK_STATE>`. Give it nothing else about the review - no summary of earlier reviewers, no repo orientation, no account of what has already been found. The genericity of the prompt is what makes each pass holistic. Give the Agent tool call itself a `description` of exactly `Impl review: YourName` - `wf-cycle-timings` identifies and names every reviewer by matching that literal prefix against each sub-agent's own description, and a differently phrased one makes it find none.
 
 The one exception is the check state below, and it is bounded deliberately: what crosses between reviewers is a fact about the tree, never a fact about the review. A reviewer learns that the checks pass at the commit it starts from; it does not learn who made them pass or what they thought.
 
 The numbered focus list carries one line per `review.focus` entry, however many the repo configures. On `review.focus=<none>`, drop the `Focus your review of this on:` line and the numbered list with it, and leave the rest of the prompt as it stands.
 
 ```text
-I have changes committed in my worktree checked out at <ABSOLUTE WORKTREE PATH>. Review these changes against the latest `origin/<default>` holistically. Write your review feedback in normal markdown format to docs/reviews/<id>-impl-review-YourName.md within this branch. Note that docs/reviews/ is gitignored, which is fine.
+I have changes committed in my worktree checked out at <ABSOLUTE WORKTREE PATH>. Review these changes against the latest `origin/<default>` holistically. Write your review feedback in normal markdown format to <ABSOLUTE NOTES PATH>. That path is outside the repository, which is deliberate and fine.
 You are reviewing as YourName. Focus your review of this on:
 1. <focus.1>
 2. <focus.2>
@@ -125,6 +127,7 @@ You are reviewing as YourName. Focus your review of this on:
 - If your feedback includes references to specific lines in files, make them local links to the local files with line numbers.
 - Keep single lines on single lines, don't split them to forcefully wrap them (editors are capable of wrapping them in the UI).
 - Do not make any other changes to this repo on your own, or run any write/deploy operations.
+- Do the reading yourself. Do not dispatch sub-agents to summarise the code, the history, or anyone else's notes - the round trip costs more than the reading it replaces.
 - <CHECK_STATE>
 ```
 
@@ -153,4 +156,6 @@ gh pr view --json url --jq '.url' 2>/dev/null
 
 A URL means a pull request already exists for this branch; the push updated it - report the URL. No output means there is none yet.
 
-Report, one line per reviewer: its name, whether it wrote its notes file, whether its follow-through ran or was skipped for raising no bullet items, and whether it committed a revision. Then the check state the cycle ended on, and the push result.
+Report, one line per reviewer: its name, whether it wrote its notes file, whether its follow-through ran or was skipped for raising no bullet items, and whether it committed a revision. Then the check state the cycle ended on, the directory the notes were written to, and the push result.
+
+The notes are outside the working tree and are not cleaned up by `/wf-ship`. Name the directory so they can be read while the session's scratchpad still exists.

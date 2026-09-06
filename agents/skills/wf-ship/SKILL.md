@@ -496,7 +496,7 @@ git status --porcelain -uall --ignored | awk '$1 == "!!" || $1 == "??" { print s
 
 `-uall` is required: without it, `git status --porcelain` collapses an ignored or untracked directory to a single entry for the directory itself and never lists the files inside, so the search returns nothing. `substr($0,4)` replaces a `$2`-field split, which truncates any path containing a space.
 
-That covers both ignored and untracked paths, which is what these are in every repo this family runs in - `docs/superpowers/plans/`, `docs/reviews/`, and in some repos `docs/superpowers/specs/` too.
+That covers both ignored and untracked paths, which is what these are in every repo this family runs in - `docs/superpowers/plans/`, and in some repos `docs/superpowers/specs/` too.
 
 `([^0-9]|$)` blocks the match from continuing into more digits: a plain substring match would let `DX-5` match every path belonging to `DX-57`, since `dx-5` is a literal prefix of `dx-57`. Requiring a non-digit (or end of line) right after the identifier stops a short identifier from matching inside a longer one. Do not simplify this back to a plain substring match.
 
