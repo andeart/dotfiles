@@ -1,6 +1,9 @@
 #!/bin/bash
 # Resolve the executable backing the ancestor claude process.
 #
+# Installed machine-wide to ~/.claude/hooks/lib/ and sourced by hooks that live
+# in other repos. Nothing here sources it; that is not evidence it is unused.
+#
 # ps -o comm= only yields "claude", so lsof is what actually distinguishes the
 # bare CLI binary from the desktop app's bundled copy. Helpers are absolute:
 # lsof lives in /usr/sbin, which a bare PATH would miss, and a failed lookup
