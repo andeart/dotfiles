@@ -16,6 +16,7 @@ case "${1:-}" in
   manifest_delete) _manifest_delete "${2:?usage: dotfiles_test manifest_delete <live_path>}" ;;
   classify)       _classify "${2:?usage: dotfiles_test classify <repo_path> <live_path>}" "${3:?usage: dotfiles_test classify <repo_path> <live_path>}" ;;
   walk)           _walk_mapping ;;
+  orphan_keys)    _orphan_keys ;;
   freeze_agents)  freeze_agents ;;
   freeze_vscode)  freeze_vscode ;;
   freeze_brew)    freeze_brew ;;

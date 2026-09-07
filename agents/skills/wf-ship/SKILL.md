@@ -558,7 +558,7 @@ That covers both ignored and untracked paths, since a repo's `.gitignore` decide
 
 **Only untracked and ignored files are candidates.** A tracked spec is a committed decision record and stays, which is what `docs/superpowers/specs/` holds in a repo that tracks it. The distinction is tracked-versus-untracked, never the word "spec".
 
-**Print the command; never run it.** `~/.agents/AGENTS.md` requires deletions be handed over, and `claude/block-file-deletions.sh` denies `rm` at PreToolUse, so a run that tried would be blocked mid-flight. Set `<CLEANUP>` to the exact command with absolute paths:
+**Print the command; never run it.** `~/.agents/AGENTS.md` requires deletions be handed over, and `claude/hooks/block-file-deletions.sh` denies `rm` at PreToolUse, so a run that tried would be blocked mid-flight. Set `<CLEANUP>` to the exact command with absolute paths:
 
 ```sh
 rm -rf <absolute path> <absolute path>
