@@ -4,33 +4,26 @@ load helpers/setup
 
 bats_require_minimum_version 1.5.0
 
-# The skills under agents/skills/ are deployed to ~/.claude/skills and
-# ~/.agents/skills, so every repo on the machine runs the same copy and "this
-# repo" inside one of them resolves to whichever repo the agent is standing in.
-# The sharpest form of the defect is a skill that tells the agent to run a
-# check and then tells it the answer: an agent handed the answer has little
-# reason to run the check, so the mechanism underneath goes unused and the
-# wrong branch gets taken.
+# Skills under agents/skills/ deploy to ~/.claude/skills and ~/.agents/skills,
+# so "this repo" inside one resolves to whichever repo the agent is standing
+# in. A skill that runs a check and then states its answer leaves the agent no
+# reason to run it, so the mechanism goes unused and the wrong branch is taken.
 #
-# AGENTS.md carries the rule, which reaches phrasings a grep never will. This
-# file is its complement, not its replacement: it catches the phrasings the
-# rule has already been broken with. The two are asserted together below,
-# because without that the rule can be deleted while this list stays green.
+# AGENTS.md carries the rule and reaches phrasings a grep never will; this file
+# catches the ones already written. Both are asserted below - without that, the
+# rule can be deleted while the list stays green.
 #
-# The glob is every skill rather than wf-*. The rule is written about a skill,
-# and a test narrower than the rule it enforces drifts from it.
+# The glob is every skill rather than wf-*: a test narrower than the rule it
+# enforces drifts from it.
 
 # Literals, matched with grep -F. An entry earns its place by having been seen
-# in a real skill - this is not a list of phrasings someone might one day
-# write. Each has to be long enough to be unique to the sentence it came from:
-# a short entry would flag the conditional phrasings the rule explicitly
-# allows, and then a correct skill could not be written at all.
+# in a real skill, not by being a phrasing someone might write. Each must be
+# long enough to be unique to its sentence: a short entry flags the conditional
+# phrasings the rule allows, and then a correct skill cannot be written.
 #
-# The last entry is the other shape of the same defect. wf-wrap replaced "this
-# repo squash-merges" with a claim that its one probe "is correct under all
-# three" merge methods, which names no repo and is still an answer handed to
-# an agent that then has no reason to check - and, measured, was wrong for two
-# of the three.
+# Two shapes are banned. Most entries name a repo outright. The last one names
+# none and is still an answer handed to the agent - a claim widened to cover
+# every merge method, which measurement contradicts for two of the three.
 BANNED=(
   'gitignored here'
   'so it is always `no` here'
@@ -58,10 +51,9 @@ CONTROL=(
 )
 
 # The two clauses the AGENTS.md rule cannot lose and still be the same rule:
-# the ban itself, and the half that reaches a claim widened out of one repo
-# into all of them - wf-wrap shipped "correct under all three merge methods"
-# that way, obeying the first clause and breaking the second. Reword freely
-# around both.
+# the ban itself, and the half reaching a claim widened out of one repo into
+# all of them. A sentence can satisfy the first and break the second, which is
+# why both are anchored. Reword freely around them.
 RULE_ANCHORS=(
   'it must never say "the answer is Y"'
   'Widening a repo-specific claim into a universal one'

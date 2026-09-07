@@ -441,13 +441,11 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
 
   [ "$ran" -ge 1 ] || fail "no shell available to run the block"
 
-  # How many legs this actually covered is a property of the host, not of the
-  # block. Measured 2026-09-06, the ubuntu-latest image documents Bash 5.2.21
-  # and no zsh, and `bash` resolves to /bin/bash there - so in CI this loop
-  # runs once and the bash 3.2 and zsh legs are not reachable at all. Local
-  # macOS runs cover all three. That is allowed; a host that *has* a named
-  # shell and silently skips it is not, and a dedup bug in portable_shells is
-  # exactly how that would happen with nothing turning red.
+  # How many legs run is a property of the host, not of the block. The CI
+  # image ships one bash and no zsh, so this loop runs once there; a local
+  # macOS run covers all three. Both are allowed. What is not allowed is a host
+  # that *has* a named shell and silently skips it - a dedup bug in
+  # portable_shells is exactly how that happens with nothing turning red.
   local want wantpath covered listed skipped=
   for want in /bin/bash bash /bin/zsh zsh; do
     wantpath="$(command -v "$want" 2>/dev/null)" || continue

@@ -19,8 +19,8 @@ SKILL="$DOTFILES_ROOT/agents/skills/wf-wrap/SKILL.md"
 # run: `landed=` is what authorises Step 4 to discard the branch, so a probe
 # that answers when it cannot see the default branch is worse than no probe.
 #
-# Why each piece of the block is load-bearing, since the skill now points here
-# for it rather than carrying it as prose an agent reads on every wrap:
+# Why each piece of the block is load-bearing. The skill points here for this
+# rather than carrying it as prose an agent reads on every wrap:
 #
 # - Each merge method has exactly one probe that answers it, so dropping one
 #   for looking redundant turns that method's every wrap into a false stop.
