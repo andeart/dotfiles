@@ -11,6 +11,9 @@ states:
 # Work happens on plain feature branches here, not in worktrees.
 workspace:
   impl: base
+  # Nothing to carry: every untracked file this repo needs is either
+  # materialised by `dotfiles push` or lives outside the tree.
+  copy-into-worktree: []
 
 review:
   reviewers:
