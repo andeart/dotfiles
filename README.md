@@ -71,9 +71,8 @@ dotfiles/
 │   ├── AGENTS.md                      # synced to ~/.agents/AGENTS.md
 │   └── skills/*                       # synced to ~/.agents/skills/ and ~/.claude/skills/
 └── claude/
-    ├── block-file-deletions.sh        # synced to ~/.claude/block-file-deletions.sh
-    ├── block-force-push.sh            # synced to ~/.claude/block-force-push.sh
     ├── CLAUDE.md                      # synced to ~/.claude/CLAUDE.md
+    ├── hooks/*                        # synced to ~/.claude/hooks/
     ├── settings.json                  # synced to ~/.claude/settings.json
     └── statusline-command.sh          # synced to ~/.claude/statusline-command.sh
 ```
@@ -120,3 +119,4 @@ The dotfiles repo is the source of truth. The flow:
 - If an external tool (e.g. a Claude plugin install) changes a live file, you'll see it next time you run `dotfiles status` or commit. The pre-commit hook auto-stages live drift into your commit so the repo can't silently fall behind.
 - `dotfiles freeze` (the existing umbrella) now also captures drift back from `~/.agents` and `~/.claude` if you want to do it explicitly outside of a commit.
 - Conflicts (both sides edited a file in incompatible ways) abort with a clear message; resolve manually then re-run.
+- Renaming or removing a `PATH_MAPPING` entry strands whatever it already installed: the walk only visits what the mapping still names, so `push` can't remove a file it no longer knows about. `dotfiles status` flags those as `orphaned`, and `dotfiles orphans` prints the exact `rm` and `jq` to clear the file and its manifest key. It prints them rather than running them, so deletions stay yours.

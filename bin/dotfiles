@@ -133,9 +133,8 @@ _progress_print() {
 PATH_MAPPING=(
   "agents/AGENTS.md|~/.agents/AGENTS.md"
   "agents/skills|~/.agents/skills,~/.claude/skills"
-  "claude/block-file-deletions.sh|~/.claude/block-file-deletions.sh"
-  "claude/block-force-push.sh|~/.claude/block-force-push.sh"
   "claude/CLAUDE.md|~/.claude/CLAUDE.md"
+  "claude/hooks|~/.claude/hooks"
   "claude/settings.json|~/.claude/settings.json"
   "claude/statusline-command.sh|~/.claude/statusline-command.sh"
 )
@@ -291,6 +290,27 @@ _walk_mapping() {
 # shasum and jq work the walk itself pays for.
 _count_mapping_pairs() {
   _walk_pairs | wc -l | tr -d ' '
+}
+
+# Live paths the manifest still records that no mapping walk reaches any more.
+#
+# The manifest is already the record of what this tool has written, so no new
+# state is needed to find these - only a query the other direction. Every walk
+# is driven by PATH_MAPPING, so a path whose entry was renamed or removed
+# leaves the walk with it, and both the live file and its manifest key stay
+# behind with nothing left to reconcile them: push and freeze only ever visit
+# what the mapping still names.
+#
+# Both sides are sorted under LC_ALL=C because comm requires one collation and
+# these are byte strings, not text - a locale that folds case or ignores
+# punctuation would desync the two streams and invent differences.
+#
+# Prints one live path per line.
+_orphan_keys() {
+  [ -f "$DOTFILES_STATE_FILE" ] || return 0
+  comm -23 \
+    <(jq -r 'keys[]' "$DOTFILES_STATE_FILE" 2>/dev/null | LC_ALL=C sort) \
+    <(_walk_pairs | cut -f2 | LC_ALL=C sort -u)
 }
 
 # Prints lines: "<repo_path>\t<live_path>" for every (repo_file, live_file) pair
@@ -627,6 +647,7 @@ usage() {
   echo "  freeze    Snapshot live state into the repo (vscode, brew, agents)"
   echo "  push      Apply repo state to live ~/.claude and ~/.agents files"
   echo "  status    Show drift between repo and live agent/claude files"
+  echo "  orphans   List live paths the mapping no longer covers, and how to clear them"
   exit 0
 }
 
@@ -898,6 +919,25 @@ status() {
 
   if [ ${#true_conflicts[@]} -gt 0 ] || [ "$bi_count" -gt 0 ]; then
     found_conflict=1
+  fi
+
+  # Reported here because this is where drift is already read, but deliberately
+  # not folded into has_drift: an orphan is not something push or freeze can
+  # reconcile, so pointing the summary at either would be advice that does
+  # nothing.
+  local orphaned=()
+  local o
+  while IFS= read -r o; do
+    [ -n "$o" ] && orphaned+=("$o")
+  done < <(_orphan_keys)
+
+  if [ ${#orphaned[@]} -gt 0 ]; then
+    echo ""
+    for o in "${orphaned[@]}"; do
+      echo -e "  ${YELLOW}orphaned${RESET}  $o"
+    done
+    echo ""
+    echo -e "  ${YELLOW}${#orphaned[@]} manifest key(s) no longer covered by the mapping - run 'dotfiles orphans'${RESET}"
   fi
 
   echo ""
@@ -1385,6 +1425,62 @@ freeze() {
 }
 
 # ---------------------------------------------------------------------------
+# orphans
+# ---------------------------------------------------------------------------
+
+# List the manifest keys no walk reaches and print the commands that clear them.
+#
+# Prints, never deletes. ~/.agents/AGENTS.md requires deletions be handed to the
+# user, and the classification does not carry enough to overrule that anyway: a
+# mapping entry commented out for an afternoon produces exactly the same
+# unreachable key as one retired for good.
+orphans() {
+  echo -e "${BOLD}orphaned live paths${RESET}"
+  echo ""
+
+  local keys=() k
+  while IFS= read -r k; do
+    [ -n "$k" ] && keys+=("$k")
+  done < <(_orphan_keys)
+
+  if [ ${#keys[@]} -eq 0 ]; then
+    echo -e "  ${GREEN}none. Every manifest key is still covered by the mapping.${RESET}"
+    return 0
+  fi
+
+  local present=()
+  for k in "${keys[@]}"; do
+    if [ -e "$k" ]; then
+      present+=("$k")
+      echo -e "  ${YELLOW}file + key${RESET}  $k"
+    else
+      echo -e "  ${YELLOW}key only  ${RESET}  $k"
+    fi
+  done
+
+  echo ""
+  if [ ${#present[@]} -gt 0 ]; then
+    echo -e "  ${BOLD}delete the files yourself:${RESET}"
+    printf '    rm'
+    for k in "${present[@]}"; do printf ' %q' "$k"; done
+    printf '\n\n'
+  fi
+
+  # The keys travel as argv, not inside the filter. A live path is arbitrary
+  # bytes, and one containing a single quote would close the shell quoting
+  # around an interpolated filter and hand the user a command that does not
+  # parse. Keeping the filter a fixed literal leaves %q as the only quoting
+  # that has to be right.
+  local filter='del(.[$ARGS.positional[]])'
+
+  echo -e "  ${BOLD}then drop the manifest keys:${RESET}"
+  printf "    tmp=\$(mktemp) && jq '%s' %q --args" "$filter" "$DOTFILES_STATE_FILE"
+  for k in "${keys[@]}"; do printf ' %q' "$k"; done
+  printf " > \"\$tmp\" && mv \"\$tmp\" %q\n" "$DOTFILES_STATE_FILE"
+  echo ""
+}
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
@@ -1393,6 +1489,7 @@ if [ -z "${_DOTFILES_LIB_ONLY:-}" ]; then
     freeze)         shift; freeze "$@" ;;
     push)           shift; push "$@" ;;
     status)         shift; status "$@" ;;
+    orphans)        shift; orphans "$@" ;;
     -h|--help|"")   usage ;;
     *)
       echo "Unknown command: $1" >&2

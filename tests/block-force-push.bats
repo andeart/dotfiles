@@ -4,7 +4,7 @@ load helpers/setup
 
 bats_require_minimum_version 1.5.0
 
-HOOK="$DOTFILES_ROOT/claude/block-force-push.sh"
+HOOK="$DOTFILES_ROOT/claude/hooks/block-force-push.sh"
 
 # Feed a PreToolUse(Bash) payload for $1 into the hook. Sets $output/$status
 # via bats `run`. The hook always exits 0 (it fails open and deny() exits 0),
