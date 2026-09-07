@@ -94,6 +94,16 @@
             "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.json) jq . \"$f\" > /dev/null ;; *.yml|*.yaml) yamllint \"$f\" ;; *.md) markdownlint-cli2 --config ~/.markdownlint.yml \"$f\" ;; esac; }"
           }
         ]
+      },
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $HOME/.claude/hooks/copy-into-worktree.sh",
+            "statusMessage": "Copying local files into the worktree"
+          }
+        ]
       }
     ],
     "PreToolUse": [

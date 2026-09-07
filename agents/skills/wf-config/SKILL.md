@@ -33,7 +33,7 @@ find "$root" -maxdepth 1 -name '.workitems.*.yml'
 `find` with a quoted pattern rather than a shell glob: under zsh an unmatched glob is a shell-level error that `2>/dev/null` on the command does not catch, so `ls "$root"/.workitems.*.yml` prints "no matches found" into the block's output right where the marker says a filename would be.
 
 - `repo=no` - stop and tell the user this is not a git repository.
-- `template=no` - **stop.** Say the shipped template is not on disk at `~/.agents/skills/wf-conventions/wf.yml.template`, and that `dotfiles push` puts it there. Never write the nine keys from memory: the template is the only place the shipped values live, and a skill that can reconstruct them is the guessing this contract exists to delete.
+- `template=no` - **stop.** Say the shipped template is not on disk at `~/.agents/skills/wf-conventions/wf.yml.template`, and that `dotfiles push` puts it there. Never write the ten keys from memory: the template is the only place the shipped values live, and a skill that can reconstruct them is the guessing this contract exists to delete.
 - `wfconfig_path=` - only printed when the root has no file of its own. A non-empty value means this worktree inherits its settings from that path; Step 1 branches on it. An empty value means nothing resolved anywhere.
 
 Everything below acts on `$root/.wf.yml`, never on a path relative to the working directory. The resolver takes `--repo-root` for the same reason: a scaffolder that writes to the working directory drops a `.wf.yml` wherever the user happened to be standing.
@@ -76,7 +76,7 @@ No `--require` on this call, unlike the five skills that consume the config. The
 
 The dump cannot pick between these: an empty file, a comments-only one and `review: {}` all resolve at exit 0 with every key `<unset>`, exactly as an absent file does. The document's own shape is what separates them, and one `yq 'tag'` fork answers it.
 
-A `!!null` file has nothing for the merge to fill - `select(fi==1)` selects nothing and the expression emits zero bytes at exit 0, so the fill would report nine keys written and leave an empty file behind. A root-level `{}` does merge, but into flow style, so it takes the copy path rather than handing back a one-line file.
+A `!!null` file has nothing for the merge to fill - `select(fi==1)` selects nothing and the expression emits zero bytes at exit 0, so the fill would report ten keys written and leave an empty file behind. A root-level `{}` does merge, but into flow style, so it takes the copy path rather than handing back a one-line file.
 
 `!!str` **stops.** A bare scalar reaches exit 0 with every key `<unset>`, so it arrives looking like an ordinary incomplete file, and the merge below would fail with `cannot multiply !!map with !!str`. Say the file's whole content is a scalar rather than a mapping, and ask the user to fix or delete it.
 
@@ -88,7 +88,7 @@ Every row above is a claim about how `yq` behaves, pinned by `tests/wf-config-sc
 
 ## Writing a new file
 
-Say the repo configures none of the nine keys, offer to write the template, and **ask first**. Never write without an explicit yes.
+Say the repo configures none of the ten keys, offer to write the template, and **ask first**. Never write without an explicit yes.
 
 On yes:
 
@@ -144,6 +144,10 @@ Both paths end here. Show the file, name the keys most likely to need changing f
 - `states.*` - matched by name against the project's actual Plane states. A name no state carries resolves to a write that is skipped every time.
 - `verify.commands` - what `/wf-ship` and both review skills run. The template ships `[]`; anything added here is executed verbatim from a checked-in file on every ship and once per review cycle.
 - `workspace.impl` - `base` or `worktree`, per how work happens in this repo.
+- `workspace.copy-into-worktree` - the untracked paths a new worktree needs from
+  the base clone. The template ships `[]`; a repo whose gitignored config a build
+  needs (a flavor file, a local `.env`) names it here or every worktree starts
+  without it.
 
 The gate is what keeps a complete written file from becoming a value nobody chose. The scaffolder supplies the shape; the user signs off on the content.
 

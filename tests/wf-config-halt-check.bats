@@ -92,7 +92,7 @@ wfconfig_block() {
   done
 }
 
-# This repo declares all nine keys, so the test above can only fail on a typo -
+# This repo declares all ten keys, so the test above can only fail on a typo -
 # never on a key that is merely unset. Guard that premise rather than assume it.
 @test "this repo's own config satisfies every key in KNOWN_SHAPES" {
   local shapes keys

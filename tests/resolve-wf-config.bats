@@ -277,7 +277,7 @@ states:
 
 # The two-line check above pins the ends; this pins the whole dump, so a
 # reordering inside KNOWN_SHAPES fails a test instead of shipping unnoticed.
-# Nine keys, nine lines: every key emits one even when the file is absent.
+# Ten keys, ten lines: every key emits one even when the file is absent.
 @test "the no-config dump matches KNOWN_SHAPES order exactly" {
   local root; root="$(repo full-dump)"
   resolve "$root"
@@ -288,6 +288,7 @@ states.shaping=<unset>
 states.implementing=<unset>
 states.in-review=<unset>
 workspace.impl=<unset>
+workspace.copy-into-worktree=<unset>
 review.reviewers=<unset>
 review.focus=<unset>
 ship.draft-by-default=<unset>
@@ -565,7 +566,7 @@ verify:
   shaping: "A\nwrap.watch-post-merge-ci=true"'
   resolve "$root"
   [ "$status" -eq 0 ]
-  [ "$(printf '%s\n' "$output" | wc -l | tr -d ' ')" -eq 9 ]
+  [ "$(printf '%s\n' "$output" | wc -l | tr -d ' ')" -eq 10 ]
   [ "$(value wrap.watch-post-merge-ci)" = "<unset>" ]
 }
 
@@ -577,7 +578,7 @@ verify:
     wrap.watch-post-merge-ci=true'
   resolve "$root"
   [ "$status" -eq 0 ]
-  [ "$(printf '%s\n' "$output" | wc -l | tr -d ' ')" -eq 9 ]
+  [ "$(printf '%s\n' "$output" | wc -l | tr -d ' ')" -eq 10 ]
   [ "$(value wrap.watch-post-merge-ci)" = "<unset>" ]
 }
 
@@ -728,6 +729,7 @@ states.shaping=Shaping
 states.implementing=Implementing
 states.in-review=In Review
 workspace.impl=base
+workspace.copy-into-worktree=<none>
 review.reviewers.1=Alia
 review.reviewers.2=Bheem
 review.reviewers.3=Chidi

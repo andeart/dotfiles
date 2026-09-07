@@ -22,6 +22,22 @@ RESOLVE="$DOTFILES_ROOT/agents/skills/wf-conventions/scripts/resolve-wf-config.s
 CONFIG_SKILLS=(wf-ship wf-status wf-shape wf-spec-review wf-impl-review wf-wrap)
 HALTING_SKILLS=(wf-ship wf-status wf-shape wf-spec-review wf-impl-review)
 
+# The readers that are not skills. A hook carries the same "The keys this hook
+# reads:" list a skill does, so the extraction below covers both and a key read
+# only from here still counts as read.
+CONFIG_HOOKS=(copy-into-worktree)
+
+# config_readers: every reader's file, one path per line.
+config_readers() {
+  local name
+  for name in "${CONFIG_SKILLS[@]}"; do
+    printf '%s\n' "$DOTFILES_ROOT/agents/skills/$name/SKILL.md"
+  done
+  for name in "${CONFIG_HOOKS[@]}"; do
+    printf '%s\n' "$DOTFILES_ROOT/claude/hooks/$name.sh"
+  done
+}
+
 # known_shapes: KNOWN_SHAPES one per line, read from the script rather than
 # copied - a copy would grade a stale list and pass while the real one moved.
 known_shapes() {
@@ -31,14 +47,19 @@ known_shapes() {
 # key_list <file>: the bullet lines under "The keys this skill reads:", ending
 # at the first blank line after the list rather than at the first blank line -
 # the anchor's own paragraph break sits between the two.
+#
+# The sed strips a shell comment marker so one extraction covers a SKILL.md and
+# a hook script both. It runs on markdown too, where it can only touch a
+# heading: no heading is the anchor, and a heading after the list ends it at
+# `inlist { exit }` whether or not its `#` survived.
 key_list() {
-  awk '
-    /^The keys this skill reads:/ { inlist = 1; next }
+  sed 's/^#[[:space:]]\{0,1\}//' "$1" | awk '
+    /^The keys this (skill|hook) reads:/ { inlist = 1; next }
     inlist && /^- / { print; seen = 1; next }
     inlist && seen && /^[[:space:]]*$/ { exit }
     inlist && /^[[:space:]]*$/ { next }
     inlist { exit }
-  ' "$1"
+  '
 }
 
 # prose_keys <file>: every dotted wf key the bullet list names, with a trailing
@@ -74,16 +95,17 @@ require_keys() {
     | sort -u
 }
 
-@test "every skill that reads config carries a prose key list" {
-  local skill file
-  for skill in "${CONFIG_SKILLS[@]}"; do
-    file="$DOTFILES_ROOT/agents/skills/$skill/SKILL.md"
+@test "every reader of the config carries a prose key list" {
+  local file
+  while IFS= read -r file; do
     [ -f "$file" ]
     if [ -z "$(key_list "$file")" ]; then
-      echo "$skill has no 'The keys this skill reads:' list" >&2
+      echo "$file has no 'The keys this ... reads:' list" >&2
       return 1
     fi
-  done
+  done <<EOF
+$(config_readers)
+EOF
 }
 
 # The cross-check. Either list alone can be wrong; disagreeing is what proves it.
@@ -99,42 +121,60 @@ require_keys() {
   done
 }
 
-@test "every key a skill's prose names is a key the resolver knows" {
-  local shapes skill file key
+@test "every key a reader's prose names is a key the resolver knows" {
+  local shapes file key
   shapes="$(known_shapes | sed 's/\.N$//' | sort -u)"
   [ -n "$shapes" ]
-  for skill in "${CONFIG_SKILLS[@]}"; do
-    file="$DOTFILES_ROOT/agents/skills/$skill/SKILL.md"
+  while IFS= read -r file; do
     while IFS= read -r key; do
       [ -n "$key" ] || continue
       if ! printf '%s\n' "$shapes" | grep -qxF "$key"; then
-        echo "$skill names $key, which is not in KNOWN_SHAPES" >&2
+        echo "$file names $key, which is not in KNOWN_SHAPES" >&2
         return 1
       fi
     done <<EOF
 $(prose_keys "$file")
 EOF
-  done
+  done <<EOF
+$(config_readers)
+EOF
 }
 
 # The other direction: a key nobody reads is a key nobody can be halted on, so
 # it would sit in KNOWN_SHAPES and in the template with no consumer. Every
-# claim is extracted, including wf-wrap's - a literal here would need updating
-# by hand the day wf-wrap reads a second key, which is the drift this file
-# exists to catch.
-@test "every key in KNOWN_SHAPES is read by some skill" {
-  local claimed="" skill shape
-  for skill in "${CONFIG_SKILLS[@]}"; do
+# claim is extracted, including wf-wrap's and the hooks' - a literal here would
+# need updating by hand the day one of them reads a second key, which is the
+# drift this file exists to catch.
+@test "every key in KNOWN_SHAPES is read by some reader" {
+  local claimed="" file shape
+  while IFS= read -r file; do
     claimed="$claimed
-$(prose_keys "$DOTFILES_ROOT/agents/skills/$skill/SKILL.md")"
-  done
+$(prose_keys "$file")"
+  done <<EOF
+$(config_readers)
+EOF
   while IFS= read -r shape; do
     [ -n "$shape" ] || continue
     if ! printf '%s\n' "$claimed" | grep -qxF "$shape"; then
-      echo "$shape is in KNOWN_SHAPES but no skill's key list names it" >&2
+      echo "$shape is in KNOWN_SHAPES but no reader's key list names it" >&2
       return 1
     fi
   done <<EOF
 $(known_shapes | sed 's/\.N$//')
 EOF
+}
+
+# A hook has no user to send to /wf-config and runs where a nonzero exit fails a
+# tool call, so it must never pass --require. wf-wrap is held to the same rule
+# in tests/wf-config-halt-check.bats; this is that rule for the hooks.
+@test "no config-reading hook passes --require" {
+  local name file
+  for name in "${CONFIG_HOOKS[@]}"; do
+    file="$DOTFILES_ROOT/claude/hooks/$name.sh"
+    [ -f "$file" ]
+    if [ -n "$(require_keys "$file")" ]; then
+      echo "$name passes --require; a hook must fail open, not halt" >&2
+      return 1
+    fi
+  done
 }

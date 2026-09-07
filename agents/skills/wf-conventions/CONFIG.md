@@ -19,6 +19,7 @@ force an arbitrary owner.
 | `states.implementing` | string | `Implementing` | `/wf-ship`, `/wf-status` |
 | `states.in-review` | string | `In Review` | `/wf-ship`, `/wf-status` |
 | `workspace.impl` | `base` \| `worktree` | `base` | `/wf-shape` |
+| `workspace.copy-into-worktree` | list | `[]` | `copy-into-worktree.sh` |
 | `review.reviewers` | list | `Alia`, `Bheem`, `Chidi`, `Dulce` | `/wf-spec-review`, `/wf-impl-review` |
 | `review.focus` | list | the four headings below | `/wf-spec-review`, `/wf-impl-review` |
 | `ship.draft-by-default` | bool | `true` | `/wf-ship` |
@@ -28,6 +29,13 @@ force an arbitrary owner.
 The "Template value" column is what `/wf-config` writes into a repo that has
 none, not a fallback: with the file in place, the value that applies is the one
 the file carries.
+
+One reader in that column is not a skill. `~/.claude/hooks/copy-into-worktree.sh`
+runs on Claude Code's `PostToolUse` event for the `EnterWorktree` tool, which is
+how `/wf-shape` cuts a worktree and how a session enters one by hand. It reads
+the config the same way, through this resolver, and passes no `--require`: it
+has no user to send to `/wf-config` and nothing it does is worth failing a tool
+call over.
 
 The template's `review.focus`:
 
@@ -67,6 +75,22 @@ newline forges another setting and a CR or ESC rewrites what a reader sees.
 - **An explicitly empty list means none, deliberately.** `reviewers: []`
   resolves to `review.reviewers=<none>` and runs zero cycles. It is a decision
   the file states, and it is not the same answer as leaving the key out.
+- **`workspace.copy-into-worktree` entries are repo-relative paths, copied
+  and never merged.** A worktree is cut from a commit, so nothing gitignored
+  reaches it; this names what to carry over from the base clone. An entry is a
+  file or a directory, relative to the repo root, with no `..` segment - an
+  absolute path or one that climbs out is skipped and reported rather than
+  honoured. An entry already present in the worktree is left alone whole, so
+  nothing is overwritten and re-entering a worktree changes nothing. Whole is
+  the granularity, which is what makes a directory entry the sharper edge here:
+  one that git materialised for a tracked file under it counts as present, and
+  the gitignored siblings beside that file stay behind in the base clone. Name
+  those files, then, rather than the directory holding them. Every entry left
+  alone is reported, as is every entry the base clone does not have, so a
+  mistyped path says so instead of passing for a copy. Modes are preserved,
+  which is the point for a credentials file: a `600` in the base clone stays
+  `600`. Naming a path here does not make it gitignored - a tracked path is
+  simply always present already, and so never copied.
 - **An unrecognised key is an error, not a no-op.** A key that is quietly
   ignored looks like a setting that applies and does not.
 - **A key present with no value is an error.** A bare `key:`, `null` and `~`

@@ -46,6 +46,7 @@ KNOWN_SHAPES=(
   states.implementing
   states.in-review
   workspace.impl
+  workspace.copy-into-worktree.N
   review.reviewers.N
   review.focus.N
   ship.draft-by-default

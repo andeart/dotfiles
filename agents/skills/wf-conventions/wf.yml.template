@@ -10,6 +10,8 @@ states:
 
 workspace:
   impl: base
+  # Untracked paths carried from the base clone into a new worktree.
+  copy-into-worktree: []
 
 review:
   reviewers:
