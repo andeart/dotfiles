@@ -180,7 +180,13 @@ resolve() {
   mkdir -p "$root/tmp"
   config "$root" plane
   printf '\n' > "$root/tmp/.workitems.plane.yml"
-  call config_path_for "$root" plane
+  # Called directly rather than through the `call` harness, which reads a return
+  # value out of stdout: this assigns and prints nothing, so the assignment has
+  # to be echoed from the same shell that made it.
+  run bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"
+    config_path_for "$2" plane
+    printf "%s\n" "$CONFIG_PATH"' _ "$RESOLVE" "$root"
+  [ "$status" -eq 0 ]
   [ "$output" = "$root/.workitems.plane.yml" ]
 }
 
@@ -413,22 +419,25 @@ resolve() {
   [[ "$stderr" == *"none sets default_tracker"* ]]
 }
 
-# Decision 4: the variable is what deletes four command substitutions per sweep,
-# and the print is what tests/resolve-tracker.bats already grades above and what
-# every caller outside this script still reads. Both, or the saving is one
-# refactor away from being given back.
-@test "config_path_for assigns CONFIG_PATH as well as printing it" {
+# Decision 4: the lookups assign and print nothing, which is what deletes five
+# command substitutions per sweep - four inside discover_trackers' loop and the
+# one that used to read the loop back. A caller that goes back to $() gives the
+# whole saving away, so both halves are pinned: the value is right, and it
+# survives being read from the calling shell rather than a subshell.
+@test "config_path_for assigns CONFIG_PATH and prints nothing" {
   local root; root="$(repo assigns-config-path)"
   config "$root" plane
-  # Called directly rather than through $(), which would run the assignment in a
-  # subshell and discard it - which is the whole reason the callers inside this
-  # script had to stop reading it that way.
+  # Two calls, and the reason is the point: the $() one runs the function in a
+  # subshell that takes the assignment away with it, which is exactly what the
+  # callers inside the script stopped doing.
   run bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"
-    config_path_for "$2" plane > "$3"
-    printf "printed=%s\nassigned=%s\n" "$(cat "$3")" "$CONFIG_PATH"' \
-    _ "$RESOLVE" "$root" "$BATS_TEST_TMPDIR/printed"
+    config_path_for "$2" plane
+    assigned="$CONFIG_PATH"
+    printed="$(config_path_for "$2" plane)"
+    printf "printed=[%s]\nassigned=%s\n" "$printed" "$assigned"' \
+    _ "$RESOLVE" "$root"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"printed=$root/.workitems.plane.yml"* ]]
+  [[ "$output" == *"printed=[]"* ]]
   [[ "$output" == *"assigned=$root/.workitems.plane.yml"* ]]
 }
 
@@ -438,11 +447,28 @@ resolve() {
   local root; root="$(repo clears-config-path)"
   config "$root" plane
   run bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"
-    config_path_for "$2" plane >/dev/null
-    config_path_for "$2" github >/dev/null
+    config_path_for "$2" plane
+    config_path_for "$2" github
     printf "[%s]\n" "$CONFIG_PATH"' _ "$RESOLVE" "$root"
   [ "$status" -eq 0 ]
   [ "$output" = "[]" ]
+}
+
+# The other half of the same saving, and the larger one: a sweep read back
+# through $() pays a subshell for the loop on top of the four inside it.
+@test "discover_trackers assigns SEARCH_CANDIDATES and prints nothing" {
+  local root; root="$(repo assigns-candidates)"
+  config "$root" plane
+  config "$root" github
+  run bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"
+    discover_trackers "$2"
+    assigned="$SEARCH_CANDIDATES"
+    printed="$(discover_trackers "$2")"
+    printf "printed=[%s]\nassigned=[%s]\n" "$printed" "$assigned"' \
+    _ "$RESOLVE" "$root"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"printed=[]"* ]]
+  [[ "$output" == *"assigned=[plane"$'\n'"github]"* ]]
 }
 
 # ─── the base clone fallback ───────────────────────────────────────────────
@@ -694,6 +720,22 @@ key() {
   [[ "$output" != *"config_path="* ]]
 }
 
+# The message names the flag, never the value. Interpolating the path would move
+# the forgery from stdout to stderr rather than stopping it: file-work-item reads
+# exit 2 as "stop and show it", so a root named `<dir>\nconfig_path=/etc/passwd`
+# would reach the user as a config_path= line the run had just refused to print.
+@test "the control-character message does not echo the path it rejected" {
+  local root="$BATS_TEST_TMPDIR/ctrl-quiet"$'\n'"config_path=/etc/passwd"
+  mkdir -p "$root"
+  config "$root" plane
+  resolve "$root" --with-config-path
+  [ "$status" -eq 2 ]
+  [[ "$stderr" != *"config_path="* ]]
+  [[ "$stderr" != *"/etc/passwd"* ]]
+  [[ "$stderr" == *"resolve-tracker:"* ]]
+  [[ "$stderr" == *"control character"* ]]
+}
+
 @test "a root carrying a control character still resolves without --with-config-path" {
   local root="$BATS_TEST_TMPDIR/ctrl-ok"$'\n'"x"
   mkdir -p "$root"
@@ -754,19 +796,59 @@ count_sweeps() {
   [ "$SWEEPS" -le 9 ]
 }
 
-# count_lines counts in the shell rather than through a `grep -c .` pipeline,
-# which is the same fork class decision 4 removed from config_path_for.
-@test "count_lines counts the non-empty lines of a string" {
+# unique_lines dedupes and counts in the shell rather than through a
+# `sort -u | grep .` pipeline and a `grep -c .` one - the same fork class
+# decision 4 removed from config_path_for, on the branch the base clone fallback
+# newly routes worktrees onto.
+@test "unique_lines keeps the distinct non-empty lines and counts them" {
   run bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"
     for s in "" "plane" "plane
 github" "
 
-"; do count_lines "$s"; printf "%s " "$LINE_COUNT"; done' _ "$RESOLVE"
+" "plane
+plane" "github
+plane
+github"; do unique_lines "$s"
+      printf "%s:[%s] " "$LINE_COUNT" "$(printf "%s" "$UNIQUE_LINES" | tr "\n" ",")"
+    done' _ "$RESOLVE"
   [ "$status" -eq 0 ]
-  [ "$output" = "0 1 2 0 " ]
+  [ "$output" = "0:[] 1:[plane] 2:[plane,github] 0:[] 1:[plane] 2:[github,plane] " ]
 }
 
-# The reason count_lines peels one line at a time instead of splitting on IFS: a
+# First-occurrence order rather than `sort -u`'s alphabetical one, so the
+# disagreement message below lists the defaults in the order the candidates
+# print above it. Pinned because it is the one observable the swap changed.
+@test "the disagreement message lists defaults in candidate order" {
+  local root; root="$(repo declared-order)"
+  config "$root" plane 'default_tracker: github'
+  config "$root" github 'default_tracker: plane'
+  resolve "$root"
+  [ "$status" -eq 10 ]
+  [[ "$stderr" == *"disagree on default_tracker: github plane"* ]]
+}
+
+# has_line replaces `grep -qxF`, and -F is the half that matters: a
+# default_tracker value is file content, so a `*` in it must match literally
+# rather than against every candidate. A partial line never matches either.
+#
+# The multi-line value matches, because a run of whole lines is what it is. That
+# differs from `grep -qxF`, which would have matched on any one of them - and
+# neither behaviour is reachable, because resolve() only calls this once
+# n_declared is 1. Asserted rather than left undefined so the divergence is on
+# the record instead of being rediscovered.
+@test "has_line matches whole lines and never treats the value as a pattern" {
+  run bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"
+    lines="plane
+github"
+    for v in plane github "*" lane jira "plane
+github"; do
+      if has_line "$lines" "$v"; then printf "y"; else printf "n"; fi
+    done' _ "$RESOLVE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "yynnny" ]
+}
+
+# The reason unique_lines peels one line at a time instead of splitting on IFS: a
 # default_tracker value is file content and reaches it unquoted under a split, so
 # `*` would expand against the working directory and count the files there. The
 # fixture directory holds two configs, so a globbing count would not be 1 and the

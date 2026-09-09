@@ -26,21 +26,32 @@ This skill is temporary by design. See "Retiring this skill" at the bottom.
 ```bash
 ls -1a <repo>/.plane.yml <repo>/.linear.yml <repo>/.jira.yml \
        <repo>/tmp/.plane.yml <repo>/tmp/.linear.yml <repo>/tmp/.jira.yml 2>/dev/null
-ls -1a <repo>/.workitems.*.yml <repo>/tmp/.workitems.*.yml 2>/dev/null
+find <repo> <repo>/tmp -maxdepth 1 -name '.workitems.*.yml' 2>/dev/null
 bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
   --repo-root <repo> --with-config-path 2>/dev/null
+echo "tracker_exit=$?"
 ```
 
-Both `ls` locations matter: `tmp/` is where public repos keep this config, and a legacy file there
-is exactly as invisible as one at the root. The listings stay because they hunt legacy names the
-resolver knows nothing about; the resolver is what says whether a current-name config already
-governs this repo, which the listings cannot see past `<repo>` itself. This block is not
-marker-structured, so read `config_path=` by name out of the lines the listings print alongside.
+Both listing locations matter: `tmp/` is where public repos keep this config, and a legacy file
+there is exactly as invisible as one at the root. The listings stay because they see names the
+resolver does not - the legacy three, and a current-name file for a tracker it has no reference for;
+the resolver is what says which config actually governs this repo, which the listings cannot see
+past `<repo>` itself. This block is not marker-structured, so read `config_path=` and
+`tracker_exit=` by name out of the lines the listings print alongside.
+
+`find` with a quoted pattern rather than a shell glob: under zsh an unmatched glob is a shell-level
+error that `2>/dev/null` on the command does not catch, so `ls <repo>/.workitems.*.yml` prints
+"no matches found" into this block right where a filename would be.
 
 **Stop before anything else if `config_path=` names a file outside `<repo>`.** This is a linked
 worktree inheriting its config from the base clone. Say which file it is, and say to run this skill
 in that directory instead. A `git mv` issued from a worktree against the base clone's tree is wrong
 independently of the shadowing a worktree-local file would introduce.
+
+**Stop too if `tracker_exit=2`.** The resolver could not run - a shipped file it needs is off disk,
+most likely a partial `dotfiles push`. Say so and stop: at `2` it prints no `config_path=` line at
+all, which is indistinguishable from the "Neither" case below, and that case ends by offering to
+create a config for a repo whose config this run simply could not see.
 
 Four cases:
 

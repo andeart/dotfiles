@@ -50,11 +50,10 @@ usage() {
 # this script under _WORKITEMS_LIB_ONLY=1 - moved below it, those cases invoke
 # an undefined function.
 #
-# A parameter expansion rather than $(dirname ...), a fork and an exec on the
-# hot path of every run. The case arm is the only place the two differ: run
-# from its own directory the script's $0 carries no slash, where dirname says
-# `.` and a bare `%/*` says the script's own name, so the guard below would
-# report the helper missing with every file in place.
+# These eight lines are byte-identical in resolve-wf-config.sh and have to be:
+# nothing can source the helper to find out where the helper is. base-clone.sh's
+# header carries why the expansion rather than $(dirname ...), and why the case
+# arm - one copy, since it is one decision.
 case "${BASH_SOURCE[0]}" in
   */*) _helper="${BASH_SOURCE[0]%/*}" ;;
   *) _helper=. ;;
@@ -71,9 +70,9 @@ unset _helper
 SEARCH_ROOT=""
 SEARCH_CANDIDATES=""
 
-# The path config_path_for last resolved, for callers inside this script. The
-# variable is what deletes four command substitutions per sweep, which is the
-# largest single cost here.
+# The path config_path_for last resolved. Together with SEARCH_CANDIDATES above
+# these delete five command substitutions per sweep - four inside the loop and
+# the one around it - which was the largest single cost here.
 CONFIG_PATH=""
 
 # known_trackers: print every tracker this script can resolve to.
@@ -94,20 +93,40 @@ is_known_tracker() {
   return 1
 }
 
-# The count count_lines last took. Assigns rather than prints, for the reason
-# CONFIG_PATH does: read back through a command substitution a count costs a
-# subshell whatever counts inside it.
+# has_line <lines> <value>: whether <value> is one whole line of <lines>. The
+# `grep -qxF` this replaces was a fork and a pipeline to answer a question about
+# four short strings. Quoted in the pattern, so a `*` in a value read out of a
+# config is matched literally - which is what -F bought.
+has_line() {
+  case $'\n'"$1"$'\n' in
+    *$'\n'"$2"$'\n'*) return 0 ;;
+  esac
+  return 1
+}
+
+# What unique_lines last produced. Assigns rather than prints, for the reason
+# CONFIG_PATH does: read back through a command substitution this costs a
+# subshell whatever happens inside it.
+UNIQUE_LINES=""
 LINE_COUNT=0
 
-# count_lines <string>: assign the number of non-empty lines in <string> to
-# LINE_COUNT. Pure shell: the `grep -c .` pipeline this replaces forked twice a
-# call and cost more than the four-tracker sweep beside it.
+# unique_lines <string>: assign <string>'s distinct non-empty lines, first
+# occurrence order, to UNIQUE_LINES, and how many there are to LINE_COUNT. Pure
+# shell: it replaces a `sort -u | grep .` pipeline and a `grep -c .` one, three
+# processes and two subshells between them, on values that are never more than
+# four short lines.
+#
+# First-occurrence rather than sorted, which is what `sort -u` gave: the caller
+# feeds this the candidates' declared defaults in candidate order, so the
+# disagreement message now lists them in the order the candidates print above
+# it rather than alphabetically.
 #
 # Peeled one line at a time rather than split on IFS: a default_tracker value
 # read out of a config reaches here, and unquoted word splitting would glob a
 # `*` in it against the working directory.
-count_lines() {
+unique_lines() {
   local rest="$1" line
+  UNIQUE_LINES=""
   LINE_COUNT=0
   while [ -n "$rest" ]; do
     line="${rest%%$'\n'*}"
@@ -116,19 +135,21 @@ count_lines() {
     else
       rest="${rest#*$'\n'}"
     fi
-    [ -z "$line" ] || LINE_COUNT=$((LINE_COUNT + 1))
+    [ -n "$line" ] || continue
+    has_line "$UNIQUE_LINES" "$line" && continue
+    UNIQUE_LINES="${UNIQUE_LINES}${UNIQUE_LINES:+$'\n'}$line"
+    LINE_COUNT=$((LINE_COUNT + 1))
   done
 }
 
-# config_path_for <root> <tracker>: print the config path for one tracker, or
-# nothing, and assign the same value to CONFIG_PATH. The repo root wins over
-# tmp/, which exists for public repos where a root-level config would look out
-# of place.
+# config_path_for <root> <tracker>: assign the config path for one tracker to
+# CONFIG_PATH, or the empty string. The repo root wins over tmp/, which exists
+# for public repos where a root-level config would look out of place.
 #
-# Both, deliberately: callers inside this script read the variable, external
-# callers keep the output they have today, and one lookup serves both. Cleared
-# first, because a sweep calls this once per tracker and a value left behind
-# would report every tracker as configured.
+# Assigns rather than prints, and has no caller outside this file: read back
+# through a command substitution one lookup costs a subshell whatever it finds,
+# and a sweep calls this once per tracker. Cleared first, because a value left
+# behind would report every tracker as configured.
 config_path_for() {
   local root="$1" tracker="$2"
   CONFIG_PATH=""
@@ -137,17 +158,19 @@ config_path_for() {
   elif [ -f "$root/tmp/.workitems.$tracker.yml" ]; then
     CONFIG_PATH="$root/tmp/.workitems.$tracker.yml"
   fi
-  [ -z "$CONFIG_PATH" ] || printf '%s\n' "$CONFIG_PATH"
 }
 
-# discover_trackers <root>: print every tracker with a config, one per line.
+# discover_trackers <root>: assign every tracker with a config under <root> to
+# SEARCH_CANDIDATES, newline-separated. Assigns for the reason config_path_for
+# does, and it is the larger half: read back through $() a sweep pays one
+# subshell for the loop on top of the four inside it.
 discover_trackers() {
   local root="$1" t
+  SEARCH_CANDIDATES=""
   for t in "${KNOWN_TRACKERS[@]}"; do
-    config_path_for "$root" "$t" >/dev/null
-    if [ -n "$CONFIG_PATH" ]; then
-      printf '%s\n' "$t"
-    fi
+    config_path_for "$root" "$t"
+    [ -n "$CONFIG_PATH" ] || continue
+    SEARCH_CANDIDATES="${SEARCH_CANDIDATES}${SEARCH_CANDIDATES:+$'\n'}$t"
   done
 }
 
@@ -165,13 +188,13 @@ discover_trackers() {
 set_search_root() {
   local base
   SEARCH_ROOT="$1"
-  SEARCH_CANDIDATES="$(discover_trackers "$1")"
+  discover_trackers "$1"
   [ -z "$SEARCH_CANDIDATES" ] || return 0
   [ -f "$1/.git" ] || return 0
   base="$(base_clone "$1")"
   [ -n "$base" ] || return 0
   SEARCH_ROOT="$base"
-  SEARCH_CANDIDATES="$(discover_trackers "$base")"
+  discover_trackers "$base"
 }
 
 # declared_default <config>: print the config's top-level default_tracker
@@ -211,15 +234,20 @@ declared_default() {
 # forges another one. Same pattern base_clone carries for its own output, for
 # the same reason. Rejected at 2 rather than printed empty: empty already means
 # "no config under the search root", and the root is the caller's own argument.
+#
+# The message names the flag and never the value. Interpolating the path here
+# would put the bytes this branch exists to reject onto stderr instead, in a
+# line file-work-item/SKILL.md tells an agent to show the user verbatim - a
+# newline in the root then forges the config_path= field one line up refused.
 emit_answer() {
   local tracker="$1" with_path="$2"
   if [ "$with_path" != yes ]; then
     printf '%s\n' "$tracker"
     return 0
   fi
-  config_path_for "$SEARCH_ROOT" "$tracker" >/dev/null
+  config_path_for "$SEARCH_ROOT" "$tracker"
   case "$CONFIG_PATH" in
-    *[[:cntrl:]]*) die "config path carries a control character: $SEARCH_ROOT" ;;
+    *[[:cntrl:]]*) die "--repo-root resolves to a path carrying a control character" ;;
   esac
   printf 'tracker=%s\nconfig_path=%s\n' "$tracker" "$CONFIG_PATH"
 }
@@ -260,7 +288,7 @@ resolve() {
 
   local candidates count
   candidates="$SEARCH_CANDIDATES"
-  count_lines "$candidates"
+  unique_lines "$candidates"
   count="$LINE_COUNT"
 
   # 2. One config is unambiguous on its own; default_tracker is not consulted,
@@ -280,17 +308,16 @@ resolve() {
   #    can be set in whichever tracker's config the user happens to open.
   local declared="" t d
   for t in $candidates; do
-    config_path_for "$root" "$t" >/dev/null
+    config_path_for "$root" "$t"
     d="$(declared_default "$CONFIG_PATH")"
     if [ -n "$d" ]; then
       declared="${declared}${d}"$'\n'
     fi
   done
-  declared="$(printf '%s' "$declared" | sort -u | grep . || true)"
+  unique_lines "$declared"
+  declared="$UNIQUE_LINES"
 
-  local n_declared
-  count_lines "$declared"
-  n_declared="$LINE_COUNT"
+  local n_declared="$LINE_COUNT"
 
   # 4. Anything short of one agreed, resolvable default goes back to the user.
   #    Picking for them here is how a work item lands in the wrong tracker.
@@ -318,7 +345,7 @@ resolve() {
 
   # A default naming a tracker with no config is a stale edit. Honouring it
   # would file into a tracker this repo holds no settings for.
-  if ! printf '%s\n' "$candidates" | grep -qxF "$declared"; then
+  if ! has_line "$candidates" "$declared"; then
     printf '%s\n' "$candidates"
     echo "default_tracker names '$declared', which has no config under $root" >&2
     return "$EXIT_ASK"

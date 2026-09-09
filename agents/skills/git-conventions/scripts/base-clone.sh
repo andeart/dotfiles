@@ -10,9 +10,19 @@
 #
 # Callers resolve this file relative to their own location, under a directory
 # the agent itself writes to. Helper and callers ship in one `dotfiles push`, so
-# it is trusted exactly as far as its caller already is - not further.
+# it is trusted exactly as far as its caller already is - not further. They
+# resolve it with `${BASH_SOURCE[0]%/*}` rather than $(dirname ...), which is a
+# fork and an exec on the hot path of every run; the two differ only on a path
+# carrying no slash, which is what a caller run from its own directory has, so
+# each guards that arm and falls back to `.`.
 #
-# Defines and returns. No shell options, no state, nothing executed at load.
+# WARNING: this file must define and return - no shell options, no state,
+# nothing executed at load. Both resolvers source it and then print key=value
+# lines a skill reads by field, so a stray print here forges a `config_path=`
+# ahead of the real one; copy-into-worktree.sh sources it into the shell whose
+# stdout is the hook's JSON, and runs without `-e` so it can fail open. It is
+# sourced, not forked, so nothing contains a violation. tests/resolve-wf-config.bats
+# pins both halves.
 
 # Caps both reads in base_clone. No path a filesystem accepts reaches 4096.
 POINTER_MAX=4096

@@ -1609,6 +1609,22 @@ run_bounded() {
   [ "$status" -eq 0 ]
 }
 
+# The helper's header states this and, since it is sourced rather than forked,
+# nothing else does. Both resolvers source it and then print key=value lines a
+# skill reads by field, so one stray print at load forges a `config_path=` ahead
+# of the real one; claude/hooks/copy-into-worktree.sh sources it into the shell
+# whose stdout is the hook's JSON payload, and runs without `-e` deliberately so
+# it can fail open. A shell option set here would follow the source out.
+@test "the shared helper is silent at load and sets no shell options" {
+  local helper="$DOTFILES_ROOT/agents/skills/git-conventions/scripts/base-clone.sh"
+  run --separate-stderr bash -c 'before="$-"; . "$1"; after="$-"
+    [ "$before" = "$after" ] || printf "options changed: %s -> %s\n" "$before" "$after"' \
+    _ "$helper"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+}
+
 @test "the shared helper parses under /bin/bash when that is bash 3.x" {
   local version
   version="$(/bin/bash --version | head -n1)"

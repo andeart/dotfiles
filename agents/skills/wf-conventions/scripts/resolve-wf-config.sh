@@ -93,11 +93,10 @@ usage() {
 # base_clone under _WF_LIB_ONLY=1 - moved below it, those cases invoke an
 # undefined function.
 #
-# A parameter expansion rather than $(dirname ...), a fork and an exec on the
-# hot path of every run. The case arm is the only place the two differ: run
-# from its own directory the script's $0 carries no slash, where dirname says
-# `.` and a bare `%/*` says the script's own name, so the guard below would
-# report the helper missing with every file in place.
+# These eight lines are byte-identical in resolve-tracker.sh and have to be:
+# nothing can source the helper to find out where the helper is. base-clone.sh's
+# header carries why the expansion rather than $(dirname ...), and why the case
+# arm - one copy, since it is one decision.
 case "${BASH_SOURCE[0]}" in
   */*) _helper="${BASH_SOURCE[0]%/*}" ;;
   *) _helper=. ;;
