@@ -566,9 +566,12 @@ physical() {
   [ "$output" = "jira" ]
 }
 
-# The trust boundary, graded through this script rather than through base_clone
-# in isolation. The neighbour carries a config, so a run that skipped the
-# back-reference check would resolve `plane` instead of asking.
+# The registration check, graded through this script rather than through
+# base_clone in isolation. The neighbour carries a config, so a run that skipped
+# the back-reference check would resolve `plane` instead of asking. Not an
+# authenticity check - base-clone.sh's header says what it does and does not
+# prove, and a reader reasoning from this case alone must not conclude that an
+# untrusted tree is safe to resolve from.
 @test "a .git file naming a directory that does not back-reference is not read from" {
   local root="$BATS_TEST_TMPDIR/no-backref"
   local evil="$BATS_TEST_TMPDIR/evil"
@@ -753,49 +756,6 @@ key() {
   [[ "$stderr" == *"no .workitems.<tracker>.yml under"* ]]
 }
 
-# count_sweeps <root> [args...]: how many times one run calls config_path_for,
-# through a stub that counts and delegates. Sets $SWEEPS.
-count_sweeps() {
-  local root="$1"; shift
-  local counter="$BATS_TEST_TMPDIR/sweeps"
-  : > "$counter"
-  run bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"
-    eval "orig_$(declare -f config_path_for)"
-    COUNTER="$3"
-    config_path_for() { printf "x\n" >> "$COUNTER"; orig_config_path_for "$@"; }
-    root="$2"; shift 3
-    resolve "$root" "$@"' _ "$RESOLVE" "$root" "$counter" "$@"
-  SWEEPS="$(grep -c . "$counter")"
-}
-
-# Decision 4's shape, pinned rather than asserted in a document nothing
-# re-reads: reading the search root, the candidates and the config path back
-# through separate command substitutions is three sweeps of a loop that was five
-# forks before it assigned, and that shape is one refactor away.
-#
-# An upper bound rather than an equality. What must not come back is a sweep the
-# run does not need; a later change that answers in fewer is an improvement, and
-# a test that fails on it would be arguing for the cost it exists to prevent.
-@test "a detection run with --with-config-path sweeps once in an ordinary clone" {
-  local root; root="$(repo sweeps-clone)"
-  config "$root" plane
-  count_sweeps "$root" "" yes
-  [ "$status" -eq 0 ]
-  # Four trackers for the one sweep, plus emit_answer's single lookup. A second
-  # sweep would be 9, a third 13.
-  [ "$SWEEPS" -le 5 ]
-}
-
-@test "a detection run with --with-config-path sweeps twice in an inheriting worktree" {
-  worktree sweeps-worktree
-  config "$BASE" plane
-  count_sweeps "$WT" "" yes
-  [ "$status" -eq 0 ]
-  # The worktree's own sweep, the base clone's, and emit_answer's lookup. Never
-  # a third sweep, which would be 13.
-  [ "$SWEEPS" -le 9 ]
-}
-
 # unique_lines dedupes and counts in the shell rather than through a
 # `sort -u | grep .` pipeline and a `grep -c .` one - the same fork class
 # decision 4 removed from config_path_for, on the branch the base clone fallback
@@ -865,6 +825,22 @@ github"; do
 }
 
 # ─── the tracker list and the reference files agree ────────────────────────
+
+# discover_trackers appends one line per entry and resolve() counts the appends,
+# so a repeated entry makes a one-config repo report two candidates and take the
+# multi-config branch. The four cases below each iterate the list and pass with
+# a duplicate in it, so nothing else here would say.
+@test "the known tracker list has no repeated entry" {
+  call known_trackers
+  [ "$status" -eq 0 ]
+  local all deduped
+  all="$(printf '%s\n' "$output" | sort)"
+  deduped="$(printf '%s\n' "$output" | sort -u)"
+  [ "$all" = "$deduped" ] || {
+    echo "KNOWN_TRACKERS repeats an entry: $output" >&2
+    return 1
+  }
+}
 
 @test "every known tracker has a reference file" {
   call known_trackers

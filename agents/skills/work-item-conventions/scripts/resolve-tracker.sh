@@ -50,10 +50,11 @@ usage() {
 # this script under _WORKITEMS_LIB_ONLY=1 - moved below it, those cases invoke
 # an undefined function.
 #
-# These eight lines are byte-identical in resolve-wf-config.sh and have to be:
-# nothing can source the helper to find out where the helper is. base-clone.sh's
-# header carries why the expansion rather than $(dirname ...), and why the case
-# arm - one copy, since it is one decision.
+# The eight lines below are duplicated in resolve-wf-config.sh - nothing can
+# source the helper to find out where the helper is - and can be identical only
+# while both callers sit two levels under agents/skills/. The hook, the third
+# consumer, spells an absolute path instead. tests/resolve-wf-config.bats pins
+# the two copies together; base-clone.sh's header carries the rest.
 case "${BASH_SOURCE[0]}" in
   */*) _helper="${BASH_SOURCE[0]%/*}" ;;
   *) _helper=. ;;
@@ -63,12 +64,20 @@ _helper="$_helper/../../git-conventions/scripts/base-clone.sh"
 . "$_helper"
 unset _helper
 
-# The directory this run reads configs from, and the trackers found under it.
-# Top-level for the reason resolve-wf-config.sh gives for INHERITED_FROM: tests
-# source this script under `set -u`, where reading an unset name exits 1 instead
-# of the code the caller is testing for.
+# The directory this run reads configs from, the trackers found under it, and
+# how many. Top-level for the reason resolve-wf-config.sh gives for
+# INHERITED_FROM: tests source this script under `set -u`, where reading an
+# unset name exits 1 instead of the code the caller is testing for.
+#
+# The count is carried beside the list rather than recomputed from it, so the
+# branch that counts candidates and the branch that emits one cannot read two
+# different answers. Recomputing through a deduplicating pass gives a count the
+# raw list does not match the moment KNOWN_TRACKERS holds a repeated entry, and
+# what that prints under --with-config-path is a `tracker=` field spanning two
+# lines. tests/resolve-tracker.bats pins the list distinct at the source.
 SEARCH_ROOT=""
 SEARCH_CANDIDATES=""
+SEARCH_COUNT=0
 
 # The path config_path_for last resolved. Together with SEARCH_CANDIDATES above
 # these delete five command substitutions per sweep - four inside the loop and
@@ -161,16 +170,19 @@ config_path_for() {
 }
 
 # discover_trackers <root>: assign every tracker with a config under <root> to
-# SEARCH_CANDIDATES, newline-separated. Assigns for the reason config_path_for
-# does, and it is the larger half: read back through $() a sweep pays one
-# subshell for the loop on top of the four inside it.
+# SEARCH_CANDIDATES, newline-separated, and how many to SEARCH_COUNT. Assigns
+# for the reason config_path_for does, and it is the larger half: read back
+# through $() a sweep pays one subshell for the loop on top of the four inside
+# it.
 discover_trackers() {
   local root="$1" t
   SEARCH_CANDIDATES=""
+  SEARCH_COUNT=0
   for t in "${KNOWN_TRACKERS[@]}"; do
     config_path_for "$root" "$t"
     [ -n "$CONFIG_PATH" ] || continue
     SEARCH_CANDIDATES="${SEARCH_CANDIDATES}${SEARCH_CANDIDATES:+$'\n'}$t"
+    SEARCH_COUNT=$((SEARCH_COUNT + 1))
   done
 }
 
@@ -181,10 +193,13 @@ discover_trackers() {
 # another mixed into its candidate set - see the design doc for what a
 # per-tracker fallback does to that set, and for what a third sweep costs.
 #
-# The is-a-file test is a hoisted copy of base_clone's first test, so an
-# ordinary clone with no config pays a stat rather than a fork. A base_clone
-# that declines leaves SEARCH_ROOT as the root it was given, so every message
-# below names a real directory either way.
+# The is-a-file test is a hoisted copy of base_clone's first test, so a root
+# carrying no config pays a stat rather than a fork - which is every run in a
+# repo with no tracker config at all, not a rare arm. It has to stay the same
+# predicate on the same path: dropping it is behaviour-identical by
+# construction, so no case here can tell the two apart if base_clone's first
+# line ever moves. A base_clone that declines leaves SEARCH_ROOT as the root it
+# was given, so every message below names a real directory either way.
 set_search_root() {
   local base
   SEARCH_ROOT="$1"
@@ -232,13 +247,9 @@ declared_default() {
 # Unlike the four stderr messages, this puts a caller-supplied path on stdout,
 # into a line a skill reads by field - where a newline in a directory name
 # forges another one. Same pattern base_clone carries for its own output, for
-# the same reason. Rejected at 2 rather than printed empty: empty already means
-# "no config under the search root", and the root is the caller's own argument.
-#
-# The message names the flag and never the value. Interpolating the path here
-# would put the bytes this branch exists to reject onto stderr instead, in a
-# line file-work-item/SKILL.md tells an agent to show the user verbatim - a
-# newline in the root then forges the config_path= field one line up refused.
+# the same reason. Rejected at 2 rather than printed empty, and the message
+# names the flag rather than the value; tests/resolve-tracker.bats grades both
+# halves and carries why each is the way round it is.
 emit_answer() {
   local tracker="$1" with_path="$2"
   if [ "$with_path" != yes ]; then
@@ -288,8 +299,7 @@ resolve() {
 
   local candidates count
   candidates="$SEARCH_CANDIDATES"
-  unique_lines "$candidates"
-  count="$LINE_COUNT"
+  count="$SEARCH_COUNT"
 
   # 2. One config is unambiguous on its own; default_tracker is not consulted,
   #    so a repo on a single tracker never has to carry the key.

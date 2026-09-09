@@ -93,10 +93,11 @@ usage() {
 # base_clone under _WF_LIB_ONLY=1 - moved below it, those cases invoke an
 # undefined function.
 #
-# These eight lines are byte-identical in resolve-tracker.sh and have to be:
-# nothing can source the helper to find out where the helper is. base-clone.sh's
-# header carries why the expansion rather than $(dirname ...), and why the case
-# arm - one copy, since it is one decision.
+# The eight lines below are duplicated in resolve-tracker.sh - nothing can
+# source the helper to find out where the helper is - and can be identical only
+# while both callers sit two levels under agents/skills/. The hook, the third
+# consumer, spells an absolute path instead. tests/resolve-wf-config.bats pins
+# the two copies together; base-clone.sh's header carries the rest.
 case "${BASH_SOURCE[0]}" in
   */*) _helper="${BASH_SOURCE[0]%/*}" ;;
   *) _helper=. ;;

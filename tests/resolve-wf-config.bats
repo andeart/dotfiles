@@ -1674,3 +1674,31 @@ run_bounded() {
     return 1
   fi
 }
+
+# The eight lines each resolver uses to locate and source the helper are
+# duplicated, because nothing can source the helper to find out where the helper
+# is. Both files claim in a comment that the copies match, and a comment in one
+# file cannot constrain the other - so the claim is pinned here, the shape the
+# case above uses for the function itself. Extracted by exact leading text
+# rather than a regex, so neither anchor needs escaping twice.
+@test "both resolvers locate the shared helper with the same eight lines" {
+  local tracker
+  tracker="$DOTFILES_ROOT/agents/skills/work-item-conventions/scripts/resolve-tracker.sh"
+  preamble() {
+    awk 'index($0, "case \"${BASH_SOURCE[0]}\" in") == 1 { p = 1 }
+         p { print }
+         index($0, "unset _helper") == 1 { p = 0 }' "$1"
+  }
+  local a b
+  a="$(preamble "$RESOLVE")"
+  b="$(preamble "$tracker")"
+  # Neither empty: a rename that breaks both anchors would otherwise compare
+  # nothing to nothing and pass.
+  [ -n "$a" ]
+  [ "$(printf '%s\n' "$a" | wc -l | tr -d ' ')" -eq 8 ]
+  if [ "$a" != "$b" ]; then
+    echo "the two helper-source preambles have diverged:" >&2
+    diff <(printf '%s\n' "$a") <(printf '%s\n' "$b") >&2 || true
+    return 1
+  fi
+}
