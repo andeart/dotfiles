@@ -2,19 +2,15 @@
 #
 # The base clone of a linked git worktree, resolved from the filesystem alone.
 #
-# Sourced by both resolvers that need it - wf-conventions/scripts/resolve-wf-config.sh
-# and work-item-conventions/scripts/resolve-tracker.sh - so the back-reference
-# check below has one copy. That check is a trust boundary, not a shape test:
-# without it any .git file naming a directory would have that directory's
-# config read, and its verify.commands executed.
+# Sourced by the three callers that need it - wf-conventions/scripts/resolve-wf-config.sh,
+# work-item-conventions/scripts/resolve-tracker.sh and
+# claude/hooks/copy-into-worktree.sh - so the registration check below has one
+# copy. Sourcing puts POINTER_MAX and base_clone, both unprefixed, in the
+# caller's shell.
 #
-# Sourcing this puts two unprefixed globals in the caller's shell: POINTER_MAX
-# and base_clone. A third consumer inherits both silently.
-#
-# Each resolver's trust boundary runs through this file, which they resolve
-# relative to their own location, under a directory the agent itself writes to.
-# What makes that sound is that helper and callers ship in one `dotfiles push`,
-# so this is trusted exactly as far as its caller already is - not further.
+# Callers resolve this file relative to their own location, under a directory
+# the agent itself writes to. Helper and callers ship in one `dotfiles push`, so
+# it is trusted exactly as far as its caller already is - not further.
 #
 # Defines and returns. No shell options, no state, nothing executed at load.
 
@@ -62,11 +58,13 @@ base_clone() {
   case "$name" in
     */*) return 0 ;;
   esac
-  # The pointer's shape is a string test; this is the trust boundary. git
-  # registers the relationship both ways, and <ptr>/gitdir holds the path back
-  # to this worktree's own .git. Without this check, any .git file naming a
-  # directory would have that directory's verify.commands executed by three
-  # skills.
+  # The pointer's shape is a string test; this checks the registration. git
+  # writes the relationship both ways, so <ptr>/gitdir names this worktree's own
+  # .git back, and a pointer whose other half is gone or stale - a deleted or
+  # moved base clone, a copied tree - declines here instead of having a
+  # stranger's config read and its verify.commands executed. Not an authenticity
+  # check: whoever can write root/.git can write the matching gitdir. It need
+  # not be - that writer could put the config in root itself.
   [ -f "$ptr/gitdir" ] || return 0
   backref=""
   { IFS= read -r -n "$POINTER_MAX" backref < "$ptr/gitdir"; } 2>/dev/null || :

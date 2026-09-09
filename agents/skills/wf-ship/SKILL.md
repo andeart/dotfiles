@@ -49,7 +49,7 @@ The fetch runs before the `@{upstream}` read so the upstream hash and every late
 
 Keep the `wfconfig_path=` line above `status<<<`: under that marker it reads as porcelain and a clean tree looks dirty. `tests/wf-config-halt-check.bats` pins the placement and explains it. The tracker call sits there for the same reason, and its stderr is discarded for the same reason the fork above it discards its own. `--tracker plane` makes exit 10 unreachable, so its stdout is always the two `key=value` lines and can never collide with a marker's typed output.
 
-Unlike the `.wf.yml` fork one line above, the tracker call is unguarded. That fork can afford `[ -f "$root/.wf.yml" ] ||` because an absent `wfconfig_path=` already means "the root carries its own file". The tracker call cannot spend an absent line twice - `tracker_exit=` is holding it for the broken-install case below. One fork on every ship, including the ones that write no `Issue:` line, against a block whose whole reason to exist is the round trip it saves.
+The tracker call is deliberately unguarded, unlike the `.wf.yml` fork above it: an absent `config_path=` has to keep meaning "the resolver never answered", so nothing may suppress the call.
 
 Read the results into the names the rest of this skill uses:
 
@@ -60,7 +60,7 @@ Read the results into the names the rest of this skill uses:
 - `default=` - this is `<DEFAULT_BRANCH>`. If it is empty, neither `main` nor `master` exists; stop and say so.
 - `upstream=` - the upstream commit hash, or empty if the branch has no upstream. This is the hash the default-branch flow's Step 2 needs; do not re-read it.
 - `wfconfig_path=` - absent means the repo root carries its own `.wf.yml` and nothing below changes. A non-empty value is the file the settings actually came from, outside this working tree. An empty value means no config resolved anywhere, and nothing more - never fill it in as `$root/.wf.yml`.
-- `tracker=plane` and `config_path=` - the config governing this repo, resolved rather than looked up by name. "Resolving the workspace" reads them; nothing else here does. An empty `config_path=` means no `.workitems.plane.yml` exists anywhere for this repo, base clone included.
+- `tracker=plane` and `config_path=` - the config governing this repo, resolved rather than looked up by name. "Resolving the workspace" reads them; nothing else here does. An empty `config_path=` means no `.workitems.plane.yml` under the one directory the resolver searched: the repo root, or the base clone it was cut from when the root carries no tracker config at all. A worktree carrying some *other* tracker's config is the case where empty does not mean "nowhere" - the base clone may hold a Plane config this run never looked at.
 - `tracker_exit=` - the tracker resolver's exit status, and load-bearing rather than tidy. This block does not run under `set -e`, so a resolver that halts at `2` prints no line at all - and an **absent** `config_path=` is not an empty one. Empty is a real answer; absent means the script never answered. Without the status, a broken install reads as "create a new config".
 - `status<<<` - the porcelain lines, if any.
 
@@ -427,7 +427,7 @@ With the answer in hand:
 
 - **`config_path=` names a file under `$root`** - offer to store the slug in it, and write only on a yes. Uncomment the `workspace:` line if the file carries one commented out; otherwise append `workspace: <slug>`.
 - **`config_path=` names a file outside `$root`** - this worktree inherits its config from the base clone. Use the slug for this ship, name the file the settings came from, and offer to store nothing. A worktree-local file would shadow the inherited one, which is the shadowing the fallback exists to remove.
-- **`config_path=` is empty** - no `.workitems.plane.yml` exists anywhere for this repo. Offer to create one in the repo root holding just that key. `file-work-item` appends the rest the next time it runs.
+- **`config_path=` is empty** - the resolver found no `.workitems.plane.yml` where it searched. Offer to create one in `$root`, holding just that key, and name that directory in the offer rather than calling it the repo's only config: in a worktree carrying another tracker's config the base clone may still hold a Plane one this run could not see. `file-work-item` appends the rest the next time it runs.
 - **`tracker_exit=2`** - the resolver never answered, so no path is known. Use the slug for this ship, say the resolver could not run and that `dotfiles push` syncs the skills, and offer to store nothing - there is no file to write to.
 - **The user declines the offer** - use the slug for this ship and move on. Do not ask twice in one run.
 

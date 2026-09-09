@@ -88,14 +88,21 @@ usage() {
   echo "Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]] [--print-config-path]"
 }
 
-# base_clone and POINTER_MAX, shared with resolve-tracker.sh. A parameter
-# expansion rather than $(dirname ...), which is a fork and an exec on the hot
-# path of every run; the two differ only on a path carrying no slash, and
-# BASH_SOURCE[0] carries one. Sourced above the library-mode return below,
-# because claude/hooks/copy-into-worktree.sh calls base_clone under
-# _WF_LIB_ONLY=1 - moved below it, that caller invokes an undefined function
-# and, since it discards stderr and fails open, goes quiet rather than failing.
-_helper="${BASH_SOURCE[0]%/*}/../../git-conventions/scripts/base-clone.sh"
+# base_clone and POINTER_MAX, shared with resolve-tracker.sh. Sourced above the
+# library-mode return below, because tests/resolve-wf-config.bats grades
+# base_clone under _WF_LIB_ONLY=1 - moved below it, those cases invoke an
+# undefined function.
+#
+# A parameter expansion rather than $(dirname ...), a fork and an exec on the
+# hot path of every run. The case arm is the only place the two differ: run
+# from its own directory the script's $0 carries no slash, where dirname says
+# `.` and a bare `%/*` says the script's own name, so the guard below would
+# report the helper missing with every file in place.
+case "${BASH_SOURCE[0]}" in
+  */*) _helper="${BASH_SOURCE[0]%/*}" ;;
+  *) _helper=. ;;
+esac
+_helper="$_helper/../../git-conventions/scripts/base-clone.sh"
 [ -f "$_helper" ] || die "missing $_helper - run 'dotfiles push' to sync the skills"
 . "$_helper"
 unset _helper

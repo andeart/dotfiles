@@ -5,10 +5,10 @@ Which tracker a work item goes into is decided once, at the top of a run, by
 anything else, and `migrate-work-item-config` uses it to see what a repo already has.
 
 Two more skills ask it narrower questions. `wf-ship` names `plane` outright and asks only where that
-tracker's config is, for the workspace slug; `wf-config` reads nothing but the exit code, to tell a
-repo with no tracker config from one that has some. `wf-wrap` goes straight to the Plane MCP tools
-without reading any config at all, so filing and refining stay tracker-agnostic while the ship and
-wrap workflows stay Plane-only.
+tracker's config is, for the workspace slug; `wf-config` reads the exit code and whether stdout came
+back empty, to tell a repo with no tracker config from one that has some. `wf-wrap` goes straight to
+the Plane MCP tools without reading any config at all, so filing and refining stay tracker-agnostic
+while the ship and wrap workflows stay Plane-only.
 
 **A normal run does not need this file.** The script's header holds the exit-code contract and the
 branch order, and each caller carries its own call and the handling inline. Read this when a repo's

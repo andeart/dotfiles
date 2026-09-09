@@ -45,14 +45,21 @@ usage() {
   echo "Usage: resolve-tracker.sh [--repo-root DIR] [--tracker NAME] [--with-config-path]"
 }
 
-# base_clone and POINTER_MAX, shared with resolve-wf-config.sh. A parameter
-# expansion rather than $(dirname ...), which is a fork and an exec on the hot
-# path of every run; the two differ only on a path carrying no slash, and
-# BASH_SOURCE[0] carries one. Sourced above the library-mode return below,
-# because tests/resolve-tracker.bats calls into this script under
-# _WORKITEMS_LIB_ONLY=1 - moved below it, those cases invoke an undefined
-# function.
-_helper="${BASH_SOURCE[0]%/*}/../../git-conventions/scripts/base-clone.sh"
+# base_clone and POINTER_MAX, shared with resolve-wf-config.sh. Sourced above
+# the library-mode return below, because tests/resolve-tracker.bats calls into
+# this script under _WORKITEMS_LIB_ONLY=1 - moved below it, those cases invoke
+# an undefined function.
+#
+# A parameter expansion rather than $(dirname ...), a fork and an exec on the
+# hot path of every run. The case arm is the only place the two differ: run
+# from its own directory the script's $0 carries no slash, where dirname says
+# `.` and a bare `%/*` says the script's own name, so the guard below would
+# report the helper missing with every file in place.
+case "${BASH_SOURCE[0]}" in
+  */*) _helper="${BASH_SOURCE[0]%/*}" ;;
+  *) _helper=. ;;
+esac
+_helper="$_helper/../../git-conventions/scripts/base-clone.sh"
 [ -f "$_helper" ] || die "missing $_helper - run 'dotfiles push' to sync the skills"
 . "$_helper"
 unset _helper
@@ -87,10 +94,30 @@ is_known_tracker() {
   return 1
 }
 
-# count_lines: number of non-empty lines on stdin. grep exits 1 for no matches
-# and 2 for a real error; only the first is an answer of zero.
+# The count count_lines last took. Assigns rather than prints, for the reason
+# CONFIG_PATH does: read back through a command substitution a count costs a
+# subshell whatever counts inside it.
+LINE_COUNT=0
+
+# count_lines <string>: assign the number of non-empty lines in <string> to
+# LINE_COUNT. Pure shell: the `grep -c .` pipeline this replaces forked twice a
+# call and cost more than the four-tracker sweep beside it.
+#
+# Peeled one line at a time rather than split on IFS: a default_tracker value
+# read out of a config reaches here, and unquoted word splitting would glob a
+# `*` in it against the working directory.
 count_lines() {
-  grep -c . || [ $? -eq 1 ]
+  local rest="$1" line
+  LINE_COUNT=0
+  while [ -n "$rest" ]; do
+    line="${rest%%$'\n'*}"
+    if [ "$line" = "$rest" ]; then
+      rest=""
+    else
+      rest="${rest#*$'\n'}"
+    fi
+    [ -z "$line" ] || LINE_COUNT=$((LINE_COUNT + 1))
+  done
 }
 
 # config_path_for <root> <tracker>: print the config path for one tracker, or
@@ -233,7 +260,8 @@ resolve() {
 
   local candidates count
   candidates="$SEARCH_CANDIDATES"
-  count="$(printf '%s\n' "$candidates" | count_lines)"
+  count_lines "$candidates"
+  count="$LINE_COUNT"
 
   # 2. One config is unambiguous on its own; default_tracker is not consulted,
   #    so a repo on a single tracker never has to carry the key.
@@ -261,7 +289,8 @@ resolve() {
   declared="$(printf '%s' "$declared" | sort -u | grep . || true)"
 
   local n_declared
-  n_declared="$(printf '%s\n' "$declared" | count_lines)"
+  count_lines "$declared"
+  n_declared="$LINE_COUNT"
 
   # 4. Anything short of one agreed, resolvable default goes back to the user.
   #    Picking for them here is how a work item lands in the wrong tracker.

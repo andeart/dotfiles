@@ -27,12 +27,13 @@
 # sandbox around that grant, they keep a mistyped entry from writing outside
 # the two trees.
 #
-# Fails open: a missing resolver, a missing yq, an unreadable payload or a
-# failed copy leaves the worktree as it found it rather than failing the tool
-# call.
+# Fails open: a missing resolver, a missing shared helper, a missing yq, an
+# unreadable payload or a failed copy leaves the worktree as it found it rather
+# than failing the tool call.
 set -uo pipefail
 
 RESOLVER="$HOME/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh"
+BASE_CLONE="$HOME/.agents/skills/git-conventions/scripts/base-clone.sh"
 
 payload="$(cat)"
 
@@ -58,13 +59,16 @@ worktree="$(printf '%s' "$payload" \
 
 [ -f "$RESOLVER" ] || exit 0
 
-# base_clone carries the trust check that separates a linked worktree from any
-# directory whose .git file names one: git registers the relationship both ways
-# and the resolver verifies the back-reference. Called rather than
-# reimplemented, so there is one copy of that check - and in a child shell
-# rather than sourced, because the resolver sets `-e` at the top and this hook
-# must fail open.
-base="$(bash -c '_WF_LIB_ONLY=1 . "$1" && base_clone "$2"' _ "$RESOLVER" "$worktree" 2>/dev/null)" || exit 0
+# base_clone carries the registration check that separates a linked worktree
+# from any directory whose .git file names one. Sourced rather than
+# reimplemented, so there is one copy of that check; sourced from the helper
+# rather than through the wf resolver's library mode, which would tie this hook
+# to another bundle's internals for one function. The helper sets no shell
+# options and runs nothing at load, so it needs no child shell to contain it -
+# the fork that did cost more than the call.
+[ -f "$BASE_CLONE" ] || exit 0
+. "$BASE_CLONE"
+base="$(base_clone "$worktree")"
 [ -n "$base" ] && [ -d "$base" ] || exit 0
 
 # Reports <unset> in a repo that never declared the key; the loop then

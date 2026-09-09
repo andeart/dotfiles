@@ -27,9 +27,9 @@ setup() {
   mkdir -p "$HOME/.agents/skills/wf-conventions/scripts" \
            "$HOME/.agents/skills/git-conventions/scripts"
   cp "$RESOLVE" "$HOME/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh"
-  # The resolver sources this by a path relative to its own location and halts
-  # at 2 without it, so a fake home carrying only the resolver is a half-
-  # deployed one - the hook then fails open and 12 of this file's cases go red.
+  # Both the hook and the resolver source this, so a fake home carrying only the
+  # resolver is a half-deployed one - the hook then fails open and 12 of this
+  # file's cases go red.
   cp "$BASE_CLONE" "$HOME/.agents/skills/git-conventions/scripts/base-clone.sh"
 
   mkdir -p "$BASE"
@@ -344,9 +344,10 @@ file_mode() {
 }
 
 # A different failure from the one above with the same required outcome, and the
-# state a partial `dotfiles push` leaves behind: the resolver is there, the file
-# it sources is not, so it halts at 2 where a missing resolver never runs at all.
-@test "a resolver whose shared helper is missing fails open rather than erroring" {
+# state a partial `dotfiles push` leaves behind: the resolver is there and the
+# helper both it and this hook source is not. The hook's own guard declines
+# first, and the resolver would halt at 2 behind it.
+@test "a missing shared helper fails open rather than erroring" {
   wf_config '  copy-into-worktree:
     - config/dev.json'
   mkdir -p "$BASE/config"

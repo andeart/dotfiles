@@ -726,10 +726,14 @@ count_sweeps() {
   SWEEPS="$(grep -c . "$counter")"
 }
 
-# Decision 4's cost, pinned rather than asserted in a document nothing re-reads:
-# reading the search root, the candidates and the config path back through
-# separate command substitutions is three sweeps of a five-fork loop, and the
-# shape that measured 1.75x a shipped run is one refactor away.
+# Decision 4's shape, pinned rather than asserted in a document nothing
+# re-reads: reading the search root, the candidates and the config path back
+# through separate command substitutions is three sweeps of a loop that was five
+# forks before it assigned, and that shape is one refactor away.
+#
+# An upper bound rather than an equality. What must not come back is a sweep the
+# run does not need; a later change that answers in fewer is an improvement, and
+# a test that fails on it would be arguing for the cost it exists to prevent.
 @test "a detection run with --with-config-path sweeps once in an ordinary clone" {
   local root; root="$(repo sweeps-clone)"
   config "$root" plane
@@ -737,7 +741,7 @@ count_sweeps() {
   [ "$status" -eq 0 ]
   # Four trackers for the one sweep, plus emit_answer's single lookup. A second
   # sweep would be 9, a third 13.
-  [ "$SWEEPS" -eq 5 ]
+  [ "$SWEEPS" -le 5 ]
 }
 
 @test "a detection run with --with-config-path sweeps twice in an inheriting worktree" {
@@ -747,7 +751,35 @@ count_sweeps() {
   [ "$status" -eq 0 ]
   # The worktree's own sweep, the base clone's, and emit_answer's lookup. Never
   # a third sweep, which would be 13.
-  [ "$SWEEPS" -eq 9 ]
+  [ "$SWEEPS" -le 9 ]
+}
+
+# count_lines counts in the shell rather than through a `grep -c .` pipeline,
+# which is the same fork class decision 4 removed from config_path_for.
+@test "count_lines counts the non-empty lines of a string" {
+  run bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"
+    for s in "" "plane" "plane
+github" "
+
+"; do count_lines "$s"; printf "%s " "$LINE_COUNT"; done' _ "$RESOLVE"
+  [ "$status" -eq 0 ]
+  [ "$output" = "0 1 2 0 " ]
+}
+
+# The reason count_lines peels one line at a time instead of splitting on IFS: a
+# default_tracker value is file content and reaches it unquoted under a split, so
+# `*` would expand against the working directory and count the files there. The
+# fixture directory holds two configs, so a globbing count would not be 1 and the
+# run would take a different exit-10 branch than the one asserted here.
+@test "a default_tracker naming a glob is counted as one value, not expanded" {
+  local root; root="$(repo glob-default)"
+  config "$root" plane 'default_tracker: *'
+  config "$root" github
+  cd "$root"
+  resolve "$root"
+  [ "$status" -eq 10 ]
+  [[ "$stderr" == *"which is not a tracker"* ]]
+  [[ "$stderr" == *"'*'"* ]]
 }
 
 # ─── the tracker list and the reference files agree ────────────────────────
@@ -872,6 +904,21 @@ count_sweeps() {
   [[ "$stderr" == *"resolve-tracker: missing"* ]]
   [[ "$stderr" == *"base-clone.sh"* ]]
   [[ "$stderr" == *"dotfiles push"* ]]
+}
+
+# Invoked from its own directory the script's $0 carries no slash, where a bare
+# `${BASH_SOURCE[0]%/*}` yields the script's own name rather than `.` - which
+# sent the guard above off a path that cannot exist and told a user with a
+# complete install to run `dotfiles push`. Debugging the script from beside it
+# is the one thing that reaches this.
+@test "the script resolves when run from its own directory" {
+  local root; root="$(repo own-directory)"
+  config "$root" plane
+  run --separate-stderr bash -c 'cd "$1" && bash resolve-tracker.sh --repo-root "$2"' \
+    _ "${RESOLVE%/*}" "$root"
+  [ "$status" -eq 0 ]
+  [ "$output" = "plane" ]
+  [ -z "$stderr" ]
 }
 
 # ─── bash 3.2 compatibility ────────────────────────────────────────────────

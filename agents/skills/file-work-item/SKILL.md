@@ -78,12 +78,10 @@ empty `config_path=` means there is none - go to "No config at all" below.
 The reference file's key table says what the keys mean for this tracker.
 
 **If that path is not under the repo root you passed**, say so before composing, naming the file.
-This is a linked worktree inheriting its config from the base clone. Name the whole file rather than
-the two keys that prompted the rule: the first rule below applies any key that is present without
-asking, so `assignee`, `project` and the label sets can all come from a file that is not in this
-working tree, and a reader cannot otherwise tell which key came from where. `guidance` and the
-`info` annotations are the sharpest case, being prose that this run goes on to write to a tracker
-against.
+This is a linked worktree inheriting its config from the base clone. Name the whole file, not the
+keys you happened to use: the first rule below applies any present key without asking, so a reader
+cannot otherwise tell which of `assignee`, `project`, the label sets and `guidance` came from a file
+that is not in this working tree.
 
 Two rules hold on every tracker:
 
