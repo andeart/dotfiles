@@ -57,9 +57,8 @@ the resolver needs that is not on disk, which is a half-finished `dotfiles push`
 reason to fall back to detection.
 
 At `0` stdout is two `key=value` lines rather than a bare name, read by name and never by position:
-`tracker=` is the resolved tracker, and `config_path=` is its config file, or empty when no config
-for that tracker sits under the one directory the resolver searched. Step 3 reads that path. At
-`10` stdout is the candidates, bare, with no `key=value` line.
+`tracker=` is the resolved tracker, and `config_path=` is its config file, or empty. Step 3 reads
+that path. At `10` stdout is the candidates, bare, with no `key=value` line.
 
 A work item URL in the request is the exception worth noticing - the host names the tracker
 outright, so pass that tracker's name as `--tracker` rather than running detection against a repo
@@ -98,11 +97,9 @@ material for *writing* rather than defaults, and refining should read them:
   semantics that help write accurate Notes.
 
 Both live in the file Step 1's `config_path=` names. Read that path rather than looking the file up
-again - this is the reader most exposed to standing in the wrong directory, because until now it
-resolved no path at all and inherited whatever the caller's directory happened to be. An empty
-`config_path=` means the resolver found none where it searched, so there is nothing to read - which
-on the `--tracker` arm is not the same as the repo having none, since a worktree carrying another
-tracker's config keeps the base clone's out of this run's reach.
+again: this is the reader most exposed to standing in the wrong directory, since nothing else here
+pins which repo the prose came from. An empty `config_path=` means there is nothing to read here,
+which is not the same as the repo having none - `RESOLUTION.md` carries why.
 
 **If that path is not under the repo root you passed**, say so before writing, naming the file. This
 is a linked worktree inheriting its config from the base clone, and prose from a file that is not in

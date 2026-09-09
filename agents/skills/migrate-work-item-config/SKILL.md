@@ -48,10 +48,10 @@ worktree inheriting its config from the base clone. Say which file it is, and sa
 in that directory instead. A `git mv` issued from a worktree against the base clone's tree is wrong
 independently of the shadowing a worktree-local file would introduce.
 
-**Stop too if `tracker_exit=2`.** The resolver could not run - a shipped file it needs is off disk,
-most likely a partial `dotfiles push`. Say so and stop: at `2` it prints no `config_path=` line at
-all, which is indistinguishable from the "Neither" case below, and that case ends by offering to
-create a config for a repo whose config this run simply could not see.
+**Stop too if `tracker_exit` is neither `0` nor `10`.** The resolver could not run, which is a
+partial `dotfiles push`. Say so and stop: it then prints no `config_path=` line at all, which is
+indistinguishable from the "Neither" case below, and that case ends by offering to create a config
+for a repo whose config this run simply could not see. Branch on the status, not on a list of codes.
 
 Four cases:
 

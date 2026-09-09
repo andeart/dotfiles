@@ -31,6 +31,11 @@ POINTER_MAX=4096
 # nothing. Every declining branch returns 0 explicitly; the caller reads this
 # through a command substitution under set -e.
 #
+# It prints rather than assigning, which is the opposite of what the resolvers
+# sourcing it do with their own lookups. Those run once per tracker per sweep;
+# this runs at most once per run, so the subshell costs less than a contract
+# three callers would have to change together.
+#
 # root/.git being a FILE is the whole of what separates a linked worktree from
 # an ordinary clone.
 #

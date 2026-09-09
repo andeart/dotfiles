@@ -64,10 +64,17 @@ worktree="$(printf '%s' "$payload" \
 # reimplemented, so there is one copy of that check; sourced from the helper
 # rather than through the wf resolver's library mode, which would tie this hook
 # to another bundle's internals for one function. The helper sets no shell
-# options and runs nothing at load, so it needs no child shell to contain it -
-# the fork that did cost more than the call.
+# options and runs nothing at load, so it needs no child shell to contain it.
+# The containment that shell gave was not load-bearing either way: whoever can
+# write the helper can write $RESOLVER, which this hook forks below and whose
+# output already drives the copy loop.
+#
+# Both halves of a half-written helper are silent. [ -f ] catches a missing one;
+# the redirect catches one that is present but truncated, where the source
+# itself prints a syntax error and leaves base_clone undefined. The old child
+# shell discarded that class and this must too - stdout here is the hook's JSON.
 [ -f "$BASE_CLONE" ] || exit 0
-. "$BASE_CLONE"
+. "$BASE_CLONE" 2>/dev/null || exit 0
 base="$(base_clone "$worktree")"
 [ -n "$base" ] && [ -d "$base" ] || exit 0
 

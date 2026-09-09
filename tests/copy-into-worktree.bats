@@ -361,6 +361,29 @@ file_mode() {
   [ ! -e "$WT/config/dev.json" ]
 }
 
+# The other half of a partial `dotfiles push`, and the half [ -f ] cannot see:
+# the helper is present and truncated mid-definition. Sourcing it prints a
+# syntax error and leaves base_clone undefined, so the redirect is what keeps
+# both off the hook's streams - stdout is the JSON payload, and the child shell
+# this replaced discarded the whole class. Asserted per stream rather than
+# through run_hook, since which stream stayed clean is the point.
+@test "a truncated shared helper fails open without printing" {
+  wf_config '  copy-into-worktree:
+    - config/dev.json'
+  mkdir -p "$BASE/config"
+  echo "x" > "$BASE/config/dev.json"
+  add_worktree
+  # Unterminated, so it is a syntax error at any length this file ever is.
+  printf 'base_clone() {\n' > "$HOME/.agents/skills/git-conventions/scripts/base-clone.sh"
+
+  run --separate-stderr bash -c 'payload=$(cat); printf "%s" "$payload" | bash "$1"' \
+    _ "$HOOK" <<< "$(payload)"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+  [ ! -e "$WT/config/dev.json" ]
+}
+
 @test "a malformed payload fails open" {
   run bash -c 'printf "%s" "not json" | bash "$1"' _ "$HOOK"
   [ "$status" -eq 0 ]

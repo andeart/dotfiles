@@ -23,6 +23,15 @@ whichever root wins, both the root's own file and its `tmp/` copy are read, and 
 A config resolved from the base clone is reported resolved like any other, with the path saying
 which directory it came from.
 
+`--with-config-path` prints that path, and an empty one is narrower than it reads. It is reachable
+only when the caller passed `--tracker`, and it means no config for *that* tracker under the one
+directory the run searched. In a worktree carrying some other tracker's config, that directory is
+the worktree, so the base clone may still hold a config for the tracker the caller named. Detection
+never prints an empty path: it resolves a tracker because it found that tracker's config. This is
+why the callers offer to create a file by naming the directory they would write into rather than
+calling it the repo's only config - a worktree-local file written over an inherited one reintroduces
+the shadowing the fallback exists to remove.
+
 `tmp/` is for a config carrying something that shouldn't sit in a public tree - `guidance` prose
 especially, and often the assignee and project identifiers. Whether a given repo's config qualifies
 is the user's call, so `file-work-item` offers the location on a public repo rather than imposing it.

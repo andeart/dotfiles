@@ -44,8 +44,8 @@ already has rather than spending a second fork - and, behind it, a whole model r
 Handle the exit codes:
 
 - `0` - stdout is two `key=value` lines, read by name and never by position: `tracker=` is the
-  resolved tracker, and `config_path=` is its config file, or empty when no config for that tracker
-  sits under the one directory the resolver searched. Carry on, and keep the path for Step 3.
+  resolved tracker, and `config_path=` is its config file, or empty. Carry on, and keep the path for
+  Step 3; "No config at all" below says what an empty one does and does not mean.
 - `10` - stdout lists the candidates, bare, with no `key=value` line; stderr says why they couldn't
   be narrowed. Ask the user which to use, then offer to write `default_tracker` into the chosen
   tracker's config so the next generic request doesn't ask again. With no candidates at all, go to
@@ -53,7 +53,8 @@ Handle the exit codes:
 - `2` - a usage error, an unknown tracker name, or a shipped file the resolver needs that is not on
   disk. Stop and show it. An unknown name means the user asked for a tracker this repo has no
   mechanics for, which is a real answer, not a reason to fall back to detection; a missing file
-  means a half-finished `dotfiles push`, which is not a reason to fall back either.
+  means a half-finished `dotfiles push`, which is not a reason to fall back either. Any other
+  nonzero status is that same half-finished push.
 
 ## Step 2: Read the conventions and the two reference files
 
@@ -96,12 +97,10 @@ Two rules hold on every tracker:
 
 ### No config at all
 
-Reached on an empty `config_path=`, or on exit 10 with no candidates. At exit 10 nothing resolved
-anywhere, the base clone included, so there is nothing for a new file to shadow. An empty
-`config_path=` is the narrower answer - it is reachable only when `--tracker` was passed, and it
-means no config for *that* tracker under the one directory the resolver searched. In a worktree
-carrying some other tracker's config, that directory is the worktree, and the base clone may still
-hold one for the tracker the user named.
+Reached on an empty `config_path=`, or on exit 10 with no candidates. Only exit 10 means nothing
+resolved anywhere, the base clone included, so only there is there nothing for a new file to shadow.
+An empty `config_path=` is narrower: no config for the tracker `--tracker` named, under the one
+directory searched, which in a worktree need not be the repo's only one. `RESOLUTION.md` carries why.
 
 Offer to create `.workitems.<tracker>.yml` before proceeding, and ask before writing. On the empty
 `config_path=` arm, name the directory you are offering to write into rather than calling it the

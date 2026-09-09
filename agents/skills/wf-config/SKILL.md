@@ -31,17 +31,20 @@ trackers=$(bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.s
 echo "tracker_exit=$?"
 echo 'trackers<<<'
 [ -z "$trackers" ] || printf '%s\n' "$trackers"
+echo 'workitems<<<'
+find "$root" -maxdepth 1 -name '.workitems.*.yml'
 ```
 
-The resolver rather than a `find` over `$root`: a root-level `find` sees only this directory, and a worktree whose repo keeps its tracker config untracked has that config in the base clone instead. No flag - the exit code alone answers the one question here, which is whether this repo has a tracker config anywhere at all.
+Both, because neither sees the whole question. The resolver reads `tmp/` and follows a worktree back to its base clone, which a root-level `find` cannot; the `find` sees any `.workitems.*.yml`, including one for a tracker the resolver has no reference file for and so never reports. No flag on the resolver - the exit code and whether stdout came back empty are all this step asks for, and its stderr is discarded like the fork above it, since an exit-10 `no .workitems.<tracker>.yml under <dir>` under the marker would read as a config filename.
 
-Its stderr is discarded, like the resolver fork above it. An exit-10 `no .workitems.<tracker>.yml under <dir>` landing under the marker would read as a config filename.
+`find` with a quoted pattern rather than a shell glob: under zsh an unmatched glob is a shell-level error that `2>/dev/null` on the command does not catch, so a globbed `ls` prints "no matches found" right where the marker says a filename would be.
 
 - `repo=no` - stop and tell the user this is not a git repository.
 - `template=no` - **stop.** Say the shipped template is not on disk at `~/.agents/skills/wf-conventions/wf.yml.template`, and that `dotfiles push` puts it there. Never write the ten keys from memory: the template is the only place the shipped values live, and a skill that can reconstruct them is the guessing this contract exists to delete.
 - `wfconfig_path=` - only printed when the root has no file of its own. A non-empty value means this worktree inherits its settings from that path; Step 1 branches on it. An empty value means nothing resolved anywhere.
-- `tracker_exit=` - the tracker resolver's exit status. `0`, or `10` with candidates, means this repo has a tracker config somewhere; `10` with nothing under the marker means it has none. `2` means the resolver never answered - a broken install, most likely a partial `dotfiles push`. Say so and skip the offer below; without the status, a resolver that halted is indistinguishable from a repo with no config.
+- `tracker_exit=` - the tracker resolver's exit status. `0`, or `10` with candidates, means this repo has a tracker config the resolver understands; `10` with nothing under `trackers<<<` means it found none. **Anything else means the resolver never answered**, which is a partial `dotfiles push` - say so and skip the offer below. Branch on the status rather than on a list of codes; without it, a resolver that never ran is indistinguishable from a repo with no config.
 - `trackers<<<` - whatever the resolver put on stdout: the resolved tracker name at `0`, the candidates at `10`, nothing when there are none. Typed output, not read by name.
+- `workitems<<<` - root-level config filenames, whatever tracker they name. Here only to keep the offer below off a repo that already has one.
 
 Everything below acts on `$root/.wf.yml`, never on a path relative to the working directory. The resolver takes `--repo-root` for the same reason: a scaffolder that writes to the working directory drops a `.wf.yml` wherever the user happened to be standing.
 
@@ -160,4 +163,4 @@ The gate is what keeps a complete written file from becoming a value nobody chos
 
 ## Then
 
-If Step 0 reported `tracker_exit=10` with nothing under the `trackers<<<` marker, add one line: this repo has no work item tracker config either, and `/file-work-item` writes that one. That pair is "nothing resolved anywhere" in the resolver's own terms - the base clone included, so a worktree does not get the offer for a config its repo already has. Write nothing toward it - it needs the tracker resolved through `resolve-tracker.sh` and its exit-10 ask, a root-versus-`tmp/` choice driven by repo visibility, and possibly a gated `.gitignore` change. None of that transfers, and duplicating the flow would create a second opinion about which tracker a repo uses.
+If Step 0 reported `tracker_exit=10` with nothing under either the `trackers<<<` or the `workitems<<<` marker, add one line: this repo has no work item tracker config either, and `/file-work-item` writes that one. That pair is "nothing resolved anywhere" in the resolver's own terms - the base clone included, so a worktree does not get the offer for a config its repo already has - and the `find` closes the one gap the resolver has, a config for a tracker it holds no reference file for. Any other `tracker_exit` says nothing about this repo, so say nothing. Write nothing toward it - it needs the tracker resolved through `resolve-tracker.sh` and its exit-10 ask, a root-versus-`tmp/` choice driven by repo visibility, and possibly a gated `.gitignore` change. None of that transfers, and duplicating the flow would create a second opinion about which tracker a repo uses.

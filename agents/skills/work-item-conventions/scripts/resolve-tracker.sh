@@ -190,8 +190,9 @@ discover_trackers() {
 # own when it carries any config; otherwise the base clone it was cut from, when
 # it is a linked worktree. One directory answers the whole run, so a worktree
 # carrying its own config for one tracker never has the base clone's config for
-# another mixed into its candidate set - see the design doc for what a
-# per-tracker fallback does to that set, and for what a third sweep costs.
+# another mixed into its candidate set: a per-tracker fallback reports both and
+# sends a repo that resolves cleanly today to an exit-10 ask. The case named "a
+# worktree's own config wins outright" in tests/resolve-tracker.bats holds that.
 #
 # The is-a-file test is a hoisted copy of base_clone's first test, so a root
 # carrying no config pays a stat rather than a fork - which is every run in a

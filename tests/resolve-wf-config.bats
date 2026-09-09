@@ -1681,7 +1681,7 @@ run_bounded() {
 # file cannot constrain the other - so the claim is pinned here, the shape the
 # case above uses for the function itself. Extracted by exact leading text
 # rather than a regex, so neither anchor needs escaping twice.
-@test "both resolvers locate the shared helper with the same eight lines" {
+@test "both resolvers locate the shared helper with the same lines" {
   local tracker
   tracker="$DOTFILES_ROOT/agents/skills/work-item-conventions/scripts/resolve-tracker.sh"
   preamble() {
@@ -1693,9 +1693,11 @@ run_bounded() {
   a="$(preamble "$RESOLVE")"
   b="$(preamble "$tracker")"
   # Neither empty: a rename that breaks both anchors would otherwise compare
-  # nothing to nothing and pass.
+  # nothing to nothing and pass. Asserted per file rather than as a line count,
+  # which caught nothing these two do not and made every edit to the preamble a
+  # test edit as well.
   [ -n "$a" ]
-  [ "$(printf '%s\n' "$a" | wc -l | tr -d ' ')" -eq 8 ]
+  [ -n "$b" ]
   if [ "$a" != "$b" ]; then
     echo "the two helper-source preambles have diverged:" >&2
     diff <(printf '%s\n' "$a") <(printf '%s\n' "$b") >&2 || true
