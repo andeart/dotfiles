@@ -60,19 +60,19 @@ worktree="$(printf '%s' "$payload" \
 [ -f "$RESOLVER" ] || exit 0
 
 # base_clone carries the registration check that separates a linked worktree
-# from any directory whose .git file names one. Sourced rather than
-# reimplemented, so there is one copy of that check; sourced from the helper
-# rather than through the wf resolver's library mode, which would tie this hook
-# to another bundle's internals for one function. The helper sets no shell
-# options and runs nothing at load, so it needs no child shell to contain it.
-# The containment that shell gave was not load-bearing either way: whoever can
-# write the helper can write $RESOLVER, which this hook forks below and whose
-# output already drives the copy loop.
+# from any directory whose .git file names one. This hook sources that check and
+# does not reimplement it, so one copy serves every consumer. It sources the
+# helper directly, and not through the wf resolver's library mode, which ties
+# this hook to another bundle's internals for one function. The helper sets no
+# shell options and runs nothing at load, so it needs no child shell to contain
+# it. A child shell protects nothing here: a writer who can write the helper can
+# also write $RESOLVER, which this hook forks below, and whose output drives the
+# copy loop.
 #
-# Both halves of a half-written helper are silent. [ -f ] catches a missing one;
-# the redirect catches one that is present but truncated, where the source
-# itself prints a syntax error and leaves base_clone undefined. The old child
-# shell discarded that class and this must too - stdout here is the hook's JSON.
+# A half-written helper must stay silent on both streams. [ -f ] catches a
+# helper that is absent. The redirect catches a helper that is present but
+# truncated, where the source prints a syntax error and leaves base_clone
+# undefined. stdout here is the hook's JSON.
 [ -f "$BASE_CLONE" ] || exit 0
 . "$BASE_CLONE" 2>/dev/null || exit 0
 base="$(base_clone "$worktree")"

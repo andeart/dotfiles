@@ -88,16 +88,16 @@ usage() {
   echo "Usage: resolve-wf-config.sh [--repo-root DIR] [--require KEY[,KEY...]] [--print-config-path]"
 }
 
-# base_clone and POINTER_MAX, shared with resolve-tracker.sh. Sourced above the
-# library-mode return below, because tests/resolve-wf-config.bats grades
-# base_clone under _WF_LIB_ONLY=1 - moved below it, those cases invoke an
-# undefined function.
+# base_clone and POINTER_MAX, shared with resolve-tracker.sh. This source must
+# stay above the library-mode return below: tests/resolve-wf-config.bats grades
+# base_clone under _WF_LIB_ONLY=1, and a source below that return leaves the
+# function undefined.
 #
-# The eight lines below are duplicated in resolve-tracker.sh - nothing can
-# source the helper to find out where the helper is - and can be identical only
-# while both callers sit two levels under agents/skills/. The hook, the third
-# consumer, spells an absolute path instead. tests/resolve-wf-config.bats pins
-# the two copies together; base-clone.sh's header carries the rest.
+# resolve-tracker.sh holds the same eight lines, because nothing can source the
+# helper to find where the helper is. The two copies are identical only while
+# both callers stay two levels below agents/skills/. The hook, the third
+# consumer, uses an absolute path instead. tests/resolve-wf-config.bats grades
+# the two copies together. base-clone.sh's header gives the rest.
 case "${BASH_SOURCE[0]}" in
   */*) _helper="${BASH_SOURCE[0]%/*}" ;;
   *) _helper=. ;;

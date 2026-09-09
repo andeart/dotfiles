@@ -11,8 +11,8 @@ BASE_CLONE="$DOTFILES_ROOT/agents/skills/git-conventions/scripts/base-clone.sh"
 # Fresh world per test. Sets:
 #   $BASE — a git clone holding one commit
 #   $WT   — a linked worktree of it
-#   $HOME — a fake home carrying the resolver, and the helper it sources, where
-#           the hook looks for them
+#   $HOME — a fake home that holds the resolver, and the helper it sources, in
+#           the places the hook looks for them
 #
 # The hook resolves the base clone from the worktree's own .git pointer, so
 # these have to be a real worktree pair rather than two directories: the
@@ -27,9 +27,9 @@ setup() {
   mkdir -p "$HOME/.agents/skills/wf-conventions/scripts" \
            "$HOME/.agents/skills/git-conventions/scripts"
   cp "$RESOLVE" "$HOME/.agents/skills/wf-conventions/scripts/resolve-wf-config.sh"
-  # Both the hook and the resolver source this, so a fake home carrying only the
-  # resolver is a half-deployed one - the hook then fails open and 12 of this
-  # file's cases go red.
+  # The hook and the resolver both source this helper, so a fake home with only
+  # the resolver is half-deployed. The hook then fails open, and 12 cases in
+  # this file go red.
   cp "$BASE_CLONE" "$HOME/.agents/skills/git-conventions/scripts/base-clone.sh"
 
   mkdir -p "$BASE"
@@ -343,10 +343,10 @@ file_mode() {
   [ ! -e "$WT/config/dev.json" ]
 }
 
-# A different failure from the one above with the same required outcome, and the
-# state a partial `dotfiles push` leaves behind: the resolver is there and the
-# helper both it and this hook source is not. The hook's own guard declines
-# first, and the resolver would halt at 2 behind it.
+# A different failure from the one above, with the same required outcome. A
+# partial `dotfiles push` leaves this state: the resolver is present, and the
+# helper that it and this hook source is not. The hook's own guard declines
+# first, and the resolver halts at 2 behind it.
 @test "a missing shared helper fails open rather than erroring" {
   wf_config '  copy-into-worktree:
     - config/dev.json'
@@ -362,18 +362,17 @@ file_mode() {
 }
 
 # The other half of a partial `dotfiles push`, and the half [ -f ] cannot see:
-# the helper is present and truncated mid-definition. Sourcing it prints a
-# syntax error and leaves base_clone undefined, so the redirect is what keeps
-# both off the hook's streams - stdout is the JSON payload, and the child shell
-# this replaced discarded the whole class. Asserted per stream rather than
-# through run_hook, since which stream stayed clean is the point.
+# the helper is present and truncated inside a definition. A source of it prints
+# a syntax error and leaves base_clone undefined, so the redirect keeps both off
+# the hook's streams, and stdout is the JSON payload. Asserted per stream and
+# not through run_hook, because which stream stays clean is the point.
 @test "a truncated shared helper fails open without printing" {
   wf_config '  copy-into-worktree:
     - config/dev.json'
   mkdir -p "$BASE/config"
   echo "x" > "$BASE/config/dev.json"
   add_worktree
-  # Unterminated, so it is a syntax error at any length this file ever is.
+  # Unterminated, so it is a syntax error at each length this file can have.
   printf 'base_clone() {\n' > "$HOME/.agents/skills/git-conventions/scripts/base-clone.sh"
 
   run --separate-stderr bash -c 'payload=$(cat); printf "%s" "$payload" | bash "$1"' \

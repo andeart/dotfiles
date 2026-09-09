@@ -1609,12 +1609,13 @@ run_bounded() {
   [ "$status" -eq 0 ]
 }
 
-# The helper's header states this and, since it is sourced rather than forked,
-# nothing else does. Both resolvers source it and then print key=value lines a
-# skill reads by field, so one stray print at load forges a `config_path=` ahead
-# of the real one; claude/hooks/copy-into-worktree.sh sources it into the shell
-# whose stdout is the hook's JSON payload, and runs without `-e` deliberately so
-# it can fail open. A shell option set here would follow the source out.
+# The helper's header states this rule, and a source enforces nothing, so this
+# case is what holds it. The two resolvers source the helper and then print
+# key=value lines that a skill reads by field, so one print at load makes a
+# false `config_path=` line before the true one. The hook at
+# claude/hooks/copy-into-worktree.sh sources the helper into the shell whose
+# stdout is the hook's JSON payload, and runs without `-e` so that it can fail
+# open. A shell option set here follows the source into that shell.
 @test "the shared helper is silent at load and sets no shell options" {
   local helper="$DOTFILES_ROOT/agents/skills/git-conventions/scripts/base-clone.sh"
   run --separate-stderr bash -c 'before="$-"; . "$1"; after="$-"
@@ -1633,10 +1634,11 @@ run_bounded() {
   [ "$status" -eq 0 ]
 }
 
-# Decision 10, and the reason the guard is an explicit [ -f ] rather than the
-# source's own failure: `set -euo pipefail; . /nonexistent` exits 1, with bash's
-# message naming the path but not the script. Four lines byte-identical with
-# resolve-tracker.sh's, `die` included, so the prefix is right by construction.
+# The guard is an explicit [ -f ] and not the source's own failure, because
+# `set -euo pipefail; . /nonexistent` exits 1 with a bash message that names the
+# path but not the script. Four lines are byte-identical with
+# resolve-tracker.sh's, `die` included, so the prefix is right by
+# construction.
 @test "a missing shared helper halts at 2, naming the file and the remedy" {
   local stage="$BATS_TEST_TMPDIR/half-deployed/wf-conventions/scripts"
   mkdir -p "$stage"
@@ -1648,14 +1650,13 @@ run_bounded() {
   [[ "$stderr" == *"dotfiles push"* ]]
 }
 
-# The behavioural half of the extraction is the 34 cases above, which pass
-# unchanged because sourcing keeps `call base_clone` resolving. This is the
-# other half: a second definition anywhere, not merely a divergent source path
-# in the two resolvers. claude/hooks/ is in the sweep because the hook is the
-# third consumer and the likeliest place a copy lands - it already reaches the
-# function cross-bundle, which is a standing invitation to inline it the next
-# time that dependency is inconvenient. Anchored on the definition, since the
-# hook names the function in a comment.
+# The 34 cases above grade the behaviour of base_clone through a source. This
+# case grades the other half: a second definition anywhere, and not only a
+# divergent source path in the two resolvers. claude/hooks/ is in the sweep
+# because the hook is the third consumer, and the likeliest place a copy lands.
+# It reaches the function across bundles, so an inline copy is the easy answer
+# the next time that dependency is inconvenient. Anchored on the definition,
+# because the hook names the function in a comment.
 @test "base_clone is defined in exactly one file" {
   local defs f
   defs=""
@@ -1675,12 +1676,12 @@ run_bounded() {
   fi
 }
 
-# The eight lines each resolver uses to locate and source the helper are
-# duplicated, because nothing can source the helper to find out where the helper
-# is. Both files claim in a comment that the copies match, and a comment in one
-# file cannot constrain the other - so the claim is pinned here, the shape the
-# case above uses for the function itself. Extracted by exact leading text
-# rather than a regex, so neither anchor needs escaping twice.
+# Each resolver holds the same eight lines to find and source the helper,
+# because nothing can source the helper to find where the helper is. Both files
+# claim in a comment that the copies match, and a comment in one file cannot
+# constrain the other, so this case holds the claim. It is the shape the case
+# above uses for the function itself. It extracts by exact leading text and not
+# by a regex, so neither anchor needs two levels of escaping.
 @test "both resolvers locate the shared helper with the same lines" {
   local tracker
   tracker="$DOTFILES_ROOT/agents/skills/work-item-conventions/scripts/resolve-tracker.sh"
@@ -1692,10 +1693,10 @@ run_bounded() {
   local a b
   a="$(preamble "$RESOLVE")"
   b="$(preamble "$tracker")"
-  # Neither empty: a rename that breaks both anchors would otherwise compare
-  # nothing to nothing and pass. Asserted per file rather than as a line count,
-  # which caught nothing these two do not and made every edit to the preamble a
-  # test edit as well.
+  # Neither is empty: a rename that breaks both anchors compares nothing to
+  # nothing and passes. Asserted per file and not as a line count, which catches
+  # nothing these two do not, and makes each edit to the preamble a test edit
+  # too.
   [ -n "$a" ]
   [ -n "$b" ]
   if [ "$a" != "$b" ]; then
