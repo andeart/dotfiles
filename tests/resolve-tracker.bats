@@ -413,6 +413,343 @@ resolve() {
   [[ "$stderr" == *"none sets default_tracker"* ]]
 }
 
+# Decision 4: the variable is what deletes four command substitutions per sweep,
+# and the print is what tests/resolve-tracker.bats already grades above and what
+# every caller outside this script still reads. Both, or the saving is one
+# refactor away from being given back.
+@test "config_path_for assigns CONFIG_PATH as well as printing it" {
+  local root; root="$(repo assigns-config-path)"
+  config "$root" plane
+  # Called directly rather than through $(), which would run the assignment in a
+  # subshell and discard it - which is the whole reason the callers inside this
+  # script had to stop reading it that way.
+  run bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"
+    config_path_for "$2" plane > "$3"
+    printf "printed=%s\nassigned=%s\n" "$(cat "$3")" "$CONFIG_PATH"' \
+    _ "$RESOLVE" "$root" "$BATS_TEST_TMPDIR/printed"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"printed=$root/.workitems.plane.yml"* ]]
+  [[ "$output" == *"assigned=$root/.workitems.plane.yml"* ]]
+}
+
+# A sweep calls this once per tracker in turn, so a value left behind by the
+# previous tracker would report every tracker as configured.
+@test "config_path_for clears CONFIG_PATH when the tracker has no config" {
+  local root; root="$(repo clears-config-path)"
+  config "$root" plane
+  run bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"
+    config_path_for "$2" plane >/dev/null
+    config_path_for "$2" github >/dev/null
+    printf "[%s]\n" "$CONFIG_PATH"' _ "$RESOLVE" "$root"
+  [ "$status" -eq 0 ]
+  [ "$output" = "[]" ]
+}
+
+# ─── the base clone fallback ───────────────────────────────────────────────
+
+# worktree <name>: a linked-worktree pair built the way git writes one - a .git
+# file naming the registration, and the registration's own gitdir naming this
+# worktree back. Sets $BASE and $WT. No git init, keeping this suite's
+# filesystem-only invariant: the back-reference is the whole of what the
+# resolver verifies, and a fixture of plain directories would skip exactly that.
+worktree() {
+  BASE="$BATS_TEST_TMPDIR/$1/base"
+  WT="$BATS_TEST_TMPDIR/$1/wt"
+  local reg="$BASE/.git/worktrees/$1"
+  mkdir -p "$reg" "$WT"
+  printf 'gitdir: %s\n' "$reg" > "$WT/.git"
+  printf '%s\n' "$WT/.git" > "$reg/gitdir"
+}
+
+# physical <dir>: <dir> with `..` and every symlink resolved, which is the form
+# base_clone prints an inherited path in. Asserting against a literal $BASE
+# would pass on Linux and fail on macOS, where BATS_TEST_TMPDIR sits under a
+# symlinked /var. A root's own path is used verbatim and is not wrapped.
+physical() {
+  (cd "$1" && pwd -P)
+}
+
+@test "a worktree carrying its own config reads its own" {
+  worktree own-config
+  config "$WT" github
+  config "$BASE" plane
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "github" ]
+}
+
+@test "a worktree with no config of its own reads the base clone's" {
+  worktree inherits
+  config "$BASE" plane
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "plane" ]
+}
+
+# Decision 3, and the case the rejected per-tracker fallback fails: it would
+# report both trackers and send a repo that resolves cleanly today to an ask.
+@test "a worktree's own config wins outright over the base clone's for another tracker" {
+  worktree own-beats-base
+  config "$WT" github
+  config "$BASE" plane
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "github" ]
+  [ -z "$stderr" ]
+}
+
+@test "neither the worktree nor its base clone carrying a config asks, naming the base clone" {
+  worktree neither
+  resolve "$WT"
+  [ "$status" -eq 10 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"$(physical "$BASE")"* ]]
+  [[ "$stderr" != *"$WT"* ]]
+}
+
+@test "the no-default message names the base clone the candidates came from" {
+  worktree base-multi
+  config "$BASE" plane
+  config "$BASE" github
+  resolve "$WT"
+  [ "$status" -eq 10 ]
+  [[ "$stderr" == *"none sets default_tracker"* ]]
+  [[ "$stderr" == *"$(physical "$BASE")"* ]]
+}
+
+@test "the disagreement message names the base clone the candidates came from" {
+  worktree base-conflict
+  config "$BASE" plane "default_tracker: plane"
+  config "$BASE" github "default_tracker: github"
+  resolve "$WT"
+  [ "$status" -eq 10 ]
+  [[ "$stderr" == *"disagree on default_tracker"* ]]
+  [[ "$stderr" == *"$(physical "$BASE")"* ]]
+}
+
+# The base clone is read by config_path_for's own rule, tmp/ included: tmp/ is
+# where a config that should not sit in a public tree goes, gitignored is what
+# stops a file travelling into a worktree, so tmp/ holds the configs likeliest
+# to need this fallback.
+@test "the base clone's tmp/ copy is consulted" {
+  worktree base-tmp
+  mkdir -p "$BASE/tmp"
+  printf '\n' > "$BASE/tmp/.workitems.jira.yml"
+  resolve "$WT"
+  [ "$status" -eq 0 ]
+  [ "$output" = "jira" ]
+}
+
+# The trust boundary, graded through this script rather than through base_clone
+# in isolation. The neighbour carries a config, so a run that skipped the
+# back-reference check would resolve `plane` instead of asking.
+@test "a .git file naming a directory that does not back-reference is not read from" {
+  local root="$BATS_TEST_TMPDIR/no-backref"
+  local evil="$BATS_TEST_TMPDIR/evil"
+  mkdir -p "$root" "$evil/.git/worktrees/no-backref"
+  config "$evil" plane
+  printf 'gitdir: %s\n' "$evil/.git/worktrees/no-backref" > "$root/.git"
+  resolve "$root"
+  [ "$status" -eq 10 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"$root"* ]]
+  [[ "$stderr" != *"$evil"* ]]
+}
+
+# An ordinary clone has a .git directory, so the hoisted is-a-file test declines
+# before base_clone is ever forked.
+@test "an ordinary clone with a .git directory resolves without a fallback" {
+  local root; root="$(repo ordinary-clone)"
+  mkdir -p "$root/.git"
+  config "$root" plane
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$output" = "plane" ]
+}
+
+# ─── --with-config-path ────────────────────────────────────────────────────
+
+# The skills that resolve a tracker go on to read that tracker's config, so the
+# path rides along on the call already being made rather than costing a second
+# fork - and, behind it, a whole model round trip.
+
+# key <name>: the value of one key=value line in $output.
+key() {
+  printf '%s\n' "$output" | awk -v k="$1=" 'index($0, k) == 1 { print substr($0, length(k) + 1) }'
+}
+
+@test "--with-config-path adds the path to a detected tracker" {
+  local root; root="$(repo path-detect)"
+  config "$root" plane
+  resolve "$root" --with-config-path
+  [ "$status" -eq 0 ]
+  [ "$(key tracker)" = "plane" ]
+  [ "$(key config_path)" = "$root/.workitems.plane.yml" ]
+}
+
+@test "--with-config-path reports the base clone's path from an inheriting worktree" {
+  worktree path-inherits
+  config "$BASE" plane
+  resolve "$WT" --with-config-path
+  [ "$status" -eq 0 ]
+  [ "$(key tracker)" = "plane" ]
+  [ "$(key config_path)" = "$(physical "$BASE")/.workitems.plane.yml" ]
+}
+
+@test "--with-config-path finds the base clone's tmp/ copy" {
+  worktree path-inherits-tmp
+  mkdir -p "$BASE/tmp"
+  printf '\n' > "$BASE/tmp/.workitems.plane.yml"
+  resolve "$WT" --with-config-path
+  [ "$status" -eq 0 ]
+  [ "$(key config_path)" = "$(physical "$BASE")/tmp/.workitems.plane.yml" ]
+}
+
+@test "--tracker with --with-config-path prints both lines" {
+  local root; root="$(repo path-explicit)"
+  config "$root" github
+  resolve "$root" --tracker github --with-config-path
+  [ "$status" -eq 0 ]
+  [ "$(key tracker)" = "github" ]
+  [ "$(key config_path)" = "$root/.workitems.github.yml" ]
+}
+
+# /wf-ship's own invocation, and the only case that exercises the explicit
+# branch and the search root together - the pair the explicit branch returns
+# before ever reaching without the flag.
+@test "--tracker with --with-config-path reaches the base clone from a worktree" {
+  worktree path-explicit-inherits
+  config "$BASE" plane
+  resolve "$WT" --tracker plane --with-config-path
+  [ "$status" -eq 0 ]
+  [ "$(key tracker)" = "plane" ]
+  [ "$(key config_path)" = "$(physical "$BASE")/.workitems.plane.yml" ]
+}
+
+# The contract /wf-ship branches on to reach its "no config exists" arm. Empty
+# is a real answer rather than an ambiguity, because the root was validated.
+@test "--tracker with --with-config-path prints an empty path when that tracker has no config" {
+  local root; root="$(repo path-explicit-none)"
+  config "$root" plane
+  resolve "$root" --tracker github --with-config-path
+  [ "$status" -eq 0 ]
+  [ "$(key tracker)" = "github" ]
+  [ "$(key config_path)" = "" ]
+  [[ "$output" == *"config_path="* ]]
+}
+
+# Decision 3 applied consistently: the search root is decided by whether the
+# root carries any config, not this one, so a worktree with a config of its own
+# reports an empty path for another tracker rather than reaching next door.
+@test "a worktree with its own config reports an empty path for a tracker only the base clone has" {
+  worktree path-no-mixing
+  config "$WT" github
+  config "$BASE" plane
+  resolve "$WT" --tracker plane --with-config-path
+  [ "$status" -eq 0 ]
+  [ "$(key config_path)" = "" ]
+}
+
+# Validated before it reaches a path: $tracker is interpolated straight into
+# $root/.workitems.$tracker.yml, so the ordering is the guarantee.
+@test "--with-config-path with an unknown tracker exits 2" {
+  local root; root="$(repo path-unknown-tracker)"
+  config "$root" plane
+  resolve "$root" --tracker linear --with-config-path
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+}
+
+# A nonexistent root printing an empty path is the one answer a caller cannot
+# tell apart from a repo that genuinely has no config, so the flag imposes the
+# check the explicit branch deliberately goes without.
+@test "--with-config-path against a missing root exits 2 rather than printing an empty path" {
+  run --separate-stderr bash "$RESOLVE" \
+    --repo-root "$BATS_TEST_TMPDIR/absent" --tracker github --with-config-path
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+}
+
+@test "exit 10 under --with-config-path still prints the candidates bare" {
+  local root; root="$(repo path-ask)"
+  config "$root" plane
+  config "$root" github
+  resolve "$root" --with-config-path
+  [ "$status" -eq 10 ]
+  [[ "$output" == *"plane"* ]]
+  [[ "$output" == *"github"* ]]
+  [[ "$output" != *"tracker="* ]]
+  [[ "$output" != *"config_path="* ]]
+}
+
+# The asymmetry Design 2 describes. The four stderr messages are prose a reader
+# takes as one line; config_path= is a field a skill reads by name, where a
+# newline in a directory name forges another one.
+@test "a root carrying a control character exits 2 under --with-config-path" {
+  local root="$BATS_TEST_TMPDIR/ctrl"$'\n'"x"
+  mkdir -p "$root"
+  config "$root" plane
+  resolve "$root" --with-config-path
+  [ "$status" -eq 2 ]
+  [[ "$output" != *"config_path="* ]]
+}
+
+@test "a root carrying a control character still resolves without --with-config-path" {
+  local root="$BATS_TEST_TMPDIR/ctrl-ok"$'\n'"x"
+  mkdir -p "$root"
+  config "$root" plane
+  resolve "$root"
+  [ "$status" -eq 0 ]
+  [ "$output" = "plane" ]
+}
+
+@test "a root carrying a control character still prints its stderr message at exit 10" {
+  local root="$BATS_TEST_TMPDIR/ctrl-ask"$'\n'"x"
+  mkdir -p "$root"
+  resolve "$root"
+  [ "$status" -eq 10 ]
+  [[ "$stderr" == *"no .workitems.<tracker>.yml under"* ]]
+}
+
+# count_sweeps <root> [args...]: how many times one run calls config_path_for,
+# through a stub that counts and delegates. Sets $SWEEPS.
+count_sweeps() {
+  local root="$1"; shift
+  local counter="$BATS_TEST_TMPDIR/sweeps"
+  : > "$counter"
+  run bash -c '_WORKITEMS_LIB_ONLY=1 source "$1"
+    eval "orig_$(declare -f config_path_for)"
+    COUNTER="$3"
+    config_path_for() { printf "x\n" >> "$COUNTER"; orig_config_path_for "$@"; }
+    root="$2"; shift 3
+    resolve "$root" "$@"' _ "$RESOLVE" "$root" "$counter" "$@"
+  SWEEPS="$(grep -c . "$counter")"
+}
+
+# Decision 4's cost, pinned rather than asserted in a document nothing re-reads:
+# reading the search root, the candidates and the config path back through
+# separate command substitutions is three sweeps of a five-fork loop, and the
+# shape that measured 1.75x a shipped run is one refactor away.
+@test "a detection run with --with-config-path sweeps once in an ordinary clone" {
+  local root; root="$(repo sweeps-clone)"
+  config "$root" plane
+  count_sweeps "$root" "" yes
+  [ "$status" -eq 0 ]
+  # Four trackers for the one sweep, plus emit_answer's single lookup. A second
+  # sweep would be 9, a third 13.
+  [ "$SWEEPS" -eq 5 ]
+}
+
+@test "a detection run with --with-config-path sweeps twice in an inheriting worktree" {
+  worktree sweeps-worktree
+  config "$BASE" plane
+  count_sweeps "$WT" "" yes
+  [ "$status" -eq 0 ]
+  # The worktree's own sweep, the base clone's, and emit_answer's lookup. Never
+  # a third sweep, which would be 13.
+  [ "$SWEEPS" -eq 9 ]
+}
+
 # ─── the tracker list and the reference files agree ────────────────────────
 
 @test "every known tracker has a reference file" {
@@ -521,6 +858,48 @@ resolve() {
   done
 }
 
+# Decision 10, and the reason the guard is an explicit [ -f ] rather than the
+# source's own failure: `set -euo pipefail; . /nonexistent` exits 1, with bash's
+# message naming the path but not the script. A broken install is not a usage
+# error the caller can fix by changing arguments, but 2 is what "this
+# invocation cannot proceed for an environment reason" already means here.
+@test "a missing shared helper halts at 2, naming the file and the remedy" {
+  local stage="$BATS_TEST_TMPDIR/half-deployed/work-item-conventions/scripts"
+  mkdir -p "$stage"
+  cp "$RESOLVE" "$stage/resolve-tracker.sh"
+  run --separate-stderr bash "$stage/resolve-tracker.sh" --repo-root "$BATS_TEST_TMPDIR"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"resolve-tracker: missing"* ]]
+  [[ "$stderr" == *"base-clone.sh"* ]]
+  [[ "$stderr" == *"dotfiles push"* ]]
+}
+
+# ─── bash 3.2 compatibility ────────────────────────────────────────────────
+
+# The script's shebang resolves to bash 5.x on this machine's PATH, so a passing
+# `bash -n` proves nothing about macOS's shipped /bin/bash 3.2 - only running the
+# parser under 3.2 itself does. CI runs Ubuntu, where /bin/bash is already 5.x,
+# so skip there rather than pass trivially.
+@test "the script parses under /bin/bash when that is bash 3.x" {
+  local version
+  version="$(/bin/bash --version | head -n1)"
+  [[ "$version" == *"version 3."* ]] || skip "/bin/bash here is not 3.x: $version"
+  run /bin/bash -n "$RESOLVE"
+  [ "$status" -eq 0 ]
+}
+
+# ${BASH_SOURCE[0]} makes bash part of the library-mode contract, and both this
+# script's sourced callers honour it. A SKILL.md block runs in zsh but forks
+# this rather than sourcing it, which this run is.
+@test "a fork from zsh resolves through the base clone" {
+  command -v zsh >/dev/null 2>&1 || skip "no zsh on PATH"
+  worktree zsh-fork
+  config "$BASE" plane
+  run zsh -c 'bash "$1" --repo-root "$2" --with-config-path' _ "$RESOLVE" "$WT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tracker=plane"* ]]
+}
+
 # ─── the read-only guarantee ───────────────────────────────────────────────
 
 # manifest <dir>: every path under dir, with a checksum for each regular file,
@@ -544,6 +923,15 @@ manifest() {
   printf 'default_tracker: p.ane\n' > "$root/multi/.workitems.plane.yml"
   printf 'assignee: octocat\n' > "$root/multi/.workitems.github.yml"
 
+  # The base clone arm is the first branch that reaches outside --repo-root, and
+  # this guarantee is what RESOLUTION.md cites for the allowlist claim, so the
+  # pair belongs inside the manifest rather than beside it. The base clone's
+  # tmp/ too, which the fallback reads by the same rule as the root's own.
+  mkdir -p "$root/base/.git/worktrees/wt" "$root/base/tmp" "$root/wt"
+  printf 'gitdir: %s\n' "$root/base/.git/worktrees/wt" > "$root/wt/.git"
+  printf '%s\n' "$root/wt/.git" > "$root/base/.git/worktrees/wt/gitdir"
+  printf 'project: DX\n' > "$root/base/tmp/.workitems.plane.yml"
+
   local before after
   before="$(manifest "$root")"
   bash "$RESOLVE" --repo-root "$root/single" >/dev/null 2>&1 || true
@@ -552,6 +940,10 @@ manifest() {
   bash "$RESOLVE" --repo-root "$root/single" --tracker github >/dev/null 2>&1 || true
   bash "$RESOLVE" --repo-root "$root/single" --tracker linear >/dev/null 2>&1 || true
   bash "$RESOLVE" --repo-root "$root/absent" >/dev/null 2>&1 || true
+  bash "$RESOLVE" --repo-root "$root/wt" >/dev/null 2>&1 || true
+  bash "$RESOLVE" --repo-root "$root/wt" --with-config-path >/dev/null 2>&1 || true
+  bash "$RESOLVE" --repo-root "$root/wt" --tracker plane --with-config-path >/dev/null 2>&1 || true
+  bash "$RESOLVE" --repo-root "$root/single" --with-config-path >/dev/null 2>&1 || true
   bash "$RESOLVE" --help >/dev/null 2>&1 || true
   after="$(manifest "$root")"
 

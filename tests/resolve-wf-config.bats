@@ -1608,3 +1608,53 @@ run_bounded() {
   run /bin/bash -n "$RESOLVE"
   [ "$status" -eq 0 ]
 }
+
+@test "the shared helper parses under /bin/bash when that is bash 3.x" {
+  local version
+  version="$(/bin/bash --version | head -n1)"
+  [[ "$version" == *"version 3."* ]] || skip "/bin/bash here is not 3.x: $version"
+  run /bin/bash -n "$DOTFILES_ROOT/agents/skills/git-conventions/scripts/base-clone.sh"
+  [ "$status" -eq 0 ]
+}
+
+# Decision 10, and the reason the guard is an explicit [ -f ] rather than the
+# source's own failure: `set -euo pipefail; . /nonexistent` exits 1, with bash's
+# message naming the path but not the script. Four lines byte-identical with
+# resolve-tracker.sh's, `die` included, so the prefix is right by construction.
+@test "a missing shared helper halts at 2, naming the file and the remedy" {
+  local stage="$BATS_TEST_TMPDIR/half-deployed/wf-conventions/scripts"
+  mkdir -p "$stage"
+  cp "$RESOLVE" "$stage/resolve-wf-config.sh"
+  run --separate-stderr bash "$stage/resolve-wf-config.sh" --repo-root "$BATS_TEST_TMPDIR"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"resolve-wf-config: missing"* ]]
+  [[ "$stderr" == *"base-clone.sh"* ]]
+  [[ "$stderr" == *"dotfiles push"* ]]
+}
+
+# The behavioural half of the extraction is the 34 cases above, which pass
+# unchanged because sourcing keeps `call base_clone` resolving. This is the
+# other half: a second definition anywhere, not merely a divergent source path
+# in the two resolvers. claude/hooks/ is in the sweep because the hook is the
+# third consumer and the likeliest place a copy lands - it already reaches the
+# function cross-bundle, which is a standing invitation to inline it the next
+# time that dependency is inconvenient. Anchored on the definition, since the
+# hook names the function in a comment.
+@test "base_clone is defined in exactly one file" {
+  local defs f
+  defs=""
+  while IFS= read -r f; do
+    if grep -lE '^[[:space:]]*base_clone[[:space:]]*\(\)' "$f" >/dev/null 2>&1; then
+      defs="${defs}${f}"$'\n'
+    fi
+  done < <(
+    find "$DOTFILES_ROOT/agents/skills" -type f -name '*.sh'
+    find "$DOTFILES_ROOT/bin" "$DOTFILES_ROOT/claude/hooks" -type f
+  )
+  defs="$(printf '%s' "$defs" | grep . || true)"
+  if [ "$defs" != "$DOTFILES_ROOT/agents/skills/git-conventions/scripts/base-clone.sh" ]; then
+    echo "base_clone should be defined only in git-conventions/scripts/base-clone.sh, found:" >&2
+    printf '%s\n' "$defs" >&2
+    return 1
+  fi
+}

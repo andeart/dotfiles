@@ -32,21 +32,28 @@ and so does which config file is worth reading.
 
 ```bash
 bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
-  --repo-root <repo> [--tracker <name>]
+  --repo-root <repo> --with-config-path [--tracker <name>]
 ```
 
 Pass `--tracker` only when the user named one in the request - "open a GitHub issue", "file this in
 Jira". Leave it off otherwise; a guess passed here silently outranks the repo's own config.
 
+`--with-config-path` rides along on the call already being made, so Step 3 reads a path this run
+already has rather than spending a second fork - and, behind it, a whole model round trip.
+
 Handle the exit codes:
 
-- `0` - stdout is the tracker. Carry on.
-- `10` - stdout lists the candidates and stderr says why they couldn't be narrowed. Ask the user
-  which to use, then offer to write `default_tracker` into the chosen tracker's config so the next
-  generic request doesn't ask again. With no candidates at all, go to "No config at all" below.
-- `2` - a usage error or an unknown tracker name. Stop and show it. An unknown name means the user
-  asked for a tracker this repo has no mechanics for, which is a real answer, not a reason to fall
-  back to detection.
+- `0` - stdout is two `key=value` lines, read by name and never by position: `tracker=` is the
+  resolved tracker, and `config_path=` is its config file, or empty when the repo has none. Carry
+  on, and keep the path for Step 3.
+- `10` - stdout lists the candidates, bare, with no `key=value` line; stderr says why they couldn't
+  be narrowed. Ask the user which to use, then offer to write `default_tracker` into the chosen
+  tracker's config so the next generic request doesn't ask again. With no candidates at all, go to
+  "No config at all" below.
+- `2` - a usage error, an unknown tracker name, or a shipped file the resolver needs that is not on
+  disk. Stop and show it. An unknown name means the user asked for a tracker this repo has no
+  mechanics for, which is a real answer, not a reason to fall back to detection; a missing file
+  means a half-finished `dotfiles push`, which is not a reason to fall back either.
 
 ## Step 2: Read the conventions and the two reference files
 
@@ -64,8 +71,19 @@ mechanics that cannot apply, and invites one tracker's field names into another'
 
 ## Step 3: Read the repo config
 
-Read `.workitems.<tracker>.yml` - repo root first, then `tmp/`, root wins. The reference file's key
-table says what the keys mean for this tracker.
+Read the file Step 1's `config_path=` names. No second lookup: where a repo's config lives is the
+resolver's answer, and a repo can keep it somewhere this skill would not have thought to look. An
+empty `config_path=` means there is none - go to "No config at all" below.
+
+The reference file's key table says what the keys mean for this tracker.
+
+**If that path is not under the repo root you passed**, say so before composing, naming the file.
+This is a linked worktree inheriting its config from the base clone. Name the whole file rather than
+the two keys that prompted the rule: the first rule below applies any key that is present without
+asking, so `assignee`, `project` and the label sets can all come from a file that is not in this
+working tree, and a reader cannot otherwise tell which key came from where. `guidance` and the
+`info` annotations are the sharpest case, being prose that this run goes on to write to a tracker
+against.
 
 Two rules hold on every tracker:
 
@@ -80,11 +98,14 @@ Two rules hold on every tracker:
 
 ### No config at all
 
+Reached on an empty `config_path=`, or on exit 10 with no candidates. Either way nothing resolved
+anywhere - the base clone included - so there is nothing for a new file to shadow.
+
 Offer to create `.workitems.<tracker>.yml` before proceeding, and ask before writing.
 
 **Ask where it goes, don't assume the root.** The file carries an assignee, project identifiers,
-and whatever `guidance` prose the user dictates. Resolution reads the repo root first and `tmp/`
-second, and `tmp/` is there for a config the user would rather not publish. Check with
+and whatever `guidance` prose the user dictates. `tmp/` is one of the places resolution reads, and
+it is there for a config the user would rather not publish. Check with
 `gh repo view --json visibility` when it isn't obvious, and offer `tmp/` whenever that comes back
 `PUBLIC` - an offer, not a rule. A config with nothing sensitive in it belongs at the root.
 

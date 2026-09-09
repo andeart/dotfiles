@@ -622,9 +622,13 @@ target_toplevel() {
 }
 
 # plane_config_path [basename]: print the path to the config governing the target
-# repo, or nothing. Root-level wins over tmp/, matching the work item skills'
-# discovery. The basename is a parameter only so the caller can also ask for the
-# pre-rename .plane.yml, whose presence buys nothing but a better skip reason.
+# repo, or nothing. Root-level wins over tmp/. This is its own resolution path,
+# not the work item skills': it keys off the working directory, gates on the
+# origin matching the target repo, and does not follow a linked worktree back to
+# its base clone the way resolve-tracker.sh does. Run from a worktree of a repo
+# whose config is untracked, it finds nothing and skips that repo. The basename
+# is a parameter only so the caller can also ask for the pre-rename .plane.yml,
+# whose presence buys nothing but a better skip reason.
 plane_config_path() {
   local base="${1:-.workitems.plane.yml}" toplevel
   toplevel="$(target_toplevel)"

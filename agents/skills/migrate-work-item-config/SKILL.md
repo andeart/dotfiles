@@ -27,10 +27,20 @@ This skill is temporary by design. See "Retiring this skill" at the bottom.
 ls -1a <repo>/.plane.yml <repo>/.linear.yml <repo>/.jira.yml \
        <repo>/tmp/.plane.yml <repo>/tmp/.linear.yml <repo>/tmp/.jira.yml 2>/dev/null
 ls -1a <repo>/.workitems.*.yml <repo>/tmp/.workitems.*.yml 2>/dev/null
+bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
+  --repo-root <repo> --with-config-path 2>/dev/null
 ```
 
-Both locations matter: `tmp/` is where public repos keep this config, and a legacy file there is
-exactly as invisible as one at the root.
+Both `ls` locations matter: `tmp/` is where public repos keep this config, and a legacy file there
+is exactly as invisible as one at the root. The listings stay because they hunt legacy names the
+resolver knows nothing about; the resolver is what says whether a current-name config already
+governs this repo, which the listings cannot see past `<repo>` itself. This block is not
+marker-structured, so read `config_path=` by name out of the lines the listings print alongside.
+
+**Stop before anything else if `config_path=` names a file outside `<repo>`.** This is a linked
+worktree inheriting its config from the base clone. Say which file it is, and say to run this skill
+in that directory instead. A `git mv` issued from a worktree against the base clone's tree is wrong
+independently of the shadowing a worktree-local file would introduce.
 
 Four cases:
 
@@ -105,8 +115,14 @@ The migration is done when the resolver agrees:
 bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh --repo-root <repo>
 ```
 
-Exit `0` with `plane` on stdout means this repo is migrated. Anything else means it is not - read
-the stderr line and fix what it names before calling it finished.
+Exit `0` with `plane` on stdout means this repo is migrated. Exit `2` means the resolver could not
+run at all - a usage error, or a shipped file it needs that a half-finished `dotfiles push` left
+off disk. Anything else means the repo is not migrated - read the stderr line and fix what it names
+before calling it finished.
+
+Exit `0` alone is not the whole test, because the resolver reaches into the base clone: run from a
+worktree, it would report a repo migrated off a file this run never wrote. Step 1's stop is what
+keeps that unreachable, and this step depends on it rather than re-deriving it.
 
 ## Step 5: Report
 
