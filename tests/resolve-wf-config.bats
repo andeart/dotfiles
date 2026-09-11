@@ -1608,3 +1608,100 @@ run_bounded() {
   run /bin/bash -n "$RESOLVE"
   [ "$status" -eq 0 ]
 }
+
+# The helper's header states this rule, and a source enforces nothing, so this
+# case is what holds it. The two resolvers source the helper and then print
+# key=value lines that a skill reads by field, so one print at load makes a
+# false `config_path=` line before the true one. The hook at
+# claude/hooks/copy-into-worktree.sh sources the helper into the shell whose
+# stdout is the hook's JSON payload, and runs without `-e` so that it can fail
+# open. A shell option set here follows the source into that shell.
+@test "the shared helper is silent at load and sets no shell options" {
+  local helper="$DOTFILES_ROOT/agents/skills/git-conventions/scripts/base-clone.sh"
+  run --separate-stderr bash -c 'before="$-"; . "$1"; after="$-"
+    [ "$before" = "$after" ] || printf "options changed: %s -> %s\n" "$before" "$after"' \
+    _ "$helper"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+}
+
+@test "the shared helper parses under /bin/bash when that is bash 3.x" {
+  local version
+  version="$(/bin/bash --version | head -n1)"
+  [[ "$version" == *"version 3."* ]] || skip "/bin/bash here is not 3.x: $version"
+  run /bin/bash -n "$DOTFILES_ROOT/agents/skills/git-conventions/scripts/base-clone.sh"
+  [ "$status" -eq 0 ]
+}
+
+# The guard is an explicit [ -f ] and not the source's own failure, because
+# `set -euo pipefail; . /nonexistent` exits 1 with a bash message that names the
+# path but not the script. Four lines are byte-identical with
+# resolve-tracker.sh's, `die` included, so the prefix is right by
+# construction.
+@test "a missing shared helper halts at 2, naming the file and the remedy" {
+  local stage="$BATS_TEST_TMPDIR/half-deployed/wf-conventions/scripts"
+  mkdir -p "$stage"
+  cp "$RESOLVE" "$stage/resolve-wf-config.sh"
+  run --separate-stderr bash "$stage/resolve-wf-config.sh" --repo-root "$BATS_TEST_TMPDIR"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"resolve-wf-config: missing"* ]]
+  [[ "$stderr" == *"base-clone.sh"* ]]
+  [[ "$stderr" == *"dotfiles push"* ]]
+}
+
+# The 34 cases above grade the behaviour of base_clone through a source. This
+# case grades the other half: a second definition anywhere, and not only a
+# divergent source path in the two resolvers. claude/hooks/ is in the sweep
+# because the hook is the third consumer, and the likeliest place a copy lands.
+# It reaches the function across bundles, so an inline copy is the easy answer
+# the next time that dependency is inconvenient. Anchored on the definition,
+# because the hook names the function in a comment.
+@test "base_clone is defined in exactly one file" {
+  local defs f
+  defs=""
+  while IFS= read -r f; do
+    if grep -lE '^[[:space:]]*base_clone[[:space:]]*\(\)' "$f" >/dev/null 2>&1; then
+      defs="${defs}${f}"$'\n'
+    fi
+  done < <(
+    find "$DOTFILES_ROOT/agents/skills" -type f -name '*.sh'
+    find "$DOTFILES_ROOT/bin" "$DOTFILES_ROOT/claude/hooks" -type f
+  )
+  defs="$(printf '%s' "$defs" | grep . || true)"
+  if [ "$defs" != "$DOTFILES_ROOT/agents/skills/git-conventions/scripts/base-clone.sh" ]; then
+    echo "base_clone should be defined only in git-conventions/scripts/base-clone.sh, found:" >&2
+    printf '%s\n' "$defs" >&2
+    return 1
+  fi
+}
+
+# Each resolver holds the same eight lines to find and source the helper,
+# because nothing can source the helper to find where the helper is. Both files
+# claim in a comment that the copies match, and a comment in one file cannot
+# constrain the other, so this case holds the claim. It is the shape the case
+# above uses for the function itself. It extracts by exact leading text and not
+# by a regex, so neither anchor needs two levels of escaping.
+@test "both resolvers locate the shared helper with the same lines" {
+  local tracker
+  tracker="$DOTFILES_ROOT/agents/skills/work-item-conventions/scripts/resolve-tracker.sh"
+  preamble() {
+    awk 'index($0, "case \"${BASH_SOURCE[0]}\" in") == 1 { p = 1 }
+         p { print }
+         index($0, "unset _helper") == 1 { p = 0 }' "$1"
+  }
+  local a b
+  a="$(preamble "$RESOLVE")"
+  b="$(preamble "$tracker")"
+  # Neither is empty: a rename that breaks both anchors compares nothing to
+  # nothing and passes. Asserted per file and not as a line count, which catches
+  # nothing these two do not, and makes each edit to the preamble a test edit
+  # too.
+  [ -n "$a" ]
+  [ -n "$b" ]
+  if [ "$a" != "$b" ]; then
+    echo "the two helper-source preambles have diverged:" >&2
+    diff <(printf '%s\n' "$a") <(printf '%s\n' "$b") >&2 || true
+    return 1
+  fi
+}

@@ -26,11 +26,32 @@ This skill is temporary by design. See "Retiring this skill" at the bottom.
 ```bash
 ls -1a <repo>/.plane.yml <repo>/.linear.yml <repo>/.jira.yml \
        <repo>/tmp/.plane.yml <repo>/tmp/.linear.yml <repo>/tmp/.jira.yml 2>/dev/null
-ls -1a <repo>/.workitems.*.yml <repo>/tmp/.workitems.*.yml 2>/dev/null
+find <repo> <repo>/tmp -maxdepth 1 -name '.workitems.*.yml' 2>/dev/null
+bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh \
+  --repo-root <repo> --with-config-path 2>/dev/null
+echo "tracker_exit=$?"
 ```
 
-Both locations matter: `tmp/` is where public repos keep this config, and a legacy file there is
-exactly as invisible as one at the root.
+Both listing locations matter: `tmp/` is where public repos keep this config, and a legacy file
+there is exactly as invisible as one at the root. The listings stay because they see names the
+resolver does not - the legacy three, and a current-name file for a tracker it has no reference for;
+the resolver is what says which config actually governs this repo, which the listings cannot see
+past `<repo>` itself. This block is not marker-structured, so read `config_path=` and
+`tracker_exit=` by name out of the lines the listings print alongside.
+
+`find` with a quoted pattern rather than a shell glob: under zsh an unmatched glob is a shell-level
+error that `2>/dev/null` on the command does not catch, so `ls <repo>/.workitems.*.yml` prints
+"no matches found" into this block right where a filename would be.
+
+**Stop before anything else if `config_path=` names a file outside `<repo>`.** This is a linked
+worktree inheriting its config from the base clone. Say which file it is, and say to run this skill
+in that directory instead. A `git mv` issued from a worktree against the base clone's tree is wrong
+independently of the shadowing a worktree-local file would introduce.
+
+**Stop too if `tracker_exit` is neither `0` nor `10`.** The resolver could not run, which is a
+partial `dotfiles push`. Say so and stop: it then prints no `config_path=` line at all, which is
+indistinguishable from the "Neither" case below, and that case ends by offering to create a config
+for a repo whose config this run simply could not see. Branch on the status, not on a list of codes.
 
 Four cases:
 
@@ -105,8 +126,14 @@ The migration is done when the resolver agrees:
 bash ~/.agents/skills/work-item-conventions/scripts/resolve-tracker.sh --repo-root <repo>
 ```
 
-Exit `0` with `plane` on stdout means this repo is migrated. Anything else means it is not - read
-the stderr line and fix what it names before calling it finished.
+Exit `0` with `plane` on stdout means this repo is migrated. Exit `2` means the resolver could not
+run at all - a usage error, or a shipped file it needs that a half-finished `dotfiles push` left
+off disk. Anything else means the repo is not migrated - read the stderr line and fix what it names
+before calling it finished.
+
+Exit `0` alone is not the whole test, because the resolver reaches into the base clone: run from a
+worktree, it would report a repo migrated off a file this run never wrote. Step 1's stop is what
+keeps that unreachable, and this step depends on it rather than re-deriving it.
 
 ## Step 5: Report
 

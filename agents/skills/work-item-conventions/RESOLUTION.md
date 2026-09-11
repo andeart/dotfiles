@@ -4,18 +4,33 @@ Which tracker a work item goes into is decided once, at the top of a run, by
 `scripts/resolve-tracker.sh`. Both `file-work-item` and `refine-work-item` call it before doing
 anything else, and `migrate-work-item-config` uses it to see what a repo already has.
 
-Those three skills are its whole reach. `wf-ship` reads `.workitems.plane.yml` by name for the
-workspace slug, and `wf-wrap` goes straight to the Plane MCP tools without reading any config, so
-filing and refining are tracker-agnostic while the ship and wrap workflows stay Plane-only.
+Two more skills ask it narrower questions. `wf-ship` names `plane` outright and asks only where that
+tracker's config is, for the workspace slug; `wf-config` reads the exit code and whether stdout came
+back empty, to tell a repo with no tracker config from one that has some. `wf-wrap` goes straight to
+the Plane MCP tools without reading any config at all, so filing and refining stay tracker-agnostic
+while the ship and wrap workflows stay Plane-only.
 
 **A normal run does not need this file.** The script's header holds the exit-code contract and the
-branch order, and both skills carry the call and the handling inline. Read this when a repo's
+branch order, and each caller carries its own call and the handling inline. Read this when a repo's
 config layout is the question, or when changing how resolution works.
 
 ## Config files
 
-Each tracker a repo files into gets its own `.workitems.<tracker>.yml`, at the repo root or under
-`tmp/`. The root wins if both exist.
+Each tracker a repo files into gets its own `.workitems.<tracker>.yml`. A run picks one search root
+before it looks for any of them: the repo root it was given when that root carries a tracker config,
+and otherwise the base clone the root was cut from, when the root is a linked worktree. Under
+whichever root wins, both the root's own file and its `tmp/` copy are read, and the root's own wins.
+A config resolved from the base clone is reported resolved like any other, with the path saying
+which directory it came from.
+
+`--with-config-path` prints that path, and an empty one is narrower than it reads. It is reachable
+only when the caller passed `--tracker`, and it means no config for *that* tracker under the one
+directory the run searched. In a worktree carrying some other tracker's config, that directory is
+the worktree, so the base clone may still hold a config for the tracker the caller named. Detection
+never prints an empty path: it resolves a tracker because it found that tracker's config. This is
+why the callers offer to create a file by naming the directory they would write into rather than
+calling it the repo's only config - a worktree-local file written over an inherited one reintroduces
+the shadowing the fallback exists to remove.
 
 `tmp/` is for a config carrying something that shouldn't sit in a public tree - `guidance` prose
 especially, and often the assignee and project identifiers. Whether a given repo's config qualifies
@@ -49,7 +64,12 @@ Call it through `bash` rather than executing it directly: the sync that material
 does not guarantee the executable bit survives, which is the same reason `gh-dependabot-config`
 calls its script that way.
 
-The script reads config files and nothing else - no writes, no network. That is the property that
-would justify a permission-allowlist entry if one is ever added off a real denial, so it is worth
-keeping true either way. `tests/resolve-tracker.bats` covers one repo fixture per branch and pins it.
-That suite is the contract; the script header is its summary.
+The script reads config files and nothing else - no writes, no network. Its reach is two directories
+rather than one: a run that finds nothing under the root it was given reads that root's `.git`
+pointer and the back-reference git writes beside the registration it names, and then reads configs
+in the base clone. That is the property that would justify a permission-allowlist entry if one is
+ever added off a real denial, and an entry scoped to the repo directory alone would now be short.
+This says so rather than proposing one - `AGENTS.md` requires an entry to be built from a
+demonstrated denial rather than estimated. `tests/resolve-tracker.bats` covers one repo fixture per
+branch and pins the read-only guarantee across the worktree pair as well. That suite is the
+contract; the script header is its summary.
