@@ -5,11 +5,13 @@ load helpers/setup
 bats_require_minimum_version 1.5.0
 
 SKILL="$DOTFILES_ROOT/agents/skills/wf-wrap/SKILL.md"
+SCRIPT="$DOTFILES_ROOT/agents/skills/wf-wrap/scripts/landing-probe.sh"
+CALL="bash ~/.agents/skills/wf-wrap/scripts/landing-probe.sh 'origin/<DEFAULT>' '<FEATURE>'"
 
-# Step 1c's probe is read out of SKILL.md rather than copied here, for the same
-# reason wf-wrap-gh-jq.bats extracts the Step 1 jq program: the skill is the
-# only place it exists, so a copy would grade a stale expression and pass while
-# the real one rotted.
+# Step 1c's probe is scripts/landing-probe.sh, and the cases below run that
+# file with this fixture's refs as its arguments, so a copy cannot grade a
+# stale expression and pass while the real one rots. The call-site case pins
+# that the skill still calls it, with the default branch first.
 #
 # What the cases below grade is the one thing the probe is for - whether a
 # branch whose work is already on the default branch is recognised as such. The
@@ -19,43 +21,24 @@ SKILL="$DOTFILES_ROOT/agents/skills/wf-wrap/SKILL.md"
 # run: `landed=` is what authorises Step 4 to discard the branch, so a probe
 # that answers when it cannot see the default branch is worse than no probe.
 #
-# Why each piece of the block is load-bearing. The skill points here for this
-# rather than carrying it as prose an agent reads on every wrap:
+# Why each piece of the probe is load-bearing. The script points here for this
+# rather than carrying all of it as comments:
 #
 # - Each merge method has exactly one probe that answers it, so dropping one
 #   for looking redundant turns that method's every wrap into a false stop.
 # - `NR &&` keeps the per-commit sweep from reading its own failure as a
 #   landing. `git cherry` writes errors to stderr, so a probe that cannot
 #   resolve `origin/<DEFAULT>` leaves the same empty stdout as a branch whose
-#   every commit is upstream. The last case below is that one.
+#   every commit is upstream. The "cannot resolve" case below is that one.
+# - The script runs under set -e, and that same case is what pins its guards:
+#   an unguarded merge-base stops the script before `head=`, and with it
+#   before `probed=yes`.
 # - `git cherry` skips merge commits, so the sweep speaks only for the
 #   non-merge commits in `mb..<FEATURE>`. A branch that merged the default
 #   branch into itself to resolve a conflict and then landed by replay would
 #   report `landed=replayed` with the resolution still only on the branch.
 #   Recorded as a bound rather than fixed - GitHub declines the rebase button
 #   in that shape, so nothing here can reproduce it.
-
-# The one fenced bash block under "### Step 1c", with the skill's two
-# placeholders bound to this fixture's refs. Step 1c is a `### ` section, so
-# the closing pattern has to take a sibling `### ` as well as the next `## ` -
-# otherwise a later subsection's bash block gets swept in with this one.
-SECTION='^### Step 1c'
-SECTION_END='^(## |### )'
-
-probe_block() {
-  skill_bash_block "$SKILL" "$SECTION" "$SECTION_END" \
-    | sed -e 's|origin/<DEFAULT>|origin/main|g' -e 's|<FEATURE>|feature|g'
-}
-
-probe_fence_count() {
-  skill_bash_fence_count "$SKILL" "$SECTION" "$SECTION_END"
-}
-
-setup() {
-  PROBE="$BATS_TEST_TMPDIR/probe.sh"
-  probe_block > "$PROBE"
-  [ -s "$PROBE" ] || fail "no Step 1c block extracted from $SKILL"
-}
 
 # A repo with `main` at one commit and a two-commit `feature` branched off it,
 # cd'd into. Two commits, not one: a single-commit branch is the case where
@@ -89,23 +72,21 @@ publish_main() {
 run_probe() {
   publish_main
   git checkout --quiet feature
-  run bash "$PROBE"
+  run bash "$SCRIPT" origin/main feature
   [ "$status" -eq 0 ] || fail "the probe itself exited $status: $output"
   # Every case reads `landed=` lines, and their absence is the stop. Without
-  # this, a block that died after `head=` would look exactly like a branch
+  # this, a script that died after `head=` would look exactly like a branch
   # whose work never landed.
   printf '%s\n' "$output" | grep -qF 'probed=yes' \
-    || fail "the block did not run to completion: $output"
+    || fail "the probe did not run to completion: $output"
 }
 
 landed() { printf '%s\n' "$output" | sed -n 's/^landed=//p' | sort | tr '\n' ' '; }
 
-# ─── the block is still where the tests look for it ────────────────────────
+# ─── the skill still calls the script ──────────────────────────────────────
 
-@test "the Step 1c block is extracted from the skill exactly once" {
-  [ "$(probe_fence_count)" -eq 1 ]
-  printf '%s\n' "$(probe_block)" | grep -qF 'git cherry origin/main'
-  printf '%s\n' "$(probe_block)" | grep -qF 'git merge-base --is-ancestor feature origin/main'
+@test "wf-wrap calls the landing probe once, alone in its block" {
+  assert_sole_call "$SKILL" "$CALL"
 }
 
 # ─── one row per merge method ──────────────────────────────────────────────
@@ -180,9 +161,9 @@ landed() { printf '%s\n' "$output" | sed -n 's/^landed=//p' | sort | tr '\n' ' '
   # same empty stdout it sees for a branch that fully landed - which is why it
   # requires a commit to have been read before it answers. Without that, a
   # broken probe prints the one line that authorises Step 4's discard.
-  run bash "$PROBE"
+  run bash "$SCRIPT" origin/main feature
   printf '%s\n' "$output" | grep -qF 'probed=yes' \
-    || fail "the block did not run to completion: $output"
+    || fail "the probe did not run to completion: $output"
   [ -z "$(landed | tr -d ' ')" ] || fail "a failed probe was called landed: $(landed)"
 }
 
@@ -194,6 +175,40 @@ landed() { printf '%s\n' "$output" | sed -n 's/^landed=//p' | sort | tr '\n' ' '
   run_probe
   # Step 1c compares this against <HEAD_OID> to tell "did not land" apart from
   # "a different tip landed", so it has to be the local branch and not the
-  # probe commit the block builds.
+  # probe commit the script builds.
   [ "$(printf '%s\n' "$output" | sed -n 's/^head=//p')" = "$(git rev-parse feature)" ]
+}
+
+# A usage error is never the no-landed stop: it prints no `landed=` line, so it
+# cannot authorise the discard, and wf-wrap stops on its exit status instead.
+# The fixture is a squash merge, so a probe that ran anyway would answer.
+@test "an argument beginning with - is a usage error with no landed line" {
+  new_repo
+  git merge --squash feature > /dev/null
+  git commit --quiet -m 'squash (#1)'
+  publish_main
+  git checkout --quiet feature
+
+  run bash "$SCRIPT" origin/main --output=pwned.txt
+  [ "$status" -eq 2 ] || fail "a leading - in <feature> exited $status: $output"
+  [ -z "$(landed | tr -d ' ')" ] || fail "a usage error was called landed: $(landed)"
+
+  run bash "$SCRIPT" -evil feature
+  [ "$status" -eq 2 ] || fail "a leading - in <default-ref> exited $status: $output"
+  [ -z "$(landed | tr -d ' ')" ] || fail "a usage error was called landed: $(landed)"
+}
+
+# ─── portability ───────────────────────────────────────────────────────────
+
+@test "the probe answers identically under /bin/bash and PATH's bash" {
+  new_repo
+  git merge --squash feature > /dev/null
+  git commit --quiet -m 'squash (#1)'
+  publish_main
+  git checkout --quiet feature
+
+  assert_script_portable : "$SCRIPT" origin/main feature
+
+  [ "$(landed)" = "squash " ] || fail "expected only landed=squash, got: $(landed)"
+  printf '%s\n' "$output" | grep -qF 'probed=yes' || fail "unexpected output: $output"
 }

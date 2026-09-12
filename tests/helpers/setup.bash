@@ -24,36 +24,84 @@ fail() {
   return 1
 }
 
-# skill_bash_block <file> <open-regex> [<close-regex>]: the fenced bash blocks
-# inside one section of a SKILL.md. A skill's block is read out of the file
-# rather than copied into a test, so a copy cannot grade a stale expression and
-# pass while the real one rots. <close-regex> defaults to the next `## `
-# heading; a section that is itself a `### ` wants `^(## |### )`.
-#
-# skill_bash_fence_count <file> <open-regex> [<close-regex>]: how many fenced
-# bash blocks that section holds. Assert it is 1 before running an extracted
-# block - a restructure that added a second one leaves skill_bash_block
-# emitting both concatenated, which runs and grades something nobody wrote.
-#
-# Both are one awk program in two modes rather than two programs: the section
-# scoping is the part with the subtleties, and a second copy of it is a second
-# place to keep in step.
-skill_bash_block() { _skill_bash_section print "$@"; }
-skill_bash_fence_count() { _skill_bash_section count "$@"; }
+# assert_sole_call <skill-file> <call-line>: the script <call-line> runs is
+# named on exactly one line of <skill-file>, that line is <call-line> whole, and
+# it sits alone between an opening bash fence and a closing one. A skill that
+# stops calling the script leaves its suite grading code the skill never runs,
+# and a line after the call reports its own exit status over a script that
+# stopped short.
+assert_sole_call() {
+  local file=$1 call=$2 script count context
+  script=${call#"bash ~/.agents/skills/"}
+  script=${script%% *}
+  count="$(grep -c -F -e "$script" "$file" || true)"
+  [ "$count" = 1 ] || fail "expected $script named on one line of $file, found $count"
+  context="$(grep -B1 -A1 -F -e "$script" "$file")"
+  [ "$context" = "$(printf '```bash\n%s\n```' "$call")" ] \
+    || fail "$(printf 'the call to %s is not alone in its block:\n%s' "$script" "$context")"
+}
 
-# The open line is consumed by the first rule, so it never reaches the closing
-# one even when both patterns match it. The awk vars are `openpat`/`closepat`
-# because `close` is an awk builtin, and naming a variable after it is a syntax
-# error rather than a shadowing warning.
-_skill_bash_section() {
-  awk -v mode="$1" -v openpat="$3" -v closepat="${4:-^## }" '
-    $0 ~ openpat { insec = 1; next }
-    insec && $0 ~ closepat { insec = 0 }
-    insec && /^```bash$/ { n++; fence = 1; next }
-    insec && fence && /^```$/ { fence = 0; next }
-    insec && fence && mode == "print" { print }
-    END { if (mode == "count") print n + 0 }
-  ' "$2"
+# script_shells: /bin/bash and whichever bash is first on PATH, resolved and
+# deduplicated, skipping any this machine lacks. A skill calls a script as
+# `bash <path>`, which takes PATH's bash; on macOS /bin/bash is still 3.2, the
+# leg that call never reaches. On the ubuntu-latest runner both are one binary.
+script_shells() {
+  local sh path seen=" "
+  for sh in /bin/bash bash; do
+    path="$(command -v "$sh" 2>/dev/null)" || continue
+    [ -n "$path" ] || continue
+    case "$seen" in *" $path "*) continue ;; esac
+    seen="$seen$path "
+    printf '%s\n' "$path"
+  done
+}
+
+# assert_script_portable <before> <script> [<arg>...]: runs <script> under every
+# shell script_shells names, calling the function <before> ahead of each run
+# (`:` for none), and fails when a run exits non-zero or prints other than the
+# first shell did. Leaves the first shell's stdout in $output for the caller's
+# content assertions: without those, a script that prints nothing passes,
+# identically, under every shell.
+assert_script_portable() {
+  local before=$1 script=$2 sh out st first= ran=0
+  shift 2
+  while IFS= read -r sh; do
+    # The caller's fixture reset, or the second shell grades the first one's
+    # side effects.
+    "$before"
+    st=0
+    out="$("$sh" "$script" "$@" 2>/dev/null)" || st=$?
+    [ "$st" -eq 0 ] || fail "$sh exited $st running $script"
+    if [ "$ran" -eq 0 ]; then
+      first="$out"
+    else
+      [ "$out" = "$first" ] \
+        || fail "$(printf '%s disagreed with the first shell:\n--- first ---\n%s\n--- %s ---\n%s' "$sh" "$first" "$sh" "$out")"
+    fi
+    ran=$((ran + 1))
+  done < <(script_shells)
+
+  [ "$ran" -ge 1 ] || fail "no shell available to run $script"
+
+  # How many shells run is a property of the host, not of the script: the CI
+  # image ships one bash, so the loop runs once there. What is not allowed is a
+  # host that *has* a named shell and silently skips it - a dedup bug in
+  # script_shells is exactly how that happens with nothing turning red.
+  local want wantpath covered listed skipped=
+  for want in /bin/bash bash; do
+    wantpath="$(command -v "$want" 2>/dev/null)" || continue
+    covered=no
+    # Whole-line comparison, not a substring one: /opt/homebrew/bin/bash ends
+    # in /bin/bash, so a `case` glob would count the homebrew build as coverage
+    # of the 3.2 one macOS ships - hiding the exact leg this is here to find.
+    while IFS= read -r listed; do
+      [ "$listed" = "$wantpath" ] && covered=yes
+    done < <(script_shells)
+    [ "$covered" = yes ] || skipped="$skipped $want"
+  done
+  [ -z "$skipped" ] || fail "shells installed here but never run:$skipped"
+
+  output="$first"
 }
 
 # Point git at a fixed config instead of the caller's. scrub_git_env cannot do
