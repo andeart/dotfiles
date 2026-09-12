@@ -12,7 +12,8 @@ CALL="bash ~/.agents/skills/wf-ship/scripts/find-working-notes.sh '<ID>'"
 # so a wrong answer here is a file deleted by hand. The cases grade two things:
 # which paths come back - both identifier bounds, ignored and untracked, never
 # tracked - and that every `target=` a shell reads back names exactly the file
-# it matched, with any path git had to escape kept out of `target=` altogether.
+# it matched, with any path git had to escape, and any nested repository, kept
+# out of `target=` altogether.
 
 # A fresh repo ignoring plans/, cd'd into, with $ROOT as git names its top. Under
 # $BATS_TEST_TMPDIR so bats clears it, and never inside the dotfiles working
@@ -172,6 +173,20 @@ read_back() {
     || fail "unexpected unquotable lines: $output"
   [ -z "$(printf '%s\n' "$output" | grep -vE '^(target|unquotable)=')" ] \
     || fail "a line started without a key: $output"
+}
+
+# git lists a directory holding its own repository, a worktree included, as one
+# `dir/` entry. As a target it would delete that whole checkout.
+@test "a nested repository or worktree naming the identifier is never a target" {
+  new_repo
+  note plans/zzz-0-plan.md
+  git worktree add --quiet -b zzz-0-other plans/zzz-0-other
+  git init --quiet notes/zzz-0-emb
+
+  run_script ZZZ-0
+  [ "$(vals target)" = "'$ROOT/plans/zzz-0-plan.md'" ] || fail "unexpected targets: $output"
+  [ "$(vals nested)" = "$(printf '%s\n' "$ROOT/notes/zzz-0-emb/" "$ROOT/plans/zzz-0-other/")" ] \
+    || fail "unexpected nested lines: $output"
 }
 
 # ─── the argument ──────────────────────────────────────────────────────────

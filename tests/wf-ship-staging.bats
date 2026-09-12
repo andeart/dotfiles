@@ -35,7 +35,7 @@ block_suffixes() {
 # The script's `git add` invocations, with backslash continuations joined so the
 # second add reads as one line.
 add_invocations() {
-  script_code | sed -e :a -e '/\\$/N; s/\\\n//; ta' | grep -F 'git add'
+  script_code | join_continuations | grep -F 'git add'
 }
 
 # ─── temp-repo scaffolding ─────────────────────────────────────────────────

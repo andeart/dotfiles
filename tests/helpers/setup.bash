@@ -24,6 +24,27 @@ fail() {
   return 1
 }
 
+# skill_files: every SKILL.md under agents/skills/, one path per line.
+skill_files() {
+  printf '%s\n' "$DOTFILES_ROOT"/agents/skills/*/SKILL.md
+}
+
+# assert_skill_glob: skill_files names more than one real file. An unmatched
+# glob expands to itself, and grep over a path that does not exist reports
+# nothing found - which reads exactly like a clean sweep.
+assert_skill_glob() {
+  local f count=0
+  while IFS= read -r f; do
+    [ -f "$f" ] || fail "the skills glob produced a non-file: $f"
+    count=$((count + 1))
+  done < <(skill_files)
+  [ "$count" -gt 1 ] || fail "the skills glob matched $count files"
+}
+
+# join_continuations [<file>]: <file>, or stdin, with each backslash-newline
+# joined, so a command split across lines reads as one.
+join_continuations() { sed -e :a -e '/\\$/N; s/\\\n//; ta' "$@"; }
+
 # assert_sole_call <skill-file> <call-line>: the script <call-line> runs is
 # named on exactly one line of <skill-file>, that line is <call-line> whole, and
 # it sits alone between an opening bash fence and a closing one. A skill that

@@ -7,6 +7,9 @@ set -euo pipefail
 #   unquotable=<line>  a path git printed C-quoted, exactly as git printed it.
 #                      That is git's escaped form rather than the file's name,
 #                      so no quoting makes it a correct target.
+#   nested=<path>      absolute and unquoted: a directory holding its own
+#                      repository, a worktree included, which git lists as one
+#                      `dir/` entry. Deleting it deletes that whole checkout.
 # wf-ship pastes `target=` values into an `rm -rf` the user runs, which is why
 # the quoting lives here, where a test reaches it.
 
@@ -15,8 +18,8 @@ wf_usage() {
 Usage: find-working-notes.sh <ID>
 
 Lists the untracked and ignored files in the current repository whose path
-names the work item identifier <ID> (letters, a hyphen, digits), as `target=`
-and `unquotable=` lines on stdout.
+names the work item identifier <ID> (letters, a hyphen, digits), as `target=`,
+`unquotable=` and `nested=` lines on stdout.
 
 Exit status:
   0  reached its output; no lines means no notes
@@ -47,13 +50,25 @@ listing=$(git -c core.quotePath=false ls-files -o --full-name -- :/)
 # hand. The left bound keeps DX-98 out of idx-98-...; the right keeps DX-5 out
 # of dx-57, of which dx-5 is a literal prefix. Do not loosen either back to a
 # substring match. Finding nothing is an answer, so grep's exit 1 is absorbed
-# and only a real grep failure stops the script.
-matches=$(printf '%s\n' "$listing" | grep -iE -e "(^|[^A-Za-z])${id}([^0-9]|$)") || [ "$?" -eq 1 ]
+# and only a real grep failure stops the script. LC_ALL=C because the listing
+# is raw bytes, and in a UTF-8 locale grep drops a line holding an invalid
+# sequence rather than matching it.
+matches=$(printf '%s\n' "$listing" | LC_ALL=C grep -iE -e "(^|[^A-Za-z])${id}([^0-9]|$)") || [ "$?" -eq 1 ]
 
-while IFS= read -r line; do
-  [ -n "$line" ] || continue
-  case "$line" in
-    \"*) printf 'unquotable=%s\n' "$line" ;;
-    *) printf "target='%s'\n" "$(printf '%s' "$root/$line" | sed "s/'/'\\\\''/g")" ;;
-  esac
-done <<< "$matches"
+# One awk pass, not a fork per match: a matched directory expands to a line per
+# file inside it. The root goes through ENVIRON because -v would process a
+# backslash in it as an escape. The quoting is built with index() so no
+# backslash passes through gsub's replacement rules.
+printf '%s\n' "$matches" | ROOT="$root" awk -v q="'" '
+  function shell_quote(s,   out, i) {
+    out = ""
+    while ((i = index(s, q)) > 0) {
+      out = out substr(s, 1, i - 1) q "\\" q q
+      s = substr(s, i + 1)
+    }
+    return q out s q
+  }
+  $0 == "" { next }
+  /^"/ { print "unquotable=" $0; next }
+  /\/$/ { print "nested=" ENVIRON["ROOT"] "/" $0; next }
+  { print "target=" shell_quote(ENVIRON["ROOT"] "/" $0) }'

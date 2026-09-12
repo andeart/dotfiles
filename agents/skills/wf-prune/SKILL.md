@@ -39,11 +39,11 @@ First, list the local branches, each checked for a name no command below can saf
 
 ```bash
 git for-each-ref --format='%(refname:lstrip=2)' refs/heads/ | while IFS= read -r b; do
-  case "$b" in -*|*\'*) echo "unsafe=$b" ;; *) echo "branch=$b" ;; esac
+  case "$b" in -*|*[!A-Za-z0-9._/-]*) echo "unsafe=$b" ;; *) echo "branch=$b" ;; esac
 done
 ```
 
-Only a `branch=` name reaches the criteria, the probe, or any later command. An `unsafe=` name begins with `-`, which git reads as an option, or holds `'`, which closes the quotes around it: list it in Step 3 as not examined, and never substitute it anywhere. This list is the one most likely to hold a name someone else chose - `gh pr checkout` names the local branch after the pull request's head branch - which is why the check routes on a printed key rather than on spotting a `'` by eye. The format is `lstrip=2` rather than `short`, which prints `heads/<name>` when a tag shares the name.
+Only a `branch=` name reaches the criteria, the probe, or any later command, several of which substitute it unquoted. An `unsafe=` name begins with `-` or holds a character other than a letter, digit, `.`, `_`, `/` or `-`: list it in Step 3 as not examined, and never substitute it anywhere. The format is `lstrip=2` rather than `short`, which prints `heads/<name>` when a tag shares the name.
 
 Drop `<DEFAULT>` (and `master`/`main` if the other exists) from the `branch=` names, then check each one against both criteria. A branch only needs to satisfy one to be considered merged.
 
@@ -101,7 +101,8 @@ Merged branches:
 ```
 
 Under the list, name every `unsafe=` branch as not examined, with the reason: its
-name begins with `-` or holds `'`.
+name begins with `-` or holds a character other than a letter, digit, `.`, `_`,
+`/` or `-`.
 
 Do NOT suggest deleting remote branches. That's not this skill's job.
 

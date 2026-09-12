@@ -546,6 +546,7 @@ The script prints one keyed line per match:
 
 - `target=` - a working note, as an absolute path already quoted for a shell.
 - `unquotable=` - a match whose name git printed escaped, exactly as git printed it. That is not the file's name and no quoting makes it one, so it never enters the command. Save these as `<UNQUOTABLE>`.
+- `nested=` - a matching directory that holds its own repository, such as a worktree. Deleting it would delete that whole checkout and any uncommitted work in it, so it never enters the command. Save these as `<NESTED>`.
 
 Ignored and untracked paths both come back, since a repo's `.gitignore` decides which of the two its notes land in - `docs/superpowers/plans/`, and `docs/superpowers/specs/` too where that is not tracked either.
 
@@ -561,11 +562,12 @@ Add no quoting of your own - the script already quoted each path. No `target=` l
 
 ### Reporting the cleanup
 
-One line, and one more when `<UNQUOTABLE>` holds anything:
+One line, and one more for each of `<UNQUOTABLE>` and `<NESTED>` that holds anything:
 
 - `<CLEANUP>` not `none`: `- These working notes are no longer needed. To remove them:` followed by the command in a fenced block.
 - `<CLEANUP>` is `none`: say nothing.
 - `<UNQUOTABLE>` not empty: `- These also name <ID>, but git printed their names escaped, so they are left out of the command:` followed by the values in a fenced block. They are repo-controlled text, fenced for the reason "Reporting the residue" gives.
+- `<NESTED>` not empty: `- These also name <ID>, but each is a separate repository or worktree, so they are left out of the command:` followed by the values in a fenced block, fenced for the same reason.
 
 ## Checking off acceptance criteria
 

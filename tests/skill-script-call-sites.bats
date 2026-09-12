@@ -18,34 +18,22 @@ bats_require_minimum_version 1.5.0
 NAMED='[a-z0-9-]+/scripts/[a-z0-9-]+\.sh'
 CALLED="bash[[:space:]]+~/\\.agents/skills/$NAMED"
 
-skill_files() {
-  printf '%s\n' "$DOTFILES_ROOT"/agents/skills/*/SKILL.md
-}
-
-# The same join add_invocations in wf-ship-staging.bats uses.
-joined() { sed -e :a -e '/\\$/N; s/\\\n//; ta' "$1"; }
-
 # misnamed_sites <file>: every joined line that still names a script once its
 # fixed-form calls are removed. ENVIRON rather than -v, which would process the
 # regexes' backslashes as string escapes.
 misnamed_sites() {
-  joined "$1" | CALLED="$CALLED" NAMED="$NAMED" FILE="$1" awk '
+  join_continuations "$1" | CALLED="$CALLED" NAMED="$NAMED" FILE="$1" awk '
     { rest = $0; gsub(ENVIRON["CALLED"], "", rest) }
     rest ~ ENVIRON["NAMED"] { print ENVIRON["FILE"] ": " $0 }'
 }
 
 # called_scripts <file>: the `<skill>/scripts/<name>.sh` of every fixed-form call.
 called_scripts() {
-  joined "$1" | grep -o -E -e "$CALLED" | sed -E 's#^bash[[:space:]]+~/\.agents/skills/##' || true
+  join_continuations "$1" | grep -o -E -e "$CALLED" | sed -E 's#^bash[[:space:]]+~/\.agents/skills/##' || true
 }
 
 @test "the skills glob names real files" {
-  local f count=0
-  while IFS= read -r f; do
-    [ -f "$f" ] || fail "the skills glob produced a non-file: $f"
-    count=$((count + 1))
-  done < <(skill_files)
-  [ "$count" -gt 1 ] || fail "the skills glob matched $count files"
+  assert_skill_glob
 }
 
 @test "every script a skill names is called as bash with the fixed path" {

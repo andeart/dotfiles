@@ -35,7 +35,7 @@ echo "origin=$origin"
 [ -n "$origin" ] && git fetch --quiet origin
 branch=$(git symbolic-ref --short HEAD 2>/dev/null)
 echo "branch=$branch"
-case "$branch" in -*|*\'*) echo 'refcheck=unsafe' ;; *) echo 'refcheck=ok' ;; esac
+case "$branch" in -*|*[!A-Za-z0-9._/-]*) echo 'refcheck=unsafe' ;; *) echo 'refcheck=ok' ;; esac
 default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
 echo "default=$default"
 git rev-parse --git-dir --git-common-dir --show-toplevel | { read -r a; read -r b; read -r c; echo "gitdir=$a"; echo "commondir=$b"; echo "toplevel=$c"; }
@@ -54,7 +54,7 @@ All of these must pass before any destructive action runs. Any failure stops the
 - `gh=no` - stop and tell the user `gh` is not on PATH.
 - `origin=` empty - stop and tell the user no remote named `origin` is configured.
 - `branch=` empty - HEAD is detached. Stop and tell the user to check out the feature branch first. Otherwise this is `<FEATURE>`.
-- `refcheck=` anything but `ok`, an absent line included - stop with: `Branch <branch> begins with - or holds ', so /wf-wrap will not put it into a command.` Every later step substitutes `<FEATURE>`, and this is the one place it is checked.
+- `refcheck=` anything but `ok`, an absent line included - stop with: `Branch <branch> begins with - or holds a character other than a letter, digit, ., _, / or -, so /wf-wrap will not put it into a command.` Every later step substitutes `<FEATURE>`, several unquoted, and this is the one place it is checked.
 - `default=` - this is `<DEFAULT>`. If it is empty, neither `main` nor `master` exists; stop and say so.
 - `status<<<` followed by any lines - stop with:
 
@@ -150,12 +150,13 @@ The fetch is required and is not a duplicate of Step 0's. The probe below compar
 bash ~/.agents/skills/wf-wrap/scripts/landing-probe.sh 'origin/<DEFAULT>' '<FEATURE>'
 ```
 
-Keep the call alone in its block: the Bash tool reports the exit status of a block's last command only. A call that does not exit 0 stopped short of its output - stop the wrap, report the script's stderr, and do not re-run it. That is not the no-landed stop below, and nothing destructive has run yet.
+Keep the call alone in its block: the Bash tool reports only a block's last exit status. A call that does not exit 0 stopped short - stop the wrap, report its stderr, and do not re-run it. That is not the no-landed stop below, and nothing destructive has run yet.
 
-Three questions, one per merge method, and any one of them answering is the whole proof. `landed=ancestor` - the branch tip is reachable from the default branch, which is what a merge commit leaves behind. `landed=squash` - the branch's tree squashed onto its own merge base is a patch already upstream, which is what a squash merge leaves behind. `landed=replayed` - `mb..<FEATURE>` holds at least one commit and every one of them has an equivalent patch upstream, which is what a rebase merge leaves behind. `probed=yes` closes the output: without it a result cut short is indistinguishable from three probes that all came back silent, and the skill would stop over a truncation while blaming the branch. Then:
+Each `landed=` line answers for one merge method, and any one of them is the whole proof. `probed=yes` closes the output. Then:
 
 - **One or more `landed=` lines** - the merge landed everything; discarding the branch loses nothing. Proceed silently: this is the expected result on every wrap, and saying so turns the guard into noise. Which line came back is not interesting and does not get reported - it names the repo's merge method, not a property of this work.
-- **No `landed=` line** - it did not. Show `git diff --stat $(git merge-base origin/<DEFAULT> <FEATURE>) <FEATURE>` in either case below, since that diff is the only thing that says what the branch is carrying and an unpushed commit produces silence under both. Then let `head=` name the case, and stop. **Equal to `<HEAD_OID>`** - the local branch is what merged, so the content should be upstream and is not. **Not equal** - the local branch is not what merged: `Local <FEATURE> is at <head>, PR <number> merged <HEAD_OID>. Fetch that tip with git fetch origin refs/pull/<number>/head before discarding anything.`
+- **No `landed=` line and no `probed=yes`** - the output was cut short, which says nothing about the branch. Re-run the call; the probe moves no ref.
+- **No `landed=` line, with `probed=yes`** - it did not. Show `git diff --stat $(git merge-base origin/<DEFAULT> <FEATURE>) <FEATURE>` in either case below, since that diff is the only thing that says what the branch is carrying and an unpushed commit produces silence under both. Then let `head=` name the case, and stop. **Equal to `<HEAD_OID>`** - the local branch is what merged, so the content should be upstream and is not. **Not equal** - the local branch is not what merged: `Local <FEATURE> is at <head>, PR <number> merged <HEAD_OID>. Fetch that tip with git fetch origin refs/pull/<number>/head before discarding anything.`
 
 Compare against `<HEAD_OID>` rather than `@{upstream}`. A plain fetch does not prune, so once the merge deletes the head branch the tracking ref freezes at whatever Step 0 last saw - and a push made during an armed wait, which is the whole window this check exists for, never reaches it. That deletion is also why the recovery above names `refs/pull/<number>/head`: GitHub keeps that ref once the branch is gone, where `git pull` has nothing left to pull.
 

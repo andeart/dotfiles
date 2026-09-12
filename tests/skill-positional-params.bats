@@ -40,10 +40,6 @@ RULE_ANCHORS=(
   'fails toward "found nothing" rather than toward an error'
 )
 
-skill_files() {
-  printf '%s\n' "$DOTFILES_ROOT"/agents/skills/*/SKILL.md
-}
-
 # frontmatter_arguments <file>...: every top-level `arguments:` key between a
 # file's opening `---` and the next one, as `file:line: text`. The exact key, so
 # `argument-hint:` passes, and only in frontmatter, so prose about the rule
@@ -57,14 +53,7 @@ frontmatter_arguments() {
 }
 
 @test "the skills glob names real files" {
-  # An unmatched glob expands to itself, and grep over a path that does not
-  # exist reports nothing found - which reads exactly like a clean sweep.
-  local f count=0
-  while IFS= read -r f; do
-    [ -f "$f" ] || fail "the skills glob produced a non-file: $f"
-    count=$((count + 1))
-  done < <(skill_files)
-  [ "$count" -gt 1 ] || fail "the skills glob matched $count files"
+  assert_skill_glob
 }
 
 @test "no SKILL.md carries a positional parameter or an ARGUMENTS reference" {
