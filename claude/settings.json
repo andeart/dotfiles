@@ -2,6 +2,11 @@
   "env": {
     "CLAUDE_CODE_IDLE_NOTIFICATION_THRESHOLD_MS": "1000"
   },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
   "permissions": {
     "allow": [
       "Bash(bats --version)",
@@ -132,7 +137,8 @@
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
-    "warp@claude-code-warp": true
+    "warp@claude-code-warp": true,
+    "humanizer@humanizer": true
   },
   "extraKnownMarketplaces": {
     "impeccable": {
@@ -146,6 +152,12 @@
         "source": "github",
         "repo": "warpdotdev/claude-code-warp"
       }
+    },
+    "humanizer": {
+      "source": {
+        "source": "github",
+        "repo": "blader/humanizer"
+      }
     }
   },
   "effortLevel": "xhigh",
@@ -156,10 +168,5 @@
   "switchModelsOnFlag": false,
   "autoContinueAtUsageLimit": true,
   "remoteControlAtStartup": false,
-  "agentPushNotifEnabled": true,
-  "attribution": {
-    "commit": "",
-    "pr": "",
-    "sessionUrl": false
-  }
+  "agentPushNotifEnabled": true
 }
