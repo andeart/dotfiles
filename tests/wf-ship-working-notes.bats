@@ -40,9 +40,6 @@ run_script() {
   [ "$status" -eq 0 ] || fail "the script exited $status: $output"
 }
 
-# vals <key>: every value of a `key=value` line, one per line.
-vals() { printf '%s\n' "$output" | sed -n "s/^$1=//p"; }
-
 # read_back <value>: the single word a shell makes of one `target=` value, the
 # way the pasted `rm -rf` reads it. Fails when it is not exactly one word.
 read_back() {
@@ -66,7 +63,7 @@ read_back() {
   [ -n "$(git check-ignore plans/2026-09-12-zzz-0-plan.md)" ]
 
   run_script ZZZ-0
-  [ "$(vals target)" = "$(printf "'%s'\n'%s'" "$ROOT/notes/zzz-0.md" "$ROOT/plans/2026-09-12-zzz-0-plan.md")" ]
+  [ "$(output_values target)" = "$(printf "'%s'\n'%s'" "$ROOT/notes/zzz-0.md" "$ROOT/plans/2026-09-12-zzz-0-plan.md")" ]
 }
 
 @test "a tracked note is not a candidate" {
@@ -77,7 +74,7 @@ read_back() {
   note notes/zzz-0.md
 
   run_script ZZZ-0
-  [ "$(vals target)" = "'$ROOT/notes/zzz-0.md'" ]
+  [ "$(output_values target)" = "'$ROOT/notes/zzz-0.md'" ]
 }
 
 # The left bound keeps an identifier out of a longer run of letters, the right
@@ -90,7 +87,7 @@ read_back() {
   note notes/dx-5-mine.md
 
   run_script DX-5
-  [ "$(vals target)" = "'$ROOT/notes/dx-5-mine.md'" ]
+  [ "$(output_values target)" = "'$ROOT/notes/dx-5-mine.md'" ]
 }
 
 @test "run from a subdirectory, targets are still absolute from the top" {
@@ -100,7 +97,7 @@ read_back() {
   cd sub || fail "cd sub failed"
 
   run_script ZZZ-0
-  [ "$(vals target)" = "'$ROOT/notes/zzz-0.md'" ]
+  [ "$(output_values target)" = "'$ROOT/notes/zzz-0.md'" ]
 }
 
 @test "matching nothing exits 0 with no output" {
@@ -119,8 +116,8 @@ read_back() {
   note 'my notes/zzz-0 plan.md'
 
   run_script ZZZ-0
-  [ "$(vals target | wc -l | tr -d ' ')" -eq 1 ]
-  [ "$(read_back "$(vals target)")" = "$ROOT/my notes/zzz-0 plan.md" ]
+  [ "$(output_values target | wc -l | tr -d ' ')" -eq 1 ]
+  [ "$(read_back "$(output_values target)")" = "$ROOT/my notes/zzz-0 plan.md" ]
 }
 
 @test "a path holding a single quote reads back unchanged, and nothing in it runs" {
@@ -128,7 +125,7 @@ read_back() {
   note "it's/zzz-0-a'b'c.md"
 
   run_script ZZZ-0
-  [ "$(read_back "$(vals target)")" = "$ROOT/it's/zzz-0-a'b'c.md" ]
+  [ "$(read_back "$(output_values target)")" = "$ROOT/it's/zzz-0-a'b'c.md" ]
 
   new_repo
   note 'zzz-0-$(touch pwn).md'
@@ -141,8 +138,8 @@ read_back() {
       "$ROOT/zzz-0-\$(touch pwn).md"|"$ROOT/zzz-0-;touch pwn2.md") ;;
       *) fail "a target read back as something else: $t" ;;
     esac
-  done < <(vals target)
-  [ "$(vals target | wc -l | tr -d ' ')" -eq 2 ]
+  done < <(output_values target)
+  [ "$(output_values target | wc -l | tr -d ' ')" -eq 2 ]
   [ ! -e pwn ] && [ ! -e pwn2 ] || fail "reading a target back ran a command"
 }
 
@@ -151,8 +148,8 @@ read_back() {
   note 'zzz-0-café.md'
 
   run_script ZZZ-0
-  [ -z "$(vals unquotable)" ]
-  [ "$(read_back "$(vals target)")" = "$ROOT/zzz-0-café.md" ]
+  [ -z "$(output_values unquotable)" ]
+  [ "$(read_back "$(output_values target)")" = "$ROOT/zzz-0-café.md" ]
 }
 
 # A name git has to escape prints as git's escaped form, which is not the file's
@@ -168,8 +165,8 @@ read_back() {
   note 'bs\zzz-0.md'
 
   run_script ZZZ-0
-  [ -z "$(vals target)" ] || fail "a quoted path became a target: $output"
-  [ "$(vals unquotable)" = "$(printf '%s\n' '"bs\\zzz-0.md"' '"dq\"zzz-0.md"' '"nl\n../zzz-0-in-nl-dir.md"')" ] \
+  [ -z "$(output_values target)" ] || fail "a quoted path became a target: $output"
+  [ "$(output_values unquotable)" = "$(printf '%s\n' '"bs\\zzz-0.md"' '"dq\"zzz-0.md"' '"nl\n../zzz-0-in-nl-dir.md"')" ] \
     || fail "unexpected unquotable lines: $output"
   [ -z "$(printf '%s\n' "$output" | grep -vE '^(target|unquotable)=')" ] \
     || fail "a line started without a key: $output"
@@ -184,9 +181,22 @@ read_back() {
   git init --quiet notes/zzz-0-emb
 
   run_script ZZZ-0
-  [ "$(vals target)" = "'$ROOT/plans/zzz-0-plan.md'" ] || fail "unexpected targets: $output"
-  [ "$(vals nested)" = "$(printf '%s\n' "$ROOT/notes/zzz-0-emb/" "$ROOT/plans/zzz-0-other/")" ] \
+  [ "$(output_values target)" = "'$ROOT/plans/zzz-0-plan.md'" ] || fail "unexpected targets: $output"
+  [ "$(output_values nested)" = "$(printf '%s\n' "$ROOT/notes/zzz-0-emb/" "$ROOT/plans/zzz-0-other/")" ] \
     || fail "unexpected nested lines: $output"
+}
+
+# The identifier can name a directory rather than a file. Every file under it,
+# at any depth and in any case, is still one target of its own.
+@test "files under a directory named for the identifier are each a target" {
+  new_repo
+  note plans/zzz-0-dir/a.md
+  note plans/zzz-0-dir/deep/b.md
+  note 'notes/ZZZ-0 caps/c.md'
+
+  run_script ZZZ-0
+  [ "$(output_values target)" = "$(printf "'%s'\n'%s'\n'%s'" "$ROOT/notes/ZZZ-0 caps/c.md" "$ROOT/plans/zzz-0-dir/a.md" "$ROOT/plans/zzz-0-dir/deep/b.md")" ] \
+    || fail "unexpected targets: $output"
 }
 
 # ─── the argument ──────────────────────────────────────────────────────────
@@ -199,7 +209,7 @@ read_back() {
   for arg in '' zzz ZZZ- -rf 'ZZZ-0 ' 'ZZZ-0;x' '.*' "$(printf 'ZZZ-0\nfoo')"; do
     run bash "$SCRIPT" "$arg"
     [ "$status" -eq 2 ] || fail "accepted a non-identifier ($status): $arg"
-    [ -z "$(vals target)" ] || fail "printed a target for a non-identifier: $arg"
+    [ -z "$(output_values target)" ] || fail "printed a target for a non-identifier: $arg"
   done
 
   run bash "$SCRIPT"
@@ -218,6 +228,6 @@ read_back() {
 
   assert_script_portable : "$SCRIPT" ZZZ-0
 
-  [ "$(vals target | wc -l | tr -d ' ')" -eq 2 ] || fail "unexpected output: $output"
-  [ "$(vals unquotable | wc -l | tr -d ' ')" -eq 1 ] || fail "unexpected output: $output"
+  [ "$(output_values target | wc -l | tr -d ' ')" -eq 2 ] || fail "unexpected output: $output"
+  [ "$(output_values unquotable | wc -l | tr -d ' ')" -eq 1 ] || fail "unexpected output: $output"
 }

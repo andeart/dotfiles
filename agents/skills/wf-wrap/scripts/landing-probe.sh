@@ -23,12 +23,13 @@ wf_usage() {
   cat <<'EOF'
 Usage: landing-probe.sh <default-ref> <feature>
 
-Probes whether <feature>'s content has landed on <default-ref>, writing
+Probes whether <feature>'s content has landed on <default-ref>, both full
+refnames such as refs/remotes/origin/main and refs/heads/<branch>, writing
 `key=value` lines to stdout and ending with `probed=yes`.
 
 Exit status:
   0  reached its output; no `landed=` line means nothing landed
-  2  usage error, including an argument beginning with `-`
+  2  usage error, including an argument not beginning with `refs/`
 EOF
 }
 
@@ -37,12 +38,14 @@ if [ "$#" -ne 2 ]; then
   exit 2
 fi
 
-# git reads a ref beginning with `-` as an option. Checked on the first
-# character only, never on whether the ref resolves: an unresolvable ref still
-# has to reach `probed=yes`.
+# Full refnames only: git resolves a short name to a same-named tag before the
+# branch, and a fetch brings in the remote's tags. A `refs/` argument is also
+# never read as an option. Checked on the prefix only, never on whether the ref
+# resolves: an unresolvable ref still has to reach `probed=yes`.
 for ref in "$1" "$2"; do
   case "$ref" in
-    -*) wf_usage >&2; exit 2 ;;
+    refs/*) ;;
+    *) wf_usage >&2; exit 2 ;;
   esac
 done
 default_ref=$1

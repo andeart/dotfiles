@@ -27,7 +27,8 @@ Exit status:
 EOF
 }
 
-# The identifier becomes part of an ERE below, so nothing else reaches it.
+# The identifier becomes part of a pathspec and an ERE below, so nothing else
+# reaches it.
 id_shape='^[A-Za-z]+-[0-9]+$'
 if [ "$#" -ne 1 ] || ! [[ $1 =~ $id_shape ]]; then
   wf_usage >&2
@@ -44,7 +45,11 @@ root=$(git rev-parse --show-toplevel)
 #
 # Never -z: split on NUL and re-joined on newlines, a name holding a newline
 # becomes lines of its own, and one of them can read `../...`.
-listing=$(git -c core.quotePath=false ls-files -o --full-name -- :/)
+#
+# The pathspec only spares printing every ignored path, such as node_modules/,
+# into $listing. Its `*` crosses `/` and icase matches grep's -i, so it passes a
+# superset of the bounded match below, which alone decides.
+listing=$(git -c core.quotePath=false ls-files -o --full-name -- ":(top,icase)*${id}*")
 
 # Bounded on both sides, because a false match is a file the user deletes by
 # hand. The left bound keeps DX-98 out of idx-98-...; the right keeps DX-5 out

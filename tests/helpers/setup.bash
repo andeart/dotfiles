@@ -139,6 +139,10 @@ assert_script_portable() {
   output="$first"
 }
 
+# output_values <key>: every value of a `key=value` line in $output, one per
+# line.
+output_values() { printf '%s\n' "$output" | sed -n "s/^$1=//p"; }
+
 # Point git at a fixed config instead of the caller's. scrub_git_env cannot do
 # this: --local-env-vars covers GIT_CONFIG and GIT_CONFIG_COUNT but not
 # GIT_CONFIG_GLOBAL/GIT_CONFIG_SYSTEM, so ~/.gitconfig still applied. An

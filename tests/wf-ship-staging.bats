@@ -79,11 +79,6 @@ run_script() {
 
 reset_index() { git reset --quiet; }
 
-# val <key>: the value of a `key=value` line the script printed.
-val() {
-  printf '%s\n' "$output" | sed -n "s/^$1=//p"
-}
-
 # Everything after the residue marker - <RESIDUE> as the skill hands it to the
 # report.
 residue_lines() {
@@ -115,9 +110,9 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   done <<< "$suffixes"
 
   run_script
-  [ "$(val staged)" = "yes" ]
+  [ "$(output_values staged)" = "yes" ]
   [ "$(staged_paths)" = "tracked.txt" ]
-  [ "$(val residue_total)" -eq 6 ]
+  [ "$(output_values residue_total)" -eq 6 ]
 }
 
 @test "an uppercase .ORIG is left unstaged" {
@@ -125,7 +120,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   printf 'x\n' > UPPER.ORIG
   printf 'x\n' > Mixed.Orig
   run_script
-  [ "$(val staged)" = "no" ]
+  [ "$(output_values staged)" = "no" ]
   [ "$(residue_lines)" = "$(printf 'Mixed.Orig\nUPPER.ORIG')" ]
 }
 
@@ -133,7 +128,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   new_repo
   printf 'x\n' > .foo.txt.swp
   run_script
-  [ "$(val staged)" = "no" ]
+  [ "$(output_values staged)" = "no" ]
   [ "$(residue_lines)" = ".foo.txt.swp" ]
 }
 
@@ -143,10 +138,10 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   new_repo
   printf 'x\n' > new.txt
   run_script
-  [ "$(val staged)" = "yes" ]
-  [ "$(val staged_total)" -eq 1 ]
+  [ "$(output_values staged)" = "yes" ]
+  [ "$(output_values staged_total)" -eq 1 ]
   [ "$(staged_paths)" = "new.txt" ]
-  [ "$(val residue_total)" -eq 0 ]
+  [ "$(output_values residue_total)" -eq 0 ]
 }
 
 # staged_total is the only place an untracked directory's size reaches the
@@ -164,8 +159,8 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ "$(git status --porcelain)" = "?? vendored/" ]
 
   run_script
-  [ "$(val staged)" = "yes" ]
-  [ "$(val staged_total)" -eq 12 ]
+  [ "$(output_values staged)" = "yes" ]
+  [ "$(output_values staged_total)" -eq 12 ]
 }
 
 @test "a tracked file named *.orig has its modification staged" {
@@ -178,7 +173,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   run_script
   [ "$(staged_paths)" = "keep.orig" ]
   [ "$(git show :keep.orig)" = "v2" ]
-  [ "$(val residue_total)" -eq 0 ]
+  [ "$(output_values residue_total)" -eq 0 ]
 }
 
 @test "residue staged by hand before the script runs stays staged and is not reported" {
@@ -219,10 +214,10 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   printf 'x\n' > b.rej
 
   run_script
-  [ "$(val staged)" = "no" ]
-  [ "$(val staged_total)" -eq 0 ]
+  [ "$(output_values staged)" = "no" ]
+  [ "$(output_values staged_total)" -eq 0 ]
   [ -z "$(staged_paths)" ]
-  [ "$(val residue_total)" -eq 2 ]
+  [ "$(output_values residue_total)" -eq 2 ]
 }
 
 # ─── the stops ─────────────────────────────────────────────────────────────
@@ -235,8 +230,8 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ -n "$(git ls-files -u)" ]
 
   run_script
-  [ "$(val blocked)" = "MERGE_HEAD" ]
-  [ -z "$(val staged)" ]
+  [ "$(output_values blocked)" = "MERGE_HEAD" ]
+  [ -z "$(output_values staged)" ]
   [ -n "$(git ls-files -u)" ]
 }
 
@@ -251,7 +246,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ -z "$(git ls-files -u)" ]
 
   run_script
-  [ "$(val blocked)" = "MERGE_HEAD" ]
+  [ "$(output_values blocked)" = "MERGE_HEAD" ]
   [ "$(untracked_paths)" = "new.txt" ]
 }
 
@@ -268,7 +263,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ ! -e "$(git rev-parse --git-dir)/MERGE_HEAD" ]
 
   run_script
-  [ "$(val blocked)" = "unmerged-index" ]
+  [ "$(output_values blocked)" = "unmerged-index" ]
 }
 
 # The script runs under set -e, so this and the next case are also what pin
@@ -281,13 +276,13 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   ( cd emb && git init --quiet . )
 
   run_script
-  [ "$(val add_tracked_exit)" -eq 0 ]
-  [ "$(val add_rest_exit)" -ne 0 ]
+  [ "$(output_values add_tracked_exit)" -eq 0 ]
+  [ "$(output_values add_rest_exit)" -ne 0 ]
   # git add -u already wrote its index update, so the tracked change survives
   # over a half-staged index - which is why this stops the ship.
   [ "$(staged_paths)" = "tracked.txt" ]
   ! printf '%s\n' "$output" | grep -qF 'residue<<<' || fail "residue was read after a failed add"
-  [ -z "$(val residue_total)" ]
+  [ -z "$(output_values residue_total)" ]
 }
 
 # The mirror of the case above, and the reason the residue read is gated on
@@ -313,11 +308,11 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
 
   run_script
   chmod 644 keep.orig
-  [ "$(val add_tracked_exit)" -ne 0 ]
-  [ "$(val add_rest_exit)" -eq 0 ]
-  [ "$(val staged)" = "yes" ]
+  [ "$(output_values add_tracked_exit)" -ne 0 ]
+  [ "$(output_values add_rest_exit)" -eq 0 ]
+  [ "$(output_values staged)" = "yes" ]
   ! printf '%s\n' "$output" | grep -qF 'residue<<<' || fail "residue was read after a failed add"
-  [ -z "$(val residue_total)" ]
+  [ -z "$(output_values residue_total)" ]
 }
 
 @test "an embedded repository with a commit is reported as a gitlink" {
@@ -326,12 +321,12 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   ( cd 'emb dir' && git init --quiet . && printf 'x\n' > f && git add f && git commit --quiet -m e )
 
   run_script
-  [ "$(val add_rest_exit)" -eq 0 ]
-  [ "$(val staged)" = "yes" ]
+  [ "$(output_values add_rest_exit)" -eq 0 ]
+  [ "$(output_values staged)" = "yes" ]
   # The name carries a space, which is what pins substr() over a $4 field
   # split - the split truncates the path and the report names a directory
   # nobody has.
-  [ "$(val gitlink)" = "emb dir" ]
+  [ "$(output_values gitlink)" = "emb dir" ]
 }
 
 @test "any argument is a usage error that stages nothing" {
@@ -340,7 +335,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
 
   run bash "$SCRIPT" ready
   [ "$status" -eq 2 ]
-  [ -z "$(val blocked)" ]
+  [ -z "$(output_values blocked)" ]
   [ -z "$(staged_paths)" ]
 }
 
@@ -355,7 +350,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   done
 
   run_script
-  [ "$(val residue_total)" -eq 12 ]
+  [ "$(output_values residue_total)" -eq 12 ]
   [ "$(residue_lines | wc -l | tr -d ' ')" -eq 10 ]
 }
 

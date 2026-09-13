@@ -147,7 +147,7 @@ The fetch is required and is not a duplicate of Step 0's. The probe below compar
 `gh` reporting `MERGED` says the PR merged; it does not say the local branch holds nothing the default branch lacks. Prove that separately, because Step 4 may discard the branch:
 
 ```bash
-bash ~/.agents/skills/wf-wrap/scripts/landing-probe.sh 'origin/<DEFAULT>' '<FEATURE>'
+bash ~/.agents/skills/wf-wrap/scripts/landing-probe.sh 'refs/remotes/origin/<DEFAULT>' 'refs/heads/<FEATURE>'
 ```
 
 Run it as its own call. A non-zero exit means the probe stopped short: stop the wrap, report its stderr, and do not re-run it. That is not the no-landed stop below, and nothing destructive has run yet.
@@ -155,7 +155,7 @@ Run it as its own call. A non-zero exit means the probe stopped short: stop the 
 Each `landed=` line answers for one merge method, and any one of them is the whole proof. Then:
 
 - **One or more `landed=` lines** - the merge landed everything; discarding the branch loses nothing. Proceed silently: this is the expected result on every wrap, and saying so turns the guard into noise. Which line came back is not interesting and does not get reported - it names the repo's merge method, not a property of this work.
-- **No `landed=` line** - it did not. Show `git diff --stat $(git merge-base origin/<DEFAULT> <FEATURE>) <FEATURE>` in either case below, since that diff is the only thing that says what the branch is carrying and an unpushed commit produces silence under both. Then let `head=` name the case, and stop. **Equal to `<HEAD_OID>`** - the local branch is what merged, so the content should be upstream and is not. **Not equal** - the local branch is not what merged: `Local <FEATURE> is at <head>, PR <number> merged <HEAD_OID>. Fetch that tip with git fetch origin refs/pull/<number>/head before discarding anything.`
+- **No `landed=` line** - it did not. Show `git diff --stat $(git merge-base refs/remotes/origin/<DEFAULT> refs/heads/<FEATURE>) refs/heads/<FEATURE>` in either case below, since that diff is the only thing that says what the branch is carrying and an unpushed commit produces silence under both. Then let `head=` name the case, and stop. **Equal to `<HEAD_OID>`** - the local branch is what merged, so the content should be upstream and is not. **Not equal** - the local branch is not what merged: `Local <FEATURE> is at <head>, PR <number> merged <HEAD_OID>. Fetch that tip with git fetch origin refs/pull/<number>/head before discarding anything.`
 
 Compare against `<HEAD_OID>` rather than `@{upstream}`. A plain fetch does not prune, so once the merge deletes the head branch the tracking ref freezes at whatever Step 0 last saw - and a push made during an armed wait, which is the whole window this check exists for, never reaches it. That deletion is also why the recovery above names `refs/pull/<number>/head`: GitHub keeps that ref once the branch is gone, where `git pull` has nothing left to pull.
 

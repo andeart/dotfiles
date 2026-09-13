@@ -6,7 +6,7 @@ bats_require_minimum_version 1.5.0
 
 SKILL="$DOTFILES_ROOT/agents/skills/wf-wrap/SKILL.md"
 SCRIPT="$DOTFILES_ROOT/agents/skills/wf-wrap/scripts/landing-probe.sh"
-CALL="bash ~/.agents/skills/wf-wrap/scripts/landing-probe.sh 'origin/<DEFAULT>' '<FEATURE>'"
+CALL="bash ~/.agents/skills/wf-wrap/scripts/landing-probe.sh 'refs/remotes/origin/<DEFAULT>' 'refs/heads/<FEATURE>'"
 
 # Step 1c's probe is scripts/landing-probe.sh, and the cases below run that
 # file with this fixture's refs as its arguments, so a copy cannot grade a
@@ -67,7 +67,7 @@ publish_main() {
 run_probe() {
   publish_main
   git checkout --quiet feature
-  run bash "$SCRIPT" origin/main feature
+  run bash "$SCRIPT" refs/remotes/origin/main refs/heads/feature
   [ "$status" -eq 0 ] || fail "the probe itself exited $status: $output"
   # Every case reads `landed=` lines, and their absence is the stop. Without
   # this, a script that died after `head=` would look exactly like a branch
@@ -76,7 +76,7 @@ run_probe() {
     || fail "the probe did not run to completion: $output"
 }
 
-landed() { printf '%s\n' "$output" | sed -n 's/^landed=//p' | sort | tr '\n' ' '; }
+landed() { output_values landed | sort | tr '\n' ' '; }
 
 # ─── the skill still calls the script ──────────────────────────────────────
 
@@ -156,7 +156,7 @@ landed() { printf '%s\n' "$output" | sed -n 's/^landed=//p' | sort | tr '\n' ' '
   # same empty stdout it sees for a branch that fully landed - which is why it
   # requires a commit to have been read before it answers. Without that, a
   # broken probe prints the one line that authorises Step 4's discard.
-  run bash "$SCRIPT" origin/main feature
+  run bash "$SCRIPT" refs/remotes/origin/main refs/heads/feature
   printf '%s\n' "$output" | grep -qF 'probed=yes' \
     || fail "the probe did not run to completion: $output"
   [ -z "$(landed | tr -d ' ')" ] || fail "a failed probe was called landed: $(landed)"
@@ -171,26 +171,40 @@ landed() { printf '%s\n' "$output" | sed -n 's/^landed=//p' | sort | tr '\n' ' '
   # Step 1c compares this against <HEAD_OID> to tell "did not land" apart from
   # "a different tip landed", so it has to be the local branch and not the
   # probe commit the script builds.
-  [ "$(printf '%s\n' "$output" | sed -n 's/^head=//p')" = "$(git rev-parse feature)" ]
+  [ "$(output_values head)" = "$(git rev-parse refs/heads/feature)" ]
 }
 
 # A usage error is never the no-landed stop: it prints no `landed=` line, so it
 # cannot authorise the discard, and wf-wrap stops on its exit status instead.
 # The fixture is a squash merge, so a probe that ran anyway would answer.
-@test "an argument beginning with - is a usage error with no landed line" {
+@test "an argument that is not a full refname is a usage error with no landed line" {
   new_repo
   git merge --squash feature > /dev/null
   git commit --quiet -m 'squash (#1)'
   publish_main
   git checkout --quiet feature
 
-  run bash "$SCRIPT" origin/main --output=pwned.txt
-  [ "$status" -eq 2 ] || fail "a leading - in <feature> exited $status: $output"
-  [ -z "$(landed | tr -d ' ')" ] || fail "a usage error was called landed: $(landed)"
+  local args
+  for args in 'refs/remotes/origin/main --output=pwned.txt' '-evil refs/heads/feature' \
+              'origin/main refs/heads/feature' 'refs/remotes/origin/main feature'; do
+    # shellcheck disable=SC2086 # each entry is two words on purpose
+    run bash "$SCRIPT" $args
+    [ "$status" -eq 2 ] || fail "accepted a non-refname argument ($status): $args"
+    [ -z "$(landed | tr -d ' ')" ] || fail "a usage error was called landed: $args"
+  done
+}
 
-  run bash "$SCRIPT" -evil feature
-  [ "$status" -eq 2 ] || fail "a leading - in <default-ref> exited $status: $output"
-  [ -z "$(landed | tr -d ' ')" ] || fail "a usage error was called landed: $(landed)"
+# git resolves a short name to a same-named tag before the branch, and a fetch
+# brings in the remote's tags. The tag here sits on the default branch, so a
+# probe reading it would call work that never merged `landed=ancestor`.
+@test "a tag named like the branch does not stand in for it" {
+  new_repo
+  git tag feature main
+
+  run_probe
+  [ -z "$(landed | tr -d ' ')" ] || fail "a same-named tag was called landed: $output"
+  [ "$(output_values head)" = "$(git rev-parse refs/heads/feature)" ] \
+    || fail "head= did not name the branch tip: $output"
 }
 
 # ─── portability ───────────────────────────────────────────────────────────
@@ -202,7 +216,7 @@ landed() { printf '%s\n' "$output" | sed -n 's/^landed=//p' | sort | tr '\n' ' '
   publish_main
   git checkout --quiet feature
 
-  assert_script_portable : "$SCRIPT" origin/main feature
+  assert_script_portable : "$SCRIPT" refs/remotes/origin/main refs/heads/feature
 
   [ "$(landed)" = "squash " ] || fail "expected only landed=squash, got: $(landed)"
   printf '%s\n' "$output" | grep -qF 'probed=yes' || fail "unexpected output: $output"
