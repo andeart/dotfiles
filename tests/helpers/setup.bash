@@ -24,37 +24,123 @@ fail() {
   return 1
 }
 
-# skill_bash_block <file> <open-regex> [<close-regex>]: the fenced bash blocks
-# inside one section of a SKILL.md. A skill's block is read out of the file
-# rather than copied into a test, so a copy cannot grade a stale expression and
-# pass while the real one rots. <close-regex> defaults to the next `## `
-# heading; a section that is itself a `### ` wants `^(## |### )`.
-#
-# skill_bash_fence_count <file> <open-regex> [<close-regex>]: how many fenced
-# bash blocks that section holds. Assert it is 1 before running an extracted
-# block - a restructure that added a second one leaves skill_bash_block
-# emitting both concatenated, which runs and grades something nobody wrote.
-#
-# Both are one awk program in two modes rather than two programs: the section
-# scoping is the part with the subtleties, and a second copy of it is a second
-# place to keep in step.
-skill_bash_block() { _skill_bash_section print "$@"; }
-skill_bash_fence_count() { _skill_bash_section count "$@"; }
-
-# The open line is consumed by the first rule, so it never reaches the closing
-# one even when both patterns match it. The awk vars are `openpat`/`closepat`
-# because `close` is an awk builtin, and naming a variable after it is a syntax
-# error rather than a shadowing warning.
-_skill_bash_section() {
-  awk -v mode="$1" -v openpat="$3" -v closepat="${4:-^## }" '
-    $0 ~ openpat { insec = 1; next }
-    insec && $0 ~ closepat { insec = 0 }
-    insec && /^```bash$/ { n++; fence = 1; next }
-    insec && fence && /^```$/ { fence = 0; next }
-    insec && fence && mode == "print" { print }
-    END { if (mode == "count") print n + 0 }
-  ' "$2"
+# skill_files: every SKILL.md under agents/skills/, one path per line.
+skill_files() {
+  printf '%s\n' "$DOTFILES_ROOT"/agents/skills/*/SKILL.md
 }
+
+# assert_skill_glob: skill_files names more than one real file. An unmatched
+# glob expands to itself, and grep on a missing path reports no match, which
+# looks the same as a clean scan.
+assert_skill_glob() {
+  local f count=0
+  while IFS= read -r f; do
+    [ -f "$f" ] || fail "the skills glob produced a non-file: $f"
+    count=$((count + 1))
+  done < <(skill_files)
+  [ "$count" -gt 1 ] || fail "the skills glob matched $count files"
+}
+
+# join_continuations [<file>]: <file>, or stdin, with each backslash-newline
+# removed, so a command on several lines reads as one line.
+join_continuations() { sed -e :a -e '/\\$/N; s/\\\n//; ta' "$@"; }
+
+# assert_one_line <file> <text>: exactly one line of <file> holds the fixed
+# string <text>.
+assert_one_line() {
+  local count
+  count="$(grep -c -F -e "$2" "$1" || true)"
+  [ "$count" = 1 ] || fail "expected one line of $1 holding $2, found $count"
+}
+
+# assert_sole_call <skill-file> <call-line>: exactly one line of <skill-file>
+# names the script that <call-line> runs, that line is <call-line>, and bash
+# fences are directly above and below it. The first check stops a suite from
+# testing a script that the skill no longer calls. The fence check stops a line
+# after the call from hiding the exit status of the script.
+assert_sole_call() {
+  local file=$1 call=$2 script context
+  script=${call#"bash ~/.agents/skills/"}
+  script=${script%% *}
+  assert_one_line "$file" "$script"
+  context="$(grep -B1 -A1 -F -e "$script" "$file")"
+  [ "$context" = "$(printf '```bash\n%s\n```' "$call")" ] \
+    || fail "$(printf 'the call to %s is not alone in its block:\n%s' "$script" "$context")"
+}
+
+# The shells for a skill's `bash <path>` call: PATH's bash, which the call
+# uses, and /bin/bash, which is 3.2 on macOS. On the ubuntu-latest runner, both
+# names are one binary.
+SCRIPT_SHELLS=(/bin/bash bash)
+
+# shells_among <candidate>...: each candidate resolved through PATH, with
+# duplicates and missing shells removed.
+shells_among() {
+  local sh path seen=" "
+  for sh in "$@"; do
+    path="$(command -v "$sh" 2>/dev/null)" || continue
+    [ -n "$path" ] || continue
+    case "$seen" in *" $path "*) continue ;; esac
+    seen="$seen$path "
+    printf '%s\n' "$path"
+  done
+}
+
+# assert_shells_covered <ran> <candidate>...: each installed candidate resolves
+# to a line of <ran>, the shells that a loop ran, one per line. The number of
+# shells depends on the host, and the CI image has one bash and no zsh. An
+# installed candidate that did not run is a dedup bug in shells_among, and this
+# check makes it fail.
+assert_shells_covered() {
+  local ran=$1 want wantpath covered listed skipped=
+  shift
+  for want in "$@"; do
+    wantpath="$(command -v "$want" 2>/dev/null)" || continue
+    covered=no
+    # Compare whole lines, not substrings: /opt/homebrew/bin/bash ends in
+    # /bin/bash, so a `case` glob counts the Homebrew build as coverage of the
+    # macOS 3.2 build and hides the missing run.
+    while IFS= read -r listed; do
+      [ "$listed" = "$wantpath" ] && covered=yes
+    done <<< "$ran"
+    [ "$covered" = yes ] || skipped="$skipped $want"
+  done
+  [ -z "$skipped" ] || fail "shells installed here but never run:$skipped"
+}
+
+# assert_script_portable <before> <script> [<arg>...]: runs <script> under each
+# SCRIPT_SHELLS shell and calls the function <before> before each run (`:` for
+# none). Fails when a run exits non-zero, when its output differs from the first
+# shell's output, or when an installed shell did not run. Puts the first shell's
+# stdout in $output. The caller must assert on that content, because a script
+# that prints nothing passes under every shell.
+assert_script_portable() {
+  local before=$1 script=$2 sh out st first= ran=
+  shift 2
+  while IFS= read -r sh; do
+    # Reset the caller's fixture, so the second shell does not see the changes
+    # of the first run.
+    "$before"
+    st=0
+    out="$("$sh" "$script" "$@" 2>/dev/null)" || st=$?
+    [ "$st" -eq 0 ] || fail "$sh exited $st running $script"
+    if [ -z "$ran" ]; then
+      first="$out"
+    else
+      [ "$out" = "$first" ] \
+        || fail "$(printf '%s disagreed with the first shell:\n--- first ---\n%s\n--- %s ---\n%s' "$sh" "$first" "$sh" "$out")"
+    fi
+    ran="$ran$sh"$'\n'
+  done < <(shells_among "${SCRIPT_SHELLS[@]}")
+
+  [ -n "$ran" ] || fail "no shell available to run $script"
+  assert_shells_covered "$ran" "${SCRIPT_SHELLS[@]}"
+  output="$first"
+}
+
+# output_values <key>: every value of a `key=value` line in $output, one per
+# line.
+output_values() { printf '%s\n' "$output" | sed -n "s/^$1=//p"; }
 
 # Point git at a fixed config instead of the caller's. scrub_git_env cannot do
 # this: --local-env-vars covers GIT_CONFIG and GIT_CONFIG_COUNT but not

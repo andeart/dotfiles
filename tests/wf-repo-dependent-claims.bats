@@ -59,24 +59,13 @@ RULE_ANCHORS=(
   'Widening a repo-specific claim into a universal one'
 )
 
-skill_files() {
-  printf '%s\n' "$DOTFILES_ROOT"/agents/skills/*/SKILL.md
-}
-
 @test "the banned-phrase list is not empty" {
   # An emptied list would make the sweep below pass over anything at all.
   [ "${#BANNED[@]}" -gt 0 ]
 }
 
 @test "the skills glob names real files" {
-  # An unmatched glob expands to itself, and grep over a path that does not
-  # exist reports nothing found - which reads exactly like a clean sweep.
-  local f count=0
-  while IFS= read -r f; do
-    [ -f "$f" ] || fail "the skills glob produced a non-file: $f"
-    count=$((count + 1))
-  done < <(skill_files)
-  [ "$count" -gt 1 ] || fail "the skills glob matched $count files"
+  assert_skill_glob
 }
 
 @test "no skill states the answer to a check the repo decides" {

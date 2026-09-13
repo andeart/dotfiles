@@ -33,7 +33,9 @@ command -v gh >/dev/null 2>&1 && echo 'gh=yes' || echo 'gh=no'
 origin=$(git remote get-url origin 2>/dev/null)
 echo "origin=$origin"
 [ -n "$origin" ] && git fetch --quiet origin
-echo "branch=$(git symbolic-ref --short HEAD 2>/dev/null)"
+branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+echo "branch=$branch"
+case "$branch" in -*|*[!A-Za-z0-9._/-]*) echo 'refcheck=unsafe' ;; *) echo 'refcheck=ok' ;; esac
 default=$(git rev-parse --verify --quiet main >/dev/null && echo main || { git rev-parse --verify --quiet master >/dev/null && echo master; })
 echo "default=$default"
 git rev-parse --git-dir --git-common-dir --show-toplevel | { read -r a; read -r b; read -r c; echo "gitdir=$a"; echo "commondir=$b"; echo "toplevel=$c"; }
@@ -52,6 +54,7 @@ All of these must pass before any destructive action runs. Any failure stops the
 - `gh=no` - stop and tell the user `gh` is not on PATH.
 - `origin=` empty - stop and tell the user no remote named `origin` is configured.
 - `branch=` empty - HEAD is detached. Stop and tell the user to check out the feature branch first. Otherwise this is `<FEATURE>`.
+- `refcheck=` is not `ok`, or the line is absent - stop with `This branch name starts with - or holds a character that is not a letter, a digit, ., _, / or -, so /wf-wrap will not put it into a command:` followed by `<branch>` in a fenced block, because the name is repo-controlled text. Each later step puts `<FEATURE>` into a command, some without quotes, and this is the only check.
 - `default=` - this is `<DEFAULT>`. If it is empty, neither `main` nor `master` exists; stop and say so.
 - `status<<<` followed by any lines - stop with:
 
@@ -137,32 +140,24 @@ git status --porcelain
 
 `branch=` must still be `<FEATURE>`. Anything else means HEAD moved during the wait while every step below still acts on the saved name; stop with: `HEAD moved to <branch> during the wait - re-run /wf-wrap from <FEATURE>.` Re-resolve `<IN_WORKTREE>`, `<WORKTREE_PATH>` and `<PRIMARY>` from the three path lines with Step 0's rule, since Step 4 spends them. Then apply Step 0's `unpushed<<<` and `status<<<` rules unchanged - porcelain lines stop with its uncommitted-changes message, unpushed commits stop by naming them.
 
-The fetch is required and is not a duplicate of Step 0's. The probe below compares against `origin/<DEFAULT>`, and on this path that ref was last read before the merge existed. Skip the fetch and the probe reports `+` for work that did land, which stops every awaited wrap.
+The fetch is required and is not a duplicate of Step 0's. The probe below compares against `refs/remotes/origin/<DEFAULT>`, and on this path that ref was last read before the merge existed. Skip the fetch and the probe reports `+` for work that did land, which stops every awaited wrap.
 
 ### Step 1c: Prove nothing is lost
 
 `gh` reporting `MERGED` says the PR merged; it does not say the local branch holds nothing the default branch lacks. Prove that separately, because Step 4 may discard the branch:
 
 ```bash
-mb=$(git merge-base origin/<DEFAULT> <FEATURE>)
-echo "head=$(git rev-parse <FEATURE>)"
-git merge-base --is-ancestor <FEATURE> origin/<DEFAULT> && echo 'landed=ancestor'
-git cherry origin/<DEFAULT> "$(git commit-tree "$(git rev-parse <FEATURE>^{tree})" -p "$mb" -m squash-probe)" \
-  | awk '$1 == "-" { print "landed=squash" }'
-git cherry origin/<DEFAULT> <FEATURE> | awk '$1 == "+" { n++ } END { if (NR && !n) print "landed=replayed" }'
-echo 'probed=yes'
+bash ~/.agents/skills/wf-wrap/scripts/landing-probe.sh 'refs/remotes/origin/<DEFAULT>' 'refs/heads/<FEATURE>'
 ```
 
-Three questions, one per merge method, and any one of them answering is the whole proof. `landed=ancestor` - the branch tip is reachable from the default branch, which is what a merge commit leaves behind. `landed=squash` - the branch's tree squashed onto its own merge base is a patch already upstream, which is what a squash merge leaves behind. `landed=replayed` - `mb..<FEATURE>` holds at least one commit and every one of them has an equivalent patch upstream, which is what a rebase merge leaves behind. `probed=yes` closes the block: without it a result cut short is indistinguishable from three probes that all came back silent, and the skill would stop over a truncation while blaming the branch. Then:
+Run it as its own call. A non-zero exit means the probe did not finish: stop the wrap, report its stderr, and do not run it again. This is not the no-landed stop below, and nothing destructive has run yet.
+
+Each `landed=` line answers for one merge method, and one line is the full proof. Then:
 
 - **One or more `landed=` lines** - the merge landed everything; discarding the branch loses nothing. Proceed silently: this is the expected result on every wrap, and saying so turns the guard into noise. Which line came back is not interesting and does not get reported - it names the repo's merge method, not a property of this work.
-- **No `landed=` line** - it did not. Show `git diff --stat $(git merge-base origin/<DEFAULT> <FEATURE>) <FEATURE>` in either case below, since that diff is the only thing that says what the branch is carrying and an unpushed commit produces silence under both. Then let `head=` name the case, and stop. **Equal to `<HEAD_OID>`** - the local branch is what merged, so the content should be upstream and is not. **Not equal** - the local branch is not what merged: `Local <FEATURE> is at <head>, PR <number> merged <HEAD_OID>. Fetch that tip with git fetch origin refs/pull/<number>/head before discarding anything.`
-
-Do not drop a probe for being redundant, and do not drop the `NR &&`: each is the only thing answering for one merge method or, in the guard's case, keeping a failed probe from printing the line that authorises Step 4's discard. `tests/wf-wrap-landing-probe.bats` pins a row per method and the three that have to stay silent, and its header carries why each piece is load-bearing.
+- **No `landed=` line** - it did not. Show `git diff --stat $(git merge-base refs/remotes/origin/<DEFAULT> refs/heads/<FEATURE>) refs/heads/<FEATURE>` in either case below, since that diff is the only thing that says what the branch is carrying and an unpushed commit produces silence under both. Then let `head=` name the case, and stop. **Equal to `<HEAD_OID>`** - the local branch is what merged, so the content should be upstream and is not. **Not equal** - the local branch is not what merged: `Local <FEATURE> is at <head>, PR <number> merged <HEAD_OID>. Fetch that tip with git fetch origin refs/pull/<number>/head before discarding anything.`
 
 Compare against `<HEAD_OID>` rather than `@{upstream}`. A plain fetch does not prune, so once the merge deletes the head branch the tracking ref freezes at whatever Step 0 last saw - and a push made during an armed wait, which is the whole window this check exists for, never reaches it. That deletion is also why the recovery above names `refs/pull/<number>/head`: GitHub keeps that ref once the branch is gone, where `git pull` has nothing left to pull.
-
-The probe commit is dangling and gets garbage-collected; no ref moves. Do not substitute `git diff <FEATURE> origin/<DEFAULT>` - it looks equivalent, but reports a difference as soon as any unrelated commit lands on the default branch, blocking legitimate wraps and training you to override the one guard that matters.
 
 ## Step 2: Resolve the Plane work item identifier
 

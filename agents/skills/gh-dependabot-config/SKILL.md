@@ -32,19 +32,6 @@ You own the parts a frozen table cannot settle: the drift check in step 1, any
 manifest the table does not recognise, and the Terraform/OpenTofu call. Treat the
 table as a fast path, never as the authoritative list of what exists.
 
-## Step 0: Locate the script
-
-The script ships beside this file:
-
-```bash
-ls ~/.claude/skills/gh-dependabot-config/scripts/generate-dependabot-config.sh \
-   ~/.agents/skills/gh-dependabot-config/scripts/generate-dependabot-config.sh 2>/dev/null
-```
-
-Use whichever path exists and call it with `bash <path>`, not by executing it
-directly - the sync that materialises these files does not guarantee the
-executable bit survives. Call this path `<GEN>`.
-
 ## Step 1: Self-heal the ecosystem table
 
 Do this on every run, before generating anything. GitHub adds ecosystems over
@@ -55,7 +42,7 @@ surfaces the gap on its own.
 1. Ask the script what it knows:
 
    ```bash
-   bash <GEN> --list-ecosystems
+   bash ~/.agents/skills/gh-dependabot-config/scripts/generate-dependabot-config.sh --list-ecosystems
    ```
 
 2. Fetch the live list from the options reference and extract every documented
@@ -123,7 +110,8 @@ so the PRs still land on someone. Call the result `<ASSIGNEE>`.
 ## Step 4: Generate
 
 ```bash
-bash <GEN> --assignee <ASSIGNEE> > /tmp/dependabot.yml
+bash ~/.agents/skills/gh-dependabot-config/scripts/generate-dependabot-config.sh \
+  --assignee <ASSIGNEE> > /tmp/dependabot.yml
 ```
 
 The config goes to stdout; the detection report goes to stderr. Read the report -

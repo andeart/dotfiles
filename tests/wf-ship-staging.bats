@@ -5,48 +5,36 @@ load helpers/setup
 bats_require_minimum_version 1.5.0
 
 SKILL="$DOTFILES_ROOT/agents/skills/wf-ship/SKILL.md"
+SCRIPT="$DOTFILES_ROOT/agents/skills/wf-ship/scripts/stage-work.sh"
+CALL='bash ~/.agents/skills/wf-ship/scripts/stage-work.sh'
 
-# The staging block is read out of SKILL.md rather than copied here. The skill
-# is the only place it exists - nothing executes that file - so a copy would
-# grade a stale expression and pass while the real one rotted, which is the
-# same reason tests/wf-wrap-gh-jq.bats extracts wf-wrap's jq program instead of
-# retyping it.
+# The cases run scripts/stage-work.sh itself, so no copy of its code can go
+# stale. The call-site case checks that wf-ship still calls the script.
 #
-# Every case below grades what the index and the working tree hold after the
-# block ran, not what the block printed about them. A test that read a
-# classifier's stdout would pass on a correctly worded skill that stages the
-# wrong files.
+# The cases test what the index and the working tree hold after the script
+# runs, not what the script printed. A test that read only stdout would pass for
+# a correctly worded skill that stages the wrong files.
 
-# ─── extraction ────────────────────────────────────────────────────────────
+# ─── reading the script ────────────────────────────────────────────────────
 
-# The one fenced bash block inside "## Staging what belongs to the work". The
-# default `^## ` close is what is wanted here: it must not close on
-# `### Reporting the residue`, which is nested under the section.
-SECTION='^## Staging what belongs to the work$'
+# The script without its comment lines, so a comment can name `git add` or a
+# pathspec and the counts below stay correct.
+script_code() { grep -v '^[[:space:]]*#' "$SCRIPT"; }
 
-staging_block() { skill_bash_block "$SKILL" "$SECTION"; }
-staging_fence_count() { skill_bash_fence_count "$SKILL" "$SECTION"; }
-
-# The exclusion suffixes, parsed out of the block rather than retyped, so the
-# loop below generates one case per suffix the block actually carries. The
-# count is asserted separately: a seventh has to be a deliberate edit here as
-# well as there, and it earns its place by having actually been seen.
+# The exclusion suffixes, read from the script, so the loop below makes one case
+# for each suffix in the script. A separate assertion checks the count: a
+# seventh suffix needs an edit here and in the script, and a real leftover that
+# needs it.
 # `.orig` and `.rej` are merge and patch leftovers, `~` and `.bak` editor
 # backups, `.swp` and `.swo` vim swap files.
 block_suffixes() {
-  grep -o "':(top,exclude,icase)[^']*'" "$BLOCK" | sed "s/^':(top,exclude,icase)//; s/'\$//"
+  script_code | grep -o "':(top,exclude,icase)[^']*'" | sed "s/^':(top,exclude,icase)//; s/'\$//"
 }
 
-# The block's `git add` invocations, with backslash continuations joined so the
+# The script's `git add` commands, with backslash continuations joined, so the
 # second add reads as one line.
 add_invocations() {
-  sed -e :a -e '/\\$/N; s/\\\n//; ta' "$BLOCK" | grep -F 'git add'
-}
-
-setup() {
-  BLOCK="$BATS_TEST_TMPDIR/staging-block.sh"
-  staging_block > "$BLOCK"
-  [ -s "$BLOCK" ] || fail "no staging block extracted from $SKILL"
+  script_code | join_continuations | grep -F 'git add'
 }
 
 # ─── temp-repo scaffolding ─────────────────────────────────────────────────
@@ -69,7 +57,7 @@ new_repo() {
 
 # A repo mid-merge with a both-added conflict on both.txt. `AA` is one of the
 # two unmerged porcelain codes carrying no `U` in either column, which is why
-# the block reads `git ls-files -u` rather than porcelain.
+# the script reads `git ls-files -u` rather than porcelain.
 new_conflicted_repo() {
   new_repo
   git checkout --quiet -b other
@@ -83,31 +71,12 @@ new_conflicted_repo() {
   git merge other >/dev/null 2>&1 || true
 }
 
-run_block() {
-  run bash "$BLOCK"
-  [ "$status" -eq 0 ] || fail "the block itself exited $status: $output"
+run_script() {
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ] || fail "the script exited $status: $output"
 }
 
-# The shells AGENTS.md requires a SKILL.md block to run under, resolved and
-# deduplicated, skipping any this machine does not have. `bash` and /bin/bash
-# are the same binary on the ubuntu-latest runner and different ones on macOS,
-# where /bin/bash is still 3.2 - which is the leg `run_block` never reaches,
-# since it takes whichever bash is first on PATH.
-portable_shells() {
-  local sh path seen=" "
-  for sh in /bin/bash bash /bin/zsh zsh; do
-    path="$(command -v "$sh" 2>/dev/null)" || continue
-    [ -n "$path" ] || continue
-    case "$seen" in *" $path "*) continue ;; esac
-    seen="$seen$path "
-    printf '%s\n' "$path"
-  done
-}
-
-# val <key>: the value of a `key=value` line the block printed.
-val() {
-  printf '%s\n' "$output" | sed -n "s/^$1=//p"
-}
+reset_index() { git reset --quiet; }
 
 # Everything after the residue marker - <RESIDUE> as the skill hands it to the
 # report.
@@ -118,11 +87,10 @@ residue_lines() {
 staged_paths() { git diff --cached --name-only | sort; }
 untracked_paths() { git ls-files -o --exclude-standard | sort; }
 
-# ─── the block is still where the tests look for it ────────────────────────
+# ─── the skill still calls the script ──────────────────────────────────────
 
-@test "the staging block is extracted from the skill exactly once" {
-  [ "$(staging_fence_count)" -eq 1 ]
-  printf '%s\n' "$(staging_block)" | grep -qF 'git add -u'
+@test "wf-ship calls the staging script once, alone in its block" {
+  assert_sole_call "$SKILL" "$CALL"
 }
 
 # ─── what gets left behind ─────────────────────────────────────────────────
@@ -140,26 +108,26 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
     printf 'x\n' > "$name"
   done <<< "$suffixes"
 
-  run_block
-  [ "$(val staged)" = "yes" ]
+  run_script
+  [ "$(output_values staged)" = "yes" ]
   [ "$(staged_paths)" = "tracked.txt" ]
-  [ "$(val residue_total)" -eq 6 ]
+  [ "$(output_values residue_total)" -eq 6 ]
 }
 
 @test "an uppercase .ORIG is left unstaged" {
   new_repo
   printf 'x\n' > UPPER.ORIG
   printf 'x\n' > Mixed.Orig
-  run_block
-  [ "$(val staged)" = "no" ]
+  run_script
+  [ "$(output_values staged)" = "no" ]
   [ "$(residue_lines)" = "$(printf 'Mixed.Orig\nUPPER.ORIG')" ]
 }
 
 @test "a hidden vim swap file is left unstaged" {
   new_repo
   printf 'x\n' > .foo.txt.swp
-  run_block
-  [ "$(val staged)" = "no" ]
+  run_script
+  [ "$(output_values staged)" = "no" ]
   [ "$(residue_lines)" = ".foo.txt.swp" ]
 }
 
@@ -168,11 +136,11 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
 @test "an untracked ordinary file is staged" {
   new_repo
   printf 'x\n' > new.txt
-  run_block
-  [ "$(val staged)" = "yes" ]
-  [ "$(val staged_total)" -eq 1 ]
+  run_script
+  [ "$(output_values staged)" = "yes" ]
+  [ "$(output_values staged_total)" -eq 1 ]
   [ "$(staged_paths)" = "new.txt" ]
-  [ "$(val residue_total)" -eq 0 ]
+  [ "$(output_values residue_total)" -eq 0 ]
 }
 
 # staged_total is the only place an untracked directory's size reaches the
@@ -189,9 +157,9 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   # What the agent would have been handed for this tree, one line.
   [ "$(git status --porcelain)" = "?? vendored/" ]
 
-  run_block
-  [ "$(val staged)" = "yes" ]
-  [ "$(val staged_total)" -eq 12 ]
+  run_script
+  [ "$(output_values staged)" = "yes" ]
+  [ "$(output_values staged_total)" -eq 12 ]
 }
 
 @test "a tracked file named *.orig has its modification staged" {
@@ -201,19 +169,19 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   git commit --quiet -m 'track an orig'
   printf 'v2\n' > keep.orig
 
-  run_block
+  run_script
   [ "$(staged_paths)" = "keep.orig" ]
   [ "$(git show :keep.orig)" = "v2" ]
-  [ "$(val residue_total)" -eq 0 ]
+  [ "$(output_values residue_total)" -eq 0 ]
 }
 
-@test "residue staged by hand before the block runs stays staged and is not reported" {
+@test "residue staged by hand before the script runs stays staged and is not reported" {
   new_repo
   printf 'x\n' > hand.bak
   git add -f hand.bak
   printf 'x\n' > loose.bak
 
-  run_block
+  run_script
   [ "$(staged_paths)" = "hand.bak" ]
   [ "$(residue_lines)" = "loose.bak" ]
 }
@@ -223,7 +191,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   printf 'x\n' > 'my file.txt'
   printf 'x\n' > 'my file.orig'
 
-  run_block
+  run_script
   [ "$(staged_paths)" = "my file.txt" ]
   [ "$(residue_lines)" = "my file.orig" ]
 }
@@ -234,7 +202,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   printf 'x\n' > d/ok.txt
   printf 'x\n' > d/left.orig
 
-  run_block
+  run_script
   [ "$(staged_paths)" = "d/ok.txt" ]
   [ "$(residue_lines)" = "d/left.orig" ]
 }
@@ -244,11 +212,11 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   printf 'x\n' > a.orig
   printf 'x\n' > b.rej
 
-  run_block
-  [ "$(val staged)" = "no" ]
-  [ "$(val staged_total)" -eq 0 ]
+  run_script
+  [ "$(output_values staged)" = "no" ]
+  [ "$(output_values staged_total)" -eq 0 ]
   [ -z "$(staged_paths)" ]
-  [ "$(val residue_total)" -eq 2 ]
+  [ "$(output_values residue_total)" -eq 2 ]
 }
 
 # ─── the stops ─────────────────────────────────────────────────────────────
@@ -257,12 +225,12 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   new_conflicted_repo
   # Grade on the unmerged stage entries, not on an empty `git diff --cached`:
   # an unmerged index legitimately reports its paths as staged, so the obvious
-  # assertion is red against a correct block.
+  # assertion is red against a correct script.
   [ -n "$(git ls-files -u)" ]
 
-  run_block
-  [ "$(val blocked)" = "MERGE_HEAD" ]
-  [ -z "$(val staged)" ]
+  run_script
+  [ "$(output_values blocked)" = "MERGE_HEAD" ]
+  [ -z "$(output_values staged)" ]
   [ -n "$(git ls-files -u)" ]
 }
 
@@ -276,8 +244,8 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   # two-parent merge commit carrying a message about new.txt.
   [ -z "$(git ls-files -u)" ]
 
-  run_block
-  [ "$(val blocked)" = "MERGE_HEAD" ]
+  run_script
+  [ "$(output_values blocked)" = "MERGE_HEAD" ]
   [ "$(untracked_paths)" = "new.txt" ]
 }
 
@@ -293,24 +261,27 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ -n "$(git ls-files -u)" ]
   [ ! -e "$(git rev-parse --git-dir)/MERGE_HEAD" ]
 
-  run_block
-  [ "$(val blocked)" = "unmerged-index" ]
+  run_script
+  [ "$(output_values blocked)" = "unmerged-index" ]
 }
 
+# The script runs under set -e. This case and the next also check that the
+# script captures the status of each add: an add left to set -e stops the script
+# before either exit line prints.
 @test "an embedded repository with no commit fails the add and reports no residue" {
   new_repo
   printf 'edit\n' >> tracked.txt
   mkdir emb
   ( cd emb && git init --quiet . )
 
-  run_block
-  [ "$(val add_tracked_exit)" -eq 0 ]
-  [ "$(val add_rest_exit)" -ne 0 ]
+  run_script
+  [ "$(output_values add_tracked_exit)" -eq 0 ]
+  [ "$(output_values add_rest_exit)" -ne 0 ]
   # git add -u already wrote its index update, so the tracked change survives
   # over a half-staged index - which is why this stops the ship.
   [ "$(staged_paths)" = "tracked.txt" ]
   ! printf '%s\n' "$output" | grep -qF 'residue<<<' || fail "residue was read after a failed add"
-  [ -z "$(val residue_total)" ]
+  [ -z "$(output_values residue_total)" ]
 }
 
 # The mirror of the case above, and the reason the residue read is gated on
@@ -334,13 +305,13 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
     skip "this user can read a chmod 000 file"
   fi
 
-  run_block
+  run_script
   chmod 644 keep.orig
-  [ "$(val add_tracked_exit)" -ne 0 ]
-  [ "$(val add_rest_exit)" -eq 0 ]
-  [ "$(val staged)" = "yes" ]
+  [ "$(output_values add_tracked_exit)" -ne 0 ]
+  [ "$(output_values add_rest_exit)" -eq 0 ]
+  [ "$(output_values staged)" = "yes" ]
   ! printf '%s\n' "$output" | grep -qF 'residue<<<' || fail "residue was read after a failed add"
-  [ -z "$(val residue_total)" ]
+  [ -z "$(output_values residue_total)" ]
 }
 
 @test "an embedded repository with a commit is reported as a gitlink" {
@@ -348,13 +319,23 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   mkdir 'emb dir'
   ( cd 'emb dir' && git init --quiet . && printf 'x\n' > f && git add f && git commit --quiet -m e )
 
-  run_block
-  [ "$(val add_rest_exit)" -eq 0 ]
-  [ "$(val staged)" = "yes" ]
+  run_script
+  [ "$(output_values add_rest_exit)" -eq 0 ]
+  [ "$(output_values staged)" = "yes" ]
   # The name carries a space, which is what pins substr() over a $4 field
   # split - the split truncates the path and the report names a directory
   # nobody has.
-  [ "$(val gitlink)" = "emb dir" ]
+  [ "$(output_values gitlink)" = "emb dir" ]
+}
+
+@test "any argument is a usage error that stages nothing" {
+  new_repo
+  printf 'x\n' > new.txt
+
+  run bash "$SCRIPT" ready
+  [ "$status" -eq 2 ]
+  [ -z "$(output_values blocked)" ]
+  [ -z "$(staged_paths)" ]
 }
 
 # ─── the output's size, and where it is read from ──────────────────────────
@@ -367,12 +348,12 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
     i=$((i + 1))
   done
 
-  run_block
-  [ "$(val residue_total)" -eq 12 ]
+  run_script
+  [ "$(output_values residue_total)" -eq 12 ]
   [ "$(residue_lines | wc -l | tr -d ' ')" -eq 10 ]
 }
 
-@test "run from a subdirectory the block still stages and reads the whole tree" {
+@test "run from a subdirectory the script still stages and reads the whole tree" {
   new_repo
   # tracked.txt is the only path here the bare `git add -u` is responsible for.
   # Every other one is untracked and reached by the second add's `:/`, so
@@ -387,7 +368,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   printf 'x\n' > sub/work.txt
 
   cd sub || fail "cd sub failed"
-  run_block
+  run_script
   cd .. || fail "cd .. failed"
 
   # A mis-rooted exclusion fails silently in the dangerous direction: the
@@ -397,9 +378,9 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ "$(residue_lines)" = "$(printf 'root.orig\nsub/deep/b.orig')" ]
 }
 
-# ─── the block's shape ─────────────────────────────────────────────────────
+# ─── the script's shape ────────────────────────────────────────────────────
 
-@test "the block runs exactly two git adds and feeds neither a command substitution" {
+@test "the script runs exactly two git adds and feeds neither a command substitution" {
   local adds
   adds="$(add_invocations)"
   [ "$(printf '%s\n' "$adds" | wc -l | tr -d ' ')" -eq 2 ] \
@@ -415,54 +396,17 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
 
 # ─── portability ───────────────────────────────────────────────────────────
 
-# Every other case runs the block under one shell. AGENTS.md requires three,
-# and this is the only file in the suite that executes a SKILL.md block at all,
-# so if the requirement is pinned anywhere it is here.
-@test "the block answers identically under every shell AGENTS.md names" {
+# The other cases run the script under PATH's bash, as the skill's `bash <path>`
+# call does. AGENTS.md also requires /bin/bash 3.2, which is /bin/bash on macOS.
+@test "the script answers identically under /bin/bash and PATH's bash" {
   new_repo
   printf 'work\n' >> tracked.txt
   printf 'x\n' > new.txt
   printf 'x\n' > left.orig
 
-  local sh out first= ran=0
-  while IFS= read -r sh; do
-    # Back to the same starting index for each shell, or the second one grades
-    # the first one's work.
-    git reset --quiet
-    out="$("$sh" "$BLOCK" 2>/dev/null)"
-    if [ "$ran" -eq 0 ]; then
-      first="$out"
-    else
-      [ "$out" = "$first" ] \
-        || fail "$(printf '%s disagreed with the first shell:\n--- first ---\n%s\n--- %s ---\n%s' "$sh" "$first" "$sh" "$out")"
-    fi
-    ran=$((ran + 1))
-  done < <(portable_shells)
+  assert_script_portable reset_index "$SCRIPT"
 
-  [ "$ran" -ge 1 ] || fail "no shell available to run the block"
-
-  # How many legs run is a property of the host, not of the block. The CI
-  # image ships one bash and no zsh, so this loop runs once there; a local
-  # macOS run covers all three. Both are allowed. What is not allowed is a host
-  # that *has* a named shell and silently skips it - a dedup bug in
-  # portable_shells is exactly how that happens with nothing turning red.
-  local want wantpath covered listed skipped=
-  for want in /bin/bash bash /bin/zsh zsh; do
-    wantpath="$(command -v "$want" 2>/dev/null)" || continue
-    covered=no
-    # Whole-line comparison, not a substring one: /opt/homebrew/bin/bash ends
-    # in /bin/bash, so a `case` glob would count the homebrew build as coverage
-    # of the 3.2 one macOS ships - hiding the exact leg this is here to find.
-    while IFS= read -r listed; do
-      [ "$listed" = "$wantpath" ] && covered=yes
-    done < <(portable_shells)
-    [ "$covered" = yes ] || skipped="$skipped $want"
-  done
-  [ -z "$skipped" ] || fail "shells installed here but never run:$skipped"
-
-  # Without this the case passes on a block that prints nothing, identically,
-  # under every shell.
-  printf '%s\n' "$first" | grep -qF 'staged=yes' || fail "unexpected output: $first"
-  printf '%s\n' "$first" | grep -qF 'residue_total=1' || fail "unexpected output: $first"
-  printf '%s\n' "$first" | grep -qF 'left.orig' || fail "unexpected output: $first"
+  printf '%s\n' "$output" | grep -qF 'staged=yes' || fail "unexpected output: $output"
+  printf '%s\n' "$output" | grep -qF 'residue_total=1' || fail "unexpected output: $output"
+  printf '%s\n' "$output" | grep -qF 'left.orig' || fail "unexpected output: $output"
 }

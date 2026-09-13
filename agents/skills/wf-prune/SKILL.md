@@ -35,7 +35,17 @@ A branch counts as "merged" if **either** of these is true:
 1. **Git ancestry** - `git branch --merged <DEFAULT>` lists it (works for true merge commits)
 2. **GitHub PR** - `gh pr list --head <branch-name> --state merged` returns a result (works for squash and rebase merges)
 
-First, get all local branches except `<DEFAULT>` (and `master`/`main` if the other exists). Then check each one against both criteria. A branch only needs to satisfy one to be considered merged.
+First, list the local branches. The block checks each name before a command below uses it:
+
+```bash
+git for-each-ref --format='%(refname:lstrip=2)' refs/heads/ | while IFS= read -r b; do
+  case "$b" in -*|*[!A-Za-z0-9._/-]*) echo "unsafe=$b" ;; *) echo "branch=$b" ;; esac
+done
+```
+
+Use only `branch=` names in the criteria, the probe and every later command. Several of those commands use the name without quotes. Never put an `unsafe=` name into a command; Step 3 lists it as not examined. The format is `lstrip=2`, not `short`, because `short` prints `heads/<name>` when a tag has the same name.
+
+Drop `<DEFAULT>` (and `master`/`main` if the other exists) from the `branch=` names, then check each one against both criteria. A branch only needs to satisfy one to be considered merged.
 
 For criterion 1:
 ```bash
@@ -52,7 +62,8 @@ for Step 4 rather than dropping it - some leftovers were superseded rather than
 abandoned.
 
 If nothing matches either criterion and Step 4 clears none of the leftovers, tell
-the user everything is clean and stop.
+the user everything is clean and stop. Still name each `unsafe=` branch as Step 3
+does.
 
 ## Step 3: Gather PR and remote info
 
@@ -89,6 +100,11 @@ Merged branches:
 - quick-patch - merged via git ancestry, no PR found - remote deleted
 ```
 
+Under the list, name each `unsafe=` branch as not examined. Put the names in a
+fenced block, because they are repo-controlled text. Give the reason: the name
+starts with `-`, or holds a character that is not a letter, a digit, `.`, `_`,
+`/` or `-`.
+
 Do NOT suggest deleting remote branches. That's not this skill's job.
 
 ## Step 4: Check the leftovers for superseded work
@@ -102,7 +118,7 @@ unmerged work.
 Run the probe on each leftover:
 
 ```bash
-agents/skills/wf-prune/scripts/superseded-probe.sh <branch-name> <DEFAULT>
+bash ~/.agents/skills/wf-prune/scripts/superseded-probe.sh '<branch-name>' '<DEFAULT>'
 ```
 
 It exits 0 and prints `verdict=superseded` when all of these hold, and exits 1
