@@ -13,7 +13,7 @@ set -euo pipefail
 #             equivalent patch upstream (rebase merge)
 # Each probe is the only one answering for its method, so none is redundant.
 # tests/wf-wrap-landing-probe.bats pins a row per method and the cases that have
-# to stay silent, and its header carries why each piece is load-bearing.
+# to stay silent.
 #
 # Do not substitute `git diff <feature> <default-ref>` for the probes. It looks
 # equivalent, but reports a difference as soon as any unrelated commit lands on

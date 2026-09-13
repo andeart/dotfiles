@@ -21,18 +21,13 @@ CALL="bash ~/.agents/skills/wf-wrap/scripts/landing-probe.sh 'origin/<DEFAULT>' 
 # run: `landed=` is what authorises Step 4 to discard the branch, so a probe
 # that answers when it cannot see the default branch is worse than no probe.
 #
-# Why each piece of the probe is load-bearing. The script points here for this
-# rather than carrying all of it as comments:
+# What the script's own comments do not carry:
 #
-# - Each merge method has exactly one probe that answers it, so dropping one
-#   for looking redundant turns that method's every wrap into a false stop.
-# - `NR &&` keeps the per-commit sweep from reading its own failure as a
-#   landing. `git cherry` writes errors to stderr, so a probe that cannot
-#   resolve `origin/<DEFAULT>` leaves the same empty stdout as a branch whose
-#   every commit is upstream. The "cannot resolve" case below is that one.
-# - The script runs under set -e, and that same case is what pins its guards:
-#   an unguarded merge-base stops the script before `head=`, and with it
-#   before `probed=yes`.
+# - The "cannot resolve" case below pins both failure guards. `NR &&`, because
+#   `git cherry` writes errors to stderr and leaves the same empty stdout as a
+#   branch whose every commit is upstream. The set -e guards, because an
+#   unguarded merge-base stops the script before `head=`, and with it before
+#   `probed=yes`.
 # - `git cherry` skips merge commits, so the sweep speaks only for the
 #   non-merge commits in `mb..<FEATURE>`. A branch that merged the default
 #   branch into itself to resolve a conflict and then landed by replay would

@@ -54,7 +54,7 @@ All of these must pass before any destructive action runs. Any failure stops the
 - `gh=no` - stop and tell the user `gh` is not on PATH.
 - `origin=` empty - stop and tell the user no remote named `origin` is configured.
 - `branch=` empty - HEAD is detached. Stop and tell the user to check out the feature branch first. Otherwise this is `<FEATURE>`.
-- `refcheck=` anything but `ok`, an absent line included - stop with: `Branch <branch> begins with - or holds a character other than a letter, digit, ., _, / or -, so /wf-wrap will not put it into a command.` Every later step substitutes `<FEATURE>`, several unquoted, and this is the one place it is checked.
+- `refcheck=` anything but `ok`, an absent line included - stop with `This branch begins with - or holds a character other than a letter, digit, ., _, / or -, so /wf-wrap will not put it into a command:` followed by `<branch>` in a fenced block, since the name is repo-controlled text. Every later step substitutes `<FEATURE>`, several unquoted, and this is the one place it is checked.
 - `default=` - this is `<DEFAULT>`. If it is empty, neither `main` nor `master` exists; stop and say so.
 - `status<<<` followed by any lines - stop with:
 

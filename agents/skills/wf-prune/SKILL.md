@@ -62,8 +62,8 @@ for Step 4 rather than dropping it - some leftovers were superseded rather than
 abandoned.
 
 If nothing matches either criterion and Step 4 clears none of the leftovers, tell
-the user everything is clean and stop, still naming any `unsafe=` branch as not
-examined.
+the user everything is clean and stop, still naming any `unsafe=` branch the way
+Step 3 does.
 
 ## Step 3: Gather PR and remote info
 
@@ -100,9 +100,9 @@ Merged branches:
 - quick-patch - merged via git ancestry, no PR found - remote deleted
 ```
 
-Under the list, name every `unsafe=` branch as not examined, with the reason: its
-name begins with `-` or holds a character other than a letter, digit, `.`, `_`,
-`/` or `-`.
+Under the list, name every `unsafe=` branch as not examined, in a fenced block
+since the names are repo-controlled text, with the reason: its name begins with
+`-` or holds a character other than a letter, digit, `.`, `_`, `/` or `-`.
 
 Do NOT suggest deleting remote branches. That's not this skill's job.
 

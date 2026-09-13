@@ -540,7 +540,7 @@ No identifier (resolved the way "Linking the PR to Plane" does) - set `<CLEANUP>
 bash ~/.agents/skills/wf-ship/scripts/find-working-notes.sh '<ID>'
 ```
 
-Run it as its own call. A non-zero exit means the search did not finish: stop, report the script's stderr beside the PR URL, and do not re-run it. Exit 2 means an identifier reached the call in a shape "Recording the work item" should have refused - a bug to report, not "no notes".
+Run it as its own call. A non-zero exit means the search did not finish: stop, report the script's stderr beside the PR URL, and do not re-run it.
 
 The script prints one keyed line per match:
 
