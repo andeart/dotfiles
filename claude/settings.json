@@ -156,5 +156,10 @@
   "switchModelsOnFlag": false,
   "autoContinueAtUsageLimit": true,
   "remoteControlAtStartup": false,
-  "agentPushNotifEnabled": true
+  "agentPushNotifEnabled": true,
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  }
 }
