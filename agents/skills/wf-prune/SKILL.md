@@ -43,7 +43,7 @@ git for-each-ref --format='%(refname:lstrip=2)' refs/heads/ | while IFS= read -r
 done
 ```
 
-Only a `branch=` name reaches the criteria, the probe, or any later command, several of which substitute it unquoted. An `unsafe=` name begins with `-` or holds a character other than a letter, digit, `.`, `_`, `/` or `-`: list it in Step 3 as not examined, and never substitute it anywhere. The format is `lstrip=2` rather than `short`, which prints `heads/<name>` when a tag shares the name.
+Only a `branch=` name reaches the criteria, the probe, or any later command, several of which substitute it unquoted. Never substitute an `unsafe=` name anywhere; Step 3 lists it as not examined. The format is `lstrip=2` rather than `short`, which prints `heads/<name>` when a tag shares the name.
 
 Drop `<DEFAULT>` (and `master`/`main` if the other exists) from the `branch=` names, then check each one against both criteria. A branch only needs to satisfy one to be considered merged.
 

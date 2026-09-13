@@ -45,6 +45,14 @@ assert_skill_glob() {
 # joined, so a command split across lines reads as one.
 join_continuations() { sed -e :a -e '/\\$/N; s/\\\n//; ta' "$@"; }
 
+# assert_one_line <file> <text>: exactly one line of <file> holds the fixed
+# string <text>.
+assert_one_line() {
+  local count
+  count="$(grep -c -F -e "$2" "$1" || true)"
+  [ "$count" = 1 ] || fail "expected one line of $1 holding $2, found $count"
+}
+
 # assert_sole_call <skill-file> <call-line>: the script <call-line> runs is
 # named on exactly one line of <skill-file>, that line is <call-line> whole, and
 # it sits alone between an opening bash fence and a closing one. A skill that
@@ -52,23 +60,25 @@ join_continuations() { sed -e :a -e '/\\$/N; s/\\\n//; ta' "$@"; }
 # and a line after the call reports its own exit status over a script that
 # stopped short.
 assert_sole_call() {
-  local file=$1 call=$2 script count context
+  local file=$1 call=$2 script context
   script=${call#"bash ~/.agents/skills/"}
   script=${script%% *}
-  count="$(grep -c -F -e "$script" "$file" || true)"
-  [ "$count" = 1 ] || fail "expected $script named on one line of $file, found $count"
+  assert_one_line "$file" "$script"
   context="$(grep -B1 -A1 -F -e "$script" "$file")"
   [ "$context" = "$(printf '```bash\n%s\n```' "$call")" ] \
     || fail "$(printf 'the call to %s is not alone in its block:\n%s' "$script" "$context")"
 }
 
-# script_shells: /bin/bash and whichever bash is first on PATH, resolved and
-# deduplicated, skipping any this machine lacks. A skill calls a script as
-# `bash <path>`, which takes PATH's bash; on macOS /bin/bash is still 3.2, the
-# leg that call never reaches. On the ubuntu-latest runner both are one binary.
-script_shells() {
+# The shells a skill's `bash <path>` call can reach. It takes PATH's bash; on
+# macOS /bin/bash is still 3.2, the leg that call never reaches. On the
+# ubuntu-latest runner both are one binary.
+SCRIPT_SHELLS=(/bin/bash bash)
+
+# shells_among <candidate>...: each candidate resolved through PATH,
+# deduplicated, skipping any this machine lacks.
+shells_among() {
   local sh path seen=" "
-  for sh in /bin/bash bash; do
+  for sh in "$@"; do
     path="$(command -v "$sh" 2>/dev/null)" || continue
     [ -n "$path" ] || continue
     case "$seen" in *" $path "*) continue ;; esac
@@ -77,14 +87,36 @@ script_shells() {
   done
 }
 
+# assert_shells_covered <ran> <candidate>...: every candidate installed here
+# resolves to a line of <ran>, the shells a loop actually ran, one per line. How
+# many run is a property of the host - the CI image ships one bash and no zsh -
+# but a host that has a candidate and skips it is a dedup bug in shells_among
+# with nothing turning red.
+assert_shells_covered() {
+  local ran=$1 want wantpath covered listed skipped=
+  shift
+  for want in "$@"; do
+    wantpath="$(command -v "$want" 2>/dev/null)" || continue
+    covered=no
+    # Whole-line comparison, not a substring one: /opt/homebrew/bin/bash ends
+    # in /bin/bash, so a `case` glob would count the homebrew build as coverage
+    # of the 3.2 one macOS ships - hiding the exact leg this is here to find.
+    while IFS= read -r listed; do
+      [ "$listed" = "$wantpath" ] && covered=yes
+    done <<< "$ran"
+    [ "$covered" = yes ] || skipped="$skipped $want"
+  done
+  [ -z "$skipped" ] || fail "shells installed here but never run:$skipped"
+}
+
 # assert_script_portable <before> <script> [<arg>...]: runs <script> under every
-# shell script_shells names, calling the function <before> ahead of each run
-# (`:` for none), and fails when a run exits non-zero or prints other than the
-# first shell did. Leaves the first shell's stdout in $output for the caller's
-# content assertions: without those, a script that prints nothing passes,
-# identically, under every shell.
+# SCRIPT_SHELLS shell, calling the function <before> ahead of each run (`:` for
+# none), and fails when a run exits non-zero, prints other than the first shell
+# did, or an installed shell was skipped. Leaves the first shell's stdout in
+# $output for the caller's content assertions: without those, a script that
+# prints nothing passes, identically, under every shell.
 assert_script_portable() {
-  local before=$1 script=$2 sh out st first= ran=0
+  local before=$1 script=$2 sh out st first= ran=
   shift 2
   while IFS= read -r sh; do
     # The caller's fixture reset, or the second shell grades the first one's
@@ -93,35 +125,17 @@ assert_script_portable() {
     st=0
     out="$("$sh" "$script" "$@" 2>/dev/null)" || st=$?
     [ "$st" -eq 0 ] || fail "$sh exited $st running $script"
-    if [ "$ran" -eq 0 ]; then
+    if [ -z "$ran" ]; then
       first="$out"
     else
       [ "$out" = "$first" ] \
         || fail "$(printf '%s disagreed with the first shell:\n--- first ---\n%s\n--- %s ---\n%s' "$sh" "$first" "$sh" "$out")"
     fi
-    ran=$((ran + 1))
-  done < <(script_shells)
+    ran="$ran$sh"$'\n'
+  done < <(shells_among "${SCRIPT_SHELLS[@]}")
 
-  [ "$ran" -ge 1 ] || fail "no shell available to run $script"
-
-  # How many shells run is a property of the host, not of the script: the CI
-  # image ships one bash, so the loop runs once there. What is not allowed is a
-  # host that *has* a named shell and silently skips it - a dedup bug in
-  # script_shells is exactly how that happens with nothing turning red.
-  local want wantpath covered listed skipped=
-  for want in /bin/bash bash; do
-    wantpath="$(command -v "$want" 2>/dev/null)" || continue
-    covered=no
-    # Whole-line comparison, not a substring one: /opt/homebrew/bin/bash ends
-    # in /bin/bash, so a `case` glob would count the homebrew build as coverage
-    # of the 3.2 one macOS ships - hiding the exact leg this is here to find.
-    while IFS= read -r listed; do
-      [ "$listed" = "$wantpath" ] && covered=yes
-    done < <(script_shells)
-    [ "$covered" = yes ] || skipped="$skipped $want"
-  done
-  [ -z "$skipped" ] || fail "shells installed here but never run:$skipped"
-
+  [ -n "$ran" ] || fail "no shell available to run $script"
+  assert_shells_covered "$ran" "${SCRIPT_SHELLS[@]}"
   output="$first"
 }
 

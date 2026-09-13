@@ -11,9 +11,7 @@ set -euo pipefail
 #             upstream (squash merge)
 #   replayed  mb..<feature> holds at least one commit, and every one has an
 #             equivalent patch upstream (rebase merge)
-# Do not drop a probe for looking redundant, and do not drop the `NR &&`: each
-# probe is the only one answering for its method, and the guard keeps a failed
-# probe from printing the line that authorises wf-wrap's discard.
+# Each probe is the only one answering for its method, so none is redundant.
 # tests/wf-wrap-landing-probe.bats pins a row per method and the cases that have
 # to stay silent, and its header carries why each piece is load-bearing.
 #
@@ -58,6 +56,8 @@ git merge-base --is-ancestor "$feature" "$default_ref" && echo 'landed=ancestor'
 # The probe commit is dangling and gets garbage-collected; no ref moves.
 git cherry "$default_ref" "$(git commit-tree "$(git rev-parse "$feature^{tree}")" -p "$mb" -m squash-probe)" \
   | awk '$1 == "-" { print "landed=squash" }' || true
+# `NR &&`: a cherry that failed prints nothing, which must not read as every
+# commit being upstream, since `landed=` authorises wf-wrap's discard.
 git cherry "$default_ref" "$feature" \
   | awk '$1 == "+" { n++ } END { if (NR && !n) print "landed=replayed" }' || true
 echo 'probed=yes'
