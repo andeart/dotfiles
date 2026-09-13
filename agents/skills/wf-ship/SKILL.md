@@ -115,7 +115,7 @@ If there are no unpushed commits, tell the user there's nothing to ship and stop
 
 ### 3. Create a new branch
 
-Generate a branch name. If a work item is known for this change (see "Recording the work item" below), lead with its identifier (e.g., `ZZZ-0-add-auth-flow`). Otherwise, generate a short descriptive name from the commit subjects - lowercase, hyphenated, under 50 chars (e.g., `add-dark-mode-toggle`). The commands below substitute the name, so it must match `^[A-Za-z0-9][A-Za-z0-9-]*$`; regenerate one that does not rather than using it.
+Generate a branch name. If a work item is known for this change (see "Recording the work item" below), lead with its identifier (e.g., `ZZZ-0-add-auth-flow`). Otherwise, generate a short descriptive name from the commit subjects - lowercase, hyphenated, under 50 chars (e.g., `add-dark-mode-toggle`). The commands below use the name without quotes, so it must match `^[A-Za-z0-9][A-Za-z0-9-]*$`. If it does not match, generate a new name.
 
 `ZZZ` is a placeholder, not a real project. Keep example identifiers in this file unresolvable.
 
@@ -274,13 +274,13 @@ Set `<PR_STATE>` to `ready`, then follow "Reconciling the Plane state", "Linking
 
 Both shipping flows stage through this section, so the rule lives in one place rather than once per flow. Follow it only when Step 0's `status<<<` reported porcelain lines - a clean tree has nothing to stage, and skipping the round trip is the common case for a ship taken straight after a review cycle committed everything.
 
-Run the staging script. It guards, stages in one pass, then reads back what was left:
+Run the staging script. It checks for an open operation, stages the work in one pass, then reads back what it left:
 
 ```bash
 bash ~/.agents/skills/wf-ship/scripts/stage-work.sh
 ```
 
-Run it as its own call. A non-zero exit voids everything the call printed, a `residue_total=` line included: stop the ship, report the script's stderr, and do not re-run it.
+Run it as its own call. A non-zero exit makes all output of the call invalid, a `residue_total=` line included: stop the ship, report the script's stderr, and do not run it again.
 
 Route on the values the script printed, never on git's own prose:
 
@@ -298,7 +298,7 @@ The suffix set is not a secret net. Both adds skip ignored paths and so does the
 
 One block, immediately before the cleanup line - staging is Step 1's work, and the cleanup only has anything to say several steps later. Both "nothing to ship" stops print it too: neither reaches a Report step, and a tree holding nothing but leftovers is exactly the tree this section exists for.
 
-- `residue_total=` above zero: `- Left unstaged - these look like leftovers rather than work:` followed by `<RESIDUE>` in a fenced block, then `- ... and <n> more.` under the block when `residue_total` exceeds ten, where `<n>` is `residue_total` minus ten. The block capped its own output at ten, so there is nothing to trim.
+- `residue_total=` above zero: `- Left unstaged - these look like leftovers rather than work:` followed by `<RESIDUE>` in a fenced block, then `- ... and <n> more.` under the block when `residue_total` exceeds ten, where `<n>` is `residue_total` minus ten. The script prints at most ten paths, so there is nothing to trim.
 - `residue_total=0`: say nothing.
 - `residue_total=` unset, because Step 0 reported a clean tree and the staging section never ran: say nothing. This is the common path, not an error.
 
@@ -386,7 +386,7 @@ Whatever this section resolves is also the work item that "Linking the PR to Pla
 
 Include the line only when one of these holds:
 
-- The user named the work item for this change, and its identifier matches `^[A-Za-z]+-[0-9]+$` - the shape "Linking the PR to Plane" matches an `Issue:` line on. A named identifier of any other shape is treated as no identifier, and "Linking the PR to Plane" records it as `rejected-shape`.
+- The user named the work item for this change, and its identifier matches `^[A-Za-z]+-[0-9]+$`, the shape that "Linking the PR to Plane" reads from an `Issue:` line. A named identifier with a different shape counts as no identifier, and "Linking the PR to Plane" records `rejected-shape`.
 - The branch name leads with an identifier (e.g. `zzz-0-add-auth-flow` → `ZZZ-0`).
 
 Otherwise omit it entirely - no placeholder, no `Issue: none`. Do not scan the conversation for identifier-shaped strings. They turn up in discussion, in skill examples, and in tool output for reasons that have nothing to do with this change, and nothing distinguishes those from a real assignment.
@@ -455,7 +455,7 @@ A link, not a comment: the sidebar holds one canonical entry that stays findable
 
 There are two ways to reach an identifier here, and nothing else counts:
 
-- **This run composed the PR body** (default-branch flow, or the feature-branch flow's Step 3 "Otherwise" branch) - whichever identifier "Recording the work item" resolved. No identifier there - set `<PLANE_OUTCOME>` to `rejected-shape` when the user named one that section refused for its shape, otherwise `not-inferred`, and skip the rest of this section. Do not re-derive a candidate and do not scan the conversation for one; the reasons in that section apply here unchanged.
+- **This run composed the PR body** (default-branch flow, or the feature-branch flow's Step 3 "Otherwise" branch) - whichever identifier "Recording the work item" resolved. No identifier there - set `<PLANE_OUTCOME>` to `rejected-shape` if that section refused an identifier the user named, otherwise to `not-inferred`, and skip the rest of this section. Do not re-derive a candidate and do not scan the conversation for one; the reasons in that section apply here unchanged.
 - **This run never composed a body** - the feature-branch flow's Step 1 fall-through, its Step 3 early exit, or the ready flow's Step 1 - read the identifier off `<PR_FIRST_LINE>`, which that path's own lookup already returned. Do not call `gh pr view` again for it.
 
   Match `^Issue:\s*\[?([A-Z]+-\d+)\]?`. That is the same `Issue:` line, written by the earlier ship rather than this one, so it is not a new inference rule. No match means no identifier: `not-inferred`.
@@ -534,19 +534,19 @@ Gate this whole section on `<PR_STATE>` being `ready` - that is when review has 
 
 **`<PR_STATE>` is not `ready`** - set `<CLEANUP>` to `none` and skip the rest of this section.
 
-No identifier (resolved the way "Linking the PR to Plane" does) - set `<CLEANUP>` to `none` and skip the search. Otherwise, find them, passing that identifier as resolved:
+No identifier (resolved the way "Linking the PR to Plane" does) - set `<CLEANUP>` to `none` and skip the search. Otherwise, run the search with that identifier:
 
 ```bash
 bash ~/.agents/skills/wf-ship/scripts/find-working-notes.sh '<ID>'
 ```
 
-Run it as its own call. A non-zero exit means the search did not finish: stop, report the script's stderr beside the PR URL, and do not re-run it.
+Run it as its own call. A non-zero exit means the search did not finish: stop, report the script's stderr beside the PR URL, and do not run it again.
 
 The script prints one keyed line per match:
 
-- `target=` - a working note, as an absolute path already quoted for a shell.
-- `unquotable=` - a match whose name git printed escaped, exactly as git printed it. That is not the file's name and no quoting makes it one, so it never enters the command. Save these as `<UNQUOTABLE>`.
-- `nested=` - a matching directory that holds its own repository, such as a worktree. Deleting it would delete that whole checkout and any uncommitted work in it, so it never enters the command. Save these as `<NESTED>`.
+- `target=` - a working note, as an absolute path that is already quoted for a shell.
+- `unquotable=` - a match that git printed in escaped form, exactly as git printed it. That text is not the file name, and no quoting can make it the file name, so it never goes into the command. Save these as `<UNQUOTABLE>`.
+- `nested=` - a matching directory that holds its own repository, such as a worktree. Deleting it deletes that checkout and all uncommitted work in it, so it never goes into the command. Save these as `<NESTED>`.
 
 Ignored and untracked paths both come back, since a repo's `.gitignore` decides which of the two its notes land in - `docs/superpowers/plans/`, and `docs/superpowers/specs/` too where that is not tracked either.
 
@@ -558,7 +558,7 @@ Ignored and untracked paths both come back, since a repo's `.gitignore` decides 
 rm -rf <target> <target>
 ```
 
-Add no quoting of your own - the script already quoted each path. No `target=` line: set `<CLEANUP>` to `none`. Not every change leaves notes behind.
+Add no quotes - the script already quoted each path. No `target=` line: set `<CLEANUP>` to `none`. Not every change leaves notes behind.
 
 ### Reporting the cleanup
 
@@ -566,8 +566,8 @@ One line, and one more for each of `<UNQUOTABLE>` and `<NESTED>` that holds anyt
 
 - `<CLEANUP>` not `none`: `- These working notes are no longer needed. To remove them:` followed by the command in a fenced block.
 - `<CLEANUP>` is `none`: say nothing.
-- `<UNQUOTABLE>` not empty: `- These also name <ID>, but git printed their names escaped, so they are left out of the command:` followed by the values in a fenced block. They are repo-controlled text, fenced for the reason "Reporting the residue" gives.
-- `<NESTED>` not empty: `- These also name <ID>, but each is a separate repository or worktree, so they are left out of the command:` followed by the values in a fenced block, fenced for the same reason.
+- `<UNQUOTABLE>` not empty: `- These also name <ID>, but git printed their names in escaped form, so the command leaves them out:` followed by the values in a fenced block. They are repo-controlled text, so fence them for the reason "Reporting the residue" gives.
+- `<NESTED>` not empty: `- These also name <ID>, but each is a separate repository or worktree, so the command leaves them out:` followed by the values in a fenced block, for the same reason.
 
 ## Checking off acceptance criteria
 

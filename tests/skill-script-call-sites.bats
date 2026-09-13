@@ -5,22 +5,21 @@ load helpers/setup
 bats_require_minimum_version 1.5.0
 
 # A skill calls a script as `bash ~/.agents/skills/<skill>/scripts/<name>.sh`.
-# `bash` so the call does not depend on the file's mode. The one fixed path
-# because a skill deploys to every repo, where a repo-relative path resolves
-# only inside this one, and because most calls run another skill's script, so
-# the calling skill's own directory is not enough. A counterexample anywhere
-# gives the next copy a coin flip, so every site is held to the one form.
+# `bash`, so the call does not need the execute bit of the file. The fixed path,
+# because a skill runs in every repo, where a repo-relative path fails, and
+# because most calls run the script of a different skill. One call in another
+# form gives the next copy a wrong example, so every call uses this form.
 #
-# Continuations are joined first, so a call split across lines reads as one.
-# The whole file is read rather than its fenced blocks: prose names a script by
-# its bare filename, so a directory-qualified name in prose fails too.
+# The check joins continuations first, so a call on several lines reads as one.
+# It reads the whole file, not only the fenced blocks. Prose names a script by
+# its file name only, so a path with a directory in prose also fails.
 
 NAMED='[a-z0-9-]+/scripts/[a-z0-9-]+\.sh'
 CALLED="bash[[:space:]]+~/\\.agents/skills/$NAMED"
 
-# misnamed_sites <file>: every joined line that still names a script once its
-# fixed-form calls are removed. ENVIRON rather than -v, which would process the
-# regexes' backslashes as string escapes.
+# misnamed_sites <file>: each joined line that still names a script after its
+# fixed-form calls are removed. ENVIRON, not -v, because -v processes the
+# backslashes in the regexes as escapes.
 misnamed_sites() {
   join_continuations "$1" | CALLED="$CALLED" NAMED="$NAMED" FILE="$1" awk '
     { rest = $0; gsub(ENVIRON["CALLED"], "", rest) }
@@ -54,7 +53,7 @@ called_scripts() {
         || fail "${f#"$DOTFILES_ROOT"/} calls a script the repo does not carry: $s"
     done < <(called_scripts "$f")
   done < <(skill_files)
-  # A pattern that matched no call would pass the loop above over anything.
+  # A pattern that matches no call passes the loop above for any file.
   [ "$count" -gt 0 ] || fail "no fixed-form call found in any skill"
 }
 

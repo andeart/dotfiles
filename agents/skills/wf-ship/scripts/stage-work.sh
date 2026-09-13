@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# wf-ship's staging step. Refuses over an operation in progress or an unmerged
-# index; otherwise stages tracked edits and every untracked path except the
-# leftover suffixes in one pass, then reports gitlinks, what was staged, and the
-# untracked paths left behind. Every `key=` line precedes `residue<<<`; what
-# follows it is paths, never keys.
+# wf-ship's staging step. Refuses when an operation is in progress or the index
+# holds unmerged entries. Otherwise stages tracked changes, and every untracked
+# path except the leftover suffixes, in one pass. Then reports gitlinks, what it
+# staged, and the untracked paths it left. Every `key=` line comes before
+# `residue<<<`; each line after that marker is a path, never a key.
 
 wf_usage() {
   cat <<'EOF'
@@ -15,7 +15,7 @@ Takes no arguments. Stages the work in the current repository and writes
 `key=value` lines to stdout, then the residue paths after `residue<<<`.
 
 Exit status:
-  0  reached its output; route on the printed values
+  0  output is complete; route on the printed values
   2  usage error
 EOF
 }
@@ -34,8 +34,8 @@ if [ -n "$inprogress" ] || [ -n "$(git ls-files -u)" ]; then
   echo "blocked=${inprogress:-unmerged-index}"
 else
   echo 'blocked=no'
-  # Each add's status is captured rather than left to set -e: wf-ship needs both
-  # exit lines to tell a part-staged index from a run cut short.
+  # Capture the status of each add, so that set -e does not stop the script:
+  # wf-ship reads both exit lines to report a part-staged index.
   add_tracked_exit=0; git add -u || add_tracked_exit=$?
   echo "add_tracked_exit=$add_tracked_exit"
   add_rest_exit=0
@@ -48,9 +48,8 @@ else
     $1 == ":000000" && $2 == "160000" { print "gitlink=" substr($0, index($0, "\t") + 1) }
     END { print "staged=" (n ? "yes" : "no"); print "staged_total=" (n + 0) }'
   if [ "$add_tracked_exit" -eq 0 ] && [ "$add_rest_exit" -eq 0 ]; then
-    # awk rather than `head -n 10`: head exits after ten lines, and under
-    # pipefail the SIGPIPE that leaves git with stops the script with nothing on
-    # stderr.
+    # awk, not `head -n 10`: head exits after ten lines, git then gets SIGPIPE,
+    # and pipefail stops the script with no message on stderr.
     git ls-files -o --exclude-standard --full-name -- :/ \
       | awk 'NR <= 10 { keep = keep $0 "\n" }
              END { print "residue_total=" NR; print "residue<<<"; printf "%s", keep }'

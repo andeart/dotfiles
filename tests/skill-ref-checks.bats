@@ -4,37 +4,37 @@ load helpers/setup
 
 bats_require_minimum_version 1.5.0
 
-# wf-wrap and wf-prune substitute a local branch name into commands, several of
-# them unquoted, so each first routes the name through a `case` allowlist. That
-# line lives in a SKILL.md block rather than a script, so it is read out of the
-# skill and run under every shell a SKILL.md block runs in.
+# wf-wrap and wf-prune put a local branch name into commands, some without
+# quotes, so each skill first sends the name through a `case` allowlist. That
+# line is in a SKILL.md block, not a script, so the tests read it from the skill
+# and run it under each shell that runs a SKILL.md block.
 
-# Names a substituted command would run or misread. All but `-x` are names git
-# accepts for a branch, which the first case re-checks; `-x` stays because git
-# reads an argument beginning with `-` as an option. `a{b,c}` runs nothing - an
-# unquoted `git branch -D` expands it into two other branches - so the `pwned`
-# check cannot see it and only the routing assertion grades it.
+# Names that a command would run or read wrongly. git accepts each one as a
+# branch name except `-x`, and the first case checks this. `-x` is here because
+# git reads an argument that starts with `-` as an option. `a{b,c}` runs nothing:
+# an unquoted `git branch -D` expands it into two other branch names. The
+# `pwned` check cannot see that, so only the routing assertion tests it.
 HOSTILE=( 'a;touch${IFS}pwned' 'a$(touch${IFS}pwned)' 'a`touch${IFS}pwned`' 'a|sh' 'a&b' 'a>pwned' "a'b" 'a"b' 'a{b,c}' '-x' )
 
-# Names the allowlist has to let through, or the skills refuse ordinary work.
+# Names that the allowlist must pass, or the skills refuse ordinary branches.
 ORDINARY=( 'DX-98-skill-block' 'feature/foo.bar' 'worktree-zzz-0' 'user/abc_1' )
 
-# The shells AGENTS.md says a SKILL.md block runs in.
+# The shells that run a SKILL.md block, as AGENTS.md states.
 BLOCK_SHELLS=(/bin/bash bash /bin/zsh zsh)
 
 # check_line <skill> <marker>: sets LINE to the one line of the skill's SKILL.md
-# holding <marker>, failing unless exactly one does.
+# that holds <marker>. Fails unless exactly one line holds it.
 check_line() {
   local file="$DOTFILES_ROOT/agents/skills/$1/SKILL.md"
   assert_one_line "$file" "$2"
   LINE="$(grep -F -e "$2" "$file")"
 }
 
-# route <var> <name>: runs LINE with <var> bound to <name> under every
-# BLOCK_SHELLS shell, from an empty directory, leaving the output in ROUTED.
-# Fails when a shell errors, when two shells disagree, when an installed shell
-# was skipped, or when part of the name ran. zsh gets -f so the caller's startup
-# files add nothing; bash -c reads none.
+# route <var> <name>: runs LINE with <var> set to <name> under each BLOCK_SHELLS
+# shell, in an empty directory, and puts the output in ROUTED. Fails when a
+# shell fails, when two shells disagree, when an installed shell did not run, or
+# when part of the name ran. zsh gets -f, so startup files add nothing; bash -c
+# reads none.
 route() {
   local var=$1 name=$2 sh opt out ran= dir="$BATS_TEST_TMPDIR/route"
   mkdir -p "$dir"

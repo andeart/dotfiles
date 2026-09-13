@@ -8,31 +8,30 @@ SKILL="$DOTFILES_ROOT/agents/skills/wf-ship/SKILL.md"
 SCRIPT="$DOTFILES_ROOT/agents/skills/wf-ship/scripts/stage-work.sh"
 CALL='bash ~/.agents/skills/wf-ship/scripts/stage-work.sh'
 
-# wf-ship stages through scripts/stage-work.sh, and every case below runs that
-# file, so a copy cannot grade a stale expression and pass while the real one
-# rots. The call-site case pins that the skill still calls it.
+# The cases run scripts/stage-work.sh itself, so no copy of its code can go
+# stale. The call-site case checks that wf-ship still calls the script.
 #
-# Every case below grades what the index and the working tree hold after the
-# script ran, not what it printed about them. A test that read a classifier's
-# stdout would pass on a correctly worded skill that stages the wrong files.
+# The cases test what the index and the working tree hold after the script
+# runs, not what the script printed. A test that read only stdout would pass for
+# a correctly worded skill that stages the wrong files.
 
 # ─── reading the script ────────────────────────────────────────────────────
 
-# The script with its comment lines dropped, so a comment can name `git add`
-# or a pathspec without breaking the counts below.
+# The script without its comment lines, so a comment can name `git add` or a
+# pathspec and the counts below stay correct.
 script_code() { grep -v '^[[:space:]]*#' "$SCRIPT"; }
 
-# The exclusion suffixes, parsed out of the script rather than retyped, so the
-# loop below generates one case per suffix the script actually carries. The
-# count is asserted separately: a seventh has to be a deliberate edit here as
-# well as there, and it earns its place by having actually been seen.
+# The exclusion suffixes, read from the script, so the loop below makes one case
+# for each suffix in the script. A separate assertion checks the count: a
+# seventh suffix needs an edit here and in the script, and a real leftover that
+# needs it.
 # `.orig` and `.rej` are merge and patch leftovers, `~` and `.bak` editor
 # backups, `.swp` and `.swo` vim swap files.
 block_suffixes() {
   script_code | grep -o "':(top,exclude,icase)[^']*'" | sed "s/^':(top,exclude,icase)//; s/'\$//"
 }
 
-# The script's `git add` invocations, with backslash continuations joined so the
+# The script's `git add` commands, with backslash continuations joined, so the
 # second add reads as one line.
 add_invocations() {
   script_code | join_continuations | grep -F 'git add'
@@ -266,8 +265,8 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ "$(output_values blocked)" = "unmerged-index" ]
 }
 
-# The script runs under set -e, so this and the next case are also what pin
-# each add's status being captured: an add left to set -e stops the script
+# The script runs under set -e. This case and the next also check that the
+# script captures the status of each add: an add left to set -e stops the script
 # before either exit line prints.
 @test "an embedded repository with no commit fails the add and reports no residue" {
   new_repo
@@ -397,9 +396,8 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
 
 # ─── portability ───────────────────────────────────────────────────────────
 
-# Every other case runs the script under PATH's bash, which is what the skill's
-# `bash <path>` call takes. On macOS /bin/bash is 3.2, and AGENTS.md holds a
-# script to it.
+# The other cases run the script under PATH's bash, as the skill's `bash <path>`
+# call does. AGENTS.md also requires /bin/bash 3.2, which is /bin/bash on macOS.
 @test "the script answers identically under /bin/bash and PATH's bash" {
   new_repo
   printf 'work\n' >> tracked.txt

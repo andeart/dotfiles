@@ -8,16 +8,16 @@ SKILL="$DOTFILES_ROOT/agents/skills/wf-ship/SKILL.md"
 SCRIPT="$DOTFILES_ROOT/agents/skills/wf-ship/scripts/find-working-notes.sh"
 CALL="bash ~/.agents/skills/wf-ship/scripts/find-working-notes.sh '<ID>'"
 
-# wf-ship pastes this script's `target=` values into an `rm -rf` the user runs,
-# so a wrong answer here is a file deleted by hand. The cases grade two things:
-# which paths come back - both identifier bounds, ignored and untracked, never
-# tracked - and that every `target=` a shell reads back names exactly the file
-# it matched, with any path git had to escape, and any nested repository, kept
-# out of `target=` altogether.
+# wf-ship puts this script's `target=` values into an `rm -rf` that the user
+# runs, so a wrong answer is a file deleted by hand. The cases test two things:
+# which paths match (both identifier bounds, ignored and untracked files, never
+# tracked files), and that a shell reads each `target=` back as exactly the
+# matched file. A path that git quoted, or a nested repository, is never a
+# `target=`.
 
-# A fresh repo ignoring plans/, cd'd into, with $ROOT as git names its top. Under
-# $BATS_TEST_TMPDIR so bats clears it, and never inside the dotfiles working
-# tree - AGENTS.md forbids a test writing there.
+# A new repo that ignores plans/, with the current directory at its top and
+# $ROOT set to the top as git names it. It is under $BATS_TEST_TMPDIR, so bats
+# removes it, and never in the dotfiles working tree, which AGENTS.md forbids.
 new_repo() {
   local tmp
   tmp="$(mktemp -d "$BATS_TEST_TMPDIR/repo.XXXXXX")"
@@ -29,7 +29,7 @@ new_repo() {
   ROOT="$(git rev-parse --show-toplevel)"
 }
 
-# note <path>: an untracked file, with its directories.
+# note <path>: creates an untracked file and its directories.
 note() {
   mkdir -p "$(dirname "$1")"
   printf 'x\n' > "$1"
@@ -40,8 +40,8 @@ run_script() {
   [ "$status" -eq 0 ] || fail "the script exited $status: $output"
 }
 
-# read_back <value>: the single word a shell makes of one `target=` value, the
-# way the pasted `rm -rf` reads it. Fails when it is not exactly one word.
+# read_back <value>: the single word that a shell makes of one `target=` value,
+# as the pasted `rm -rf` reads it. Fails when the value is not exactly one word.
 read_back() {
   eval "set -- $1"
   [ "$#" -eq 1 ] || return 1
@@ -77,9 +77,9 @@ read_back() {
   [ "$(output_values target)" = "'$ROOT/notes/zzz-0.md'" ]
 }
 
-# The left bound keeps an identifier out of a longer run of letters, the right
-# out of a longer run of digits. The matching note is there so neither half can
-# pass by finding nothing at all.
+# The left bound keeps an identifier out of a longer run of letters, and the
+# right bound out of a longer run of digits. The matching note makes sure that
+# neither bound passes because nothing matched.
 @test "DX-5 matches neither a dx-57 path nor an adx-5 one" {
   new_repo
   note notes/dx-57-other.md
@@ -152,9 +152,10 @@ read_back() {
   [ "$(read_back "$(output_values target)")" = "$ROOT/zzz-0-café.md" ]
 }
 
-# A name git has to escape prints as git's escaped form, which is not the file's
-# name, so no quoting makes it a correct target. The newline directory is the
-# dangerous one: re-joined from -z output it yields a bare `../` line.
+# git prints a name that it must escape in escaped form. That text is not the
+# file name, so no quoting makes it a correct target. The newline directory is
+# the dangerous case: from -z output with newlines put back, it gives a bare
+# `../` line.
 @test "every path git quoted is unquotable and never a target" {
   new_repo
   local dir
@@ -172,8 +173,8 @@ read_back() {
     || fail "a line started without a key: $output"
 }
 
-# git lists a directory holding its own repository, a worktree included, as one
-# `dir/` entry. As a target it would delete that whole checkout.
+# git lists a directory that holds its own repository, a worktree included, as
+# one `dir/` line. As a target, it deletes that whole checkout.
 @test "a nested repository or worktree naming the identifier is never a target" {
   new_repo
   note plans/zzz-0-plan.md
@@ -186,8 +187,8 @@ read_back() {
     || fail "unexpected nested lines: $output"
 }
 
-# The identifier can name a directory rather than a file. Every file under it,
-# at any depth and in any case, is still one target of its own.
+# The identifier can name a directory, not a file. Each file under it, at any
+# depth and in any letter case, is a separate target.
 @test "files under a directory named for the identifier are each a target" {
   new_repo
   note plans/zzz-0-dir/a.md

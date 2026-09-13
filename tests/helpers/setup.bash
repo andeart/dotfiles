@@ -30,8 +30,8 @@ skill_files() {
 }
 
 # assert_skill_glob: skill_files names more than one real file. An unmatched
-# glob expands to itself, and grep over a path that does not exist reports
-# nothing found - which reads exactly like a clean sweep.
+# glob expands to itself, and grep on a missing path reports no match, which
+# looks the same as a clean scan.
 assert_skill_glob() {
   local f count=0
   while IFS= read -r f; do
@@ -42,7 +42,7 @@ assert_skill_glob() {
 }
 
 # join_continuations [<file>]: <file>, or stdin, with each backslash-newline
-# joined, so a command split across lines reads as one.
+# removed, so a command on several lines reads as one line.
 join_continuations() { sed -e :a -e '/\\$/N; s/\\\n//; ta' "$@"; }
 
 # assert_one_line <file> <text>: exactly one line of <file> holds the fixed
@@ -53,12 +53,11 @@ assert_one_line() {
   [ "$count" = 1 ] || fail "expected one line of $1 holding $2, found $count"
 }
 
-# assert_sole_call <skill-file> <call-line>: the script <call-line> runs is
-# named on exactly one line of <skill-file>, that line is <call-line> whole, and
-# it sits alone between an opening bash fence and a closing one. A skill that
-# stops calling the script leaves its suite grading code the skill never runs,
-# and a line after the call reports its own exit status over a script that
-# stopped short.
+# assert_sole_call <skill-file> <call-line>: exactly one line of <skill-file>
+# names the script that <call-line> runs, that line is <call-line>, and bash
+# fences are directly above and below it. The first check stops a suite from
+# testing a script that the skill no longer calls. The fence check stops a line
+# after the call from hiding the exit status of the script.
 assert_sole_call() {
   local file=$1 call=$2 script context
   script=${call#"bash ~/.agents/skills/"}
@@ -69,13 +68,13 @@ assert_sole_call() {
     || fail "$(printf 'the call to %s is not alone in its block:\n%s' "$script" "$context")"
 }
 
-# The shells a skill's `bash <path>` call can reach. It takes PATH's bash; on
-# macOS /bin/bash is still 3.2, the leg that call never reaches. On the
-# ubuntu-latest runner both are one binary.
+# The shells for a skill's `bash <path>` call: PATH's bash, which the call
+# uses, and /bin/bash, which is 3.2 on macOS. On the ubuntu-latest runner, both
+# names are one binary.
 SCRIPT_SHELLS=(/bin/bash bash)
 
-# shells_among <candidate>...: each candidate resolved through PATH,
-# deduplicated, skipping any this machine lacks.
+# shells_among <candidate>...: each candidate resolved through PATH, with
+# duplicates and missing shells removed.
 shells_among() {
   local sh path seen=" "
   for sh in "$@"; do
@@ -87,20 +86,20 @@ shells_among() {
   done
 }
 
-# assert_shells_covered <ran> <candidate>...: every candidate installed here
-# resolves to a line of <ran>, the shells a loop actually ran, one per line. How
-# many run is a property of the host - the CI image ships one bash and no zsh -
-# but a host that has a candidate and skips it is a dedup bug in shells_among
-# with nothing turning red.
+# assert_shells_covered <ran> <candidate>...: each installed candidate resolves
+# to a line of <ran>, the shells that a loop ran, one per line. The number of
+# shells depends on the host, and the CI image has one bash and no zsh. An
+# installed candidate that did not run is a dedup bug in shells_among, and this
+# check makes it fail.
 assert_shells_covered() {
   local ran=$1 want wantpath covered listed skipped=
   shift
   for want in "$@"; do
     wantpath="$(command -v "$want" 2>/dev/null)" || continue
     covered=no
-    # Whole-line comparison, not a substring one: /opt/homebrew/bin/bash ends
-    # in /bin/bash, so a `case` glob would count the homebrew build as coverage
-    # of the 3.2 one macOS ships - hiding the exact leg this is here to find.
+    # Compare whole lines, not substrings: /opt/homebrew/bin/bash ends in
+    # /bin/bash, so a `case` glob counts the Homebrew build as coverage of the
+    # macOS 3.2 build and hides the missing run.
     while IFS= read -r listed; do
       [ "$listed" = "$wantpath" ] && covered=yes
     done <<< "$ran"
@@ -109,18 +108,18 @@ assert_shells_covered() {
   [ -z "$skipped" ] || fail "shells installed here but never run:$skipped"
 }
 
-# assert_script_portable <before> <script> [<arg>...]: runs <script> under every
-# SCRIPT_SHELLS shell, calling the function <before> ahead of each run (`:` for
-# none), and fails when a run exits non-zero, prints other than the first shell
-# did, or an installed shell was skipped. Leaves the first shell's stdout in
-# $output for the caller's content assertions: without those, a script that
-# prints nothing passes, identically, under every shell.
+# assert_script_portable <before> <script> [<arg>...]: runs <script> under each
+# SCRIPT_SHELLS shell and calls the function <before> before each run (`:` for
+# none). Fails when a run exits non-zero, when its output differs from the first
+# shell's output, or when an installed shell did not run. Puts the first shell's
+# stdout in $output. The caller must assert on that content, because a script
+# that prints nothing passes under every shell.
 assert_script_portable() {
   local before=$1 script=$2 sh out st first= ran=
   shift 2
   while IFS= read -r sh; do
-    # The caller's fixture reset, or the second shell grades the first one's
-    # side effects.
+    # Reset the caller's fixture, so the second shell does not see the changes
+    # of the first run.
     "$before"
     st=0
     out="$("$sh" "$script" "$@" 2>/dev/null)" || st=$?

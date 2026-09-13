@@ -4,46 +4,45 @@ load helpers/setup
 
 bats_require_minimum_version 1.5.0
 
-# A SKILL.md reaches the model with its invocation's arguments substituted into
-# every `$` followed by a digit and every `$ARGUMENTS`, in prose and code alike.
-# The mangled text usually still runs, so the check it breaks answers "found
-# nothing" rather than erroring, and only for some argument strings. The
-# corruption can only touch a form present on disk, so scanning the files is the
-# whole guarantee.
+# The harness replaces each `$` followed by a digit, and each `$ARGUMENTS`, in a
+# SKILL.md with the invocation arguments, in prose and in code. The changed text
+# usually still runs, so a broken check reports "found nothing" instead of an
+# error, and only for some argument strings. The harness can change only a form
+# that is in the file, so a scan of the files is the full guarantee.
 #
-# AGENTS.md carries the rule; this file enforces it. Both are asserted below -
-# without that, the rule can be deleted while the scan stays green.
+# AGENTS.md states the rule, and this file enforces it. The last case checks the
+# rule text, so the rule cannot be deleted while the scan stays green.
 #
-# The pattern is deliberately looser than the harness's `\$(\d+)(?!\w)`. It
-# drops the lookahead so it does not track harness versions, and it flags `\$1`,
-# which escapes substitution but is a syntax error in the awk that wants it. It
-# covers the argument forms only: the `${CLAUDE_*}` forms the loader also
-# replaces do not vary with the arguments.
+# The pattern is wider than the harness's `\$(\d+)(?!\w)`. It has no lookahead,
+# so it does not depend on the harness version. It also flags `\$1`: the harness
+# does not replace that form, but it is a syntax error in awk. It covers only the
+# argument forms, because the `${CLAUDE_*}` values do not change with the
+# arguments.
 PATTERN='\$([0-9]|ARGUMENTS)'
 
-# Forms the pattern must flag. Without these, a pattern edited into one that
-# matches nothing passes the scan over anything at all.
+# Forms that the pattern must flag. Without this list, a pattern edited to match
+# nothing passes the scan for any file.
 UNSAFE=( '$0' '$1' '$10' '$ARGUMENTS' '$ARGUMENTS[0]' '\$1' )
 
-# Negative controls taken from the skills, each re-checked as still present in
-# one: a control that drifted out of every skill grades nothing.
+# Safe forms taken from the skills. A case checks that a skill still holds each
+# one, because a control that no skill holds tests nothing.
 REAL_SAFE=( '$(git rev-parse' '$?' '$root' )
 
-# Negative controls no skill carries, so no presence check. `$(1)` and `${1}`
-# are outside the substitution, which needs a digit straight after the `$`;
-# `([^0-9]|$)` is where a careless matcher flags the `$)`.
+# Safe forms that no skill holds, so there is no presence check. The harness does
+# not replace `$(1)` or `${1}`, because a digit must follow the `$` directly.
+# `([^0-9]|$)` catches a matcher that flags `$)`.
 SYNTHETIC_SAFE=( '$(1)' '${1}' '([^0-9]|$)' )
 
-# The ban itself, and the why that has to survive rewording.
+# The ban, and the reason that each rewording of the rule must keep.
 RULE_ANCHORS=(
   'neither may appear anywhere in a SKILL.md'
   'fails toward "found nothing" rather than toward an error'
 )
 
-# frontmatter_arguments <file>...: every top-level `arguments:` key between a
-# file's opening `---` and the next one, as `file:line: text`. The exact key, so
-# `argument-hint:` passes, and only in frontmatter, so prose about the rule
-# passes too.
+# frontmatter_arguments <file>...: each top-level `arguments:` key between the
+# opening `---` of a file and the next `---`, as `file:line: text`. It matches
+# the exact key, so `argument-hint:` passes, and only in frontmatter, so prose
+# about the rule passes.
 frontmatter_arguments() {
   awk '
     FNR == 1 { infm = ($0 == "---"); next }

@@ -54,7 +54,7 @@ All of these must pass before any destructive action runs. Any failure stops the
 - `gh=no` - stop and tell the user `gh` is not on PATH.
 - `origin=` empty - stop and tell the user no remote named `origin` is configured.
 - `branch=` empty - HEAD is detached. Stop and tell the user to check out the feature branch first. Otherwise this is `<FEATURE>`.
-- `refcheck=` anything but `ok`, an absent line included - stop with `This branch begins with - or holds a character other than a letter, digit, ., _, / or -, so /wf-wrap will not put it into a command:` followed by `<branch>` in a fenced block, since the name is repo-controlled text. Every later step substitutes `<FEATURE>`, several unquoted, and this is the one place it is checked.
+- `refcheck=` is not `ok`, or the line is absent - stop with `This branch name starts with - or holds a character that is not a letter, a digit, ., _, / or -, so /wf-wrap will not put it into a command:` followed by `<branch>` in a fenced block, because the name is repo-controlled text. Each later step puts `<FEATURE>` into a command, some without quotes, and this is the only check.
 - `default=` - this is `<DEFAULT>`. If it is empty, neither `main` nor `master` exists; stop and say so.
 - `status<<<` followed by any lines - stop with:
 
@@ -140,7 +140,7 @@ git status --porcelain
 
 `branch=` must still be `<FEATURE>`. Anything else means HEAD moved during the wait while every step below still acts on the saved name; stop with: `HEAD moved to <branch> during the wait - re-run /wf-wrap from <FEATURE>.` Re-resolve `<IN_WORKTREE>`, `<WORKTREE_PATH>` and `<PRIMARY>` from the three path lines with Step 0's rule, since Step 4 spends them. Then apply Step 0's `unpushed<<<` and `status<<<` rules unchanged - porcelain lines stop with its uncommitted-changes message, unpushed commits stop by naming them.
 
-The fetch is required and is not a duplicate of Step 0's. The probe below compares against `origin/<DEFAULT>`, and on this path that ref was last read before the merge existed. Skip the fetch and the probe reports `+` for work that did land, which stops every awaited wrap.
+The fetch is required and is not a duplicate of Step 0's. The probe below compares against `refs/remotes/origin/<DEFAULT>`, and on this path that ref was last read before the merge existed. Skip the fetch and the probe reports `+` for work that did land, which stops every awaited wrap.
 
 ### Step 1c: Prove nothing is lost
 
@@ -150,9 +150,9 @@ The fetch is required and is not a duplicate of Step 0's. The probe below compar
 bash ~/.agents/skills/wf-wrap/scripts/landing-probe.sh 'refs/remotes/origin/<DEFAULT>' 'refs/heads/<FEATURE>'
 ```
 
-Run it as its own call. A non-zero exit means the probe stopped short: stop the wrap, report its stderr, and do not re-run it. That is not the no-landed stop below, and nothing destructive has run yet.
+Run it as its own call. A non-zero exit means the probe did not finish: stop the wrap, report its stderr, and do not run it again. This is not the no-landed stop below, and nothing destructive has run yet.
 
-Each `landed=` line answers for one merge method, and any one of them is the whole proof. Then:
+Each `landed=` line answers for one merge method, and one line is the full proof. Then:
 
 - **One or more `landed=` lines** - the merge landed everything; discarding the branch loses nothing. Proceed silently: this is the expected result on every wrap, and saying so turns the guard into noise. Which line came back is not interesting and does not get reported - it names the repo's merge method, not a property of this work.
 - **No `landed=` line** - it did not. Show `git diff --stat $(git merge-base refs/remotes/origin/<DEFAULT> refs/heads/<FEATURE>) refs/heads/<FEATURE>` in either case below, since that diff is the only thing that says what the branch is carrying and an unpushed commit produces silence under both. Then let `head=` name the case, and stop. **Equal to `<HEAD_OID>`** - the local branch is what merged, so the content should be upstream and is not. **Not equal** - the local branch is not what merged: `Local <FEATURE> is at <head>, PR <number> merged <HEAD_OID>. Fetch that tip with git fetch origin refs/pull/<number>/head before discarding anything.`

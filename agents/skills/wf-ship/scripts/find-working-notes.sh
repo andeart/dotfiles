@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# wf-ship's working-notes search: the untracked and ignored files in the current
-# repository whose path names <ID>. Prints one keyed line per match:
-#   target=<path>      absolute, single-quoted for a shell, each `'` as '\''
-#   unquotable=<line>  a path git printed C-quoted, exactly as git printed it.
-#                      That is git's escaped form rather than the file's name,
-#                      so no quoting makes it a correct target.
-#   nested=<path>      absolute and unquoted: a directory holding its own
-#                      repository, a worktree included, which git lists as one
-#                      `dir/` entry. Deleting it deletes that whole checkout.
-# wf-ship pastes `target=` values into an `rm -rf` the user runs, which is why
-# the quoting lives here, where a test reaches it.
+# wf-ship's working-notes search. Finds the untracked and ignored files in the
+# current repository whose path names <ID>, and prints one keyed line per match:
+#   target=<path>      absolute path, single-quoted for a shell, each `'` as '\''
+#   unquotable=<line>  a path that git printed C-quoted, exactly as git printed
+#                      it. That text is not the file name, so it is never a
+#                      target.
+#   nested=<path>      absolute path, not quoted, of a directory that holds its
+#                      own repository, a worktree included. git lists it as one
+#                      `dir/` line. Deleting it deletes that whole checkout.
+# wf-ship puts the `target=` values into an `rm -rf` that the user runs, so the
+# quoting is here, where a test can reach it.
 
 wf_usage() {
   cat <<'EOF'
@@ -22,13 +22,12 @@ names the work item identifier <ID> (letters, a hyphen, digits), as `target=`,
 `unquotable=` and `nested=` lines on stdout.
 
 Exit status:
-  0  reached its output; no lines means no notes
+  0  output is complete; no lines means no notes
   2  usage error, including an <ID> of any other shape
 EOF
 }
 
-# The identifier becomes part of a pathspec and an ERE below, so nothing else
-# reaches it.
+# The identifier goes into a pathspec and an ERE, so it must have this shape.
 id_shape='^[A-Za-z]+-[0-9]+$'
 if [ "$#" -ne 1 ] || ! [[ $1 =~ $id_shape ]]; then
   wf_usage >&2
@@ -37,33 +36,30 @@ fi
 id=$1
 root=$(git rev-parse --show-toplevel)
 
-# Leaving out --exclude-standard is what brings ignored paths in beside the
-# untracked ones; a repo's .gitignore decides which of the two its notes land
-# in. ls-files lists the files inside an untracked or ignored directory rather
-# than the directory itself. core.quotePath=false prints a non-ASCII name as
-# itself; git still C-quotes a path holding `"`, `\` or a control character.
+# No --exclude-standard, so ignored paths are listed with untracked ones.
+# ls-files lists each file in an untracked or ignored directory, not the
+# directory. core.quotePath=false prints a non-ASCII name unquoted; git still
+# C-quotes a path that holds `"`, `\` or a control character.
 #
-# Never -z: split on NUL and re-joined on newlines, a name holding a newline
-# becomes lines of its own, and one of them can read `../...`.
+# Never -z: with each NUL changed to a newline, a name that holds a newline
+# becomes several lines, and one of them can read `../...`.
 #
-# The pathspec only spares printing every ignored path, such as node_modules/,
-# into $listing. Its `*` crosses `/` and icase matches grep's -i, so it passes a
-# superset of the bounded match below, which alone decides.
+# The pathspec stops ls-files from printing every ignored path, such as
+# node_modules/. Its `*` matches across `/` and icase agrees with grep -i, so it
+# passes a superset of the grep match below. The grep match decides.
 listing=$(git -c core.quotePath=false ls-files -o --full-name -- ":(top,icase)*${id}*")
 
-# Bounded on both sides, because a false match is a file the user deletes by
-# hand. The left bound keeps DX-98 out of idx-98-...; the right keeps DX-5 out
-# of dx-57, of which dx-5 is a literal prefix. Do not loosen either back to a
-# substring match. Finding nothing is an answer, so grep's exit 1 is absorbed
-# and only a real grep failure stops the script. LC_ALL=C because the listing
-# is raw bytes, and in a UTF-8 locale grep drops a line holding an invalid
-# sequence rather than matching it.
+# Bounded on both sides, because a false match is a file that the user deletes.
+# The left bound keeps DX-98 out of idx-98; the right bound keeps DX-5 out of
+# dx-57. Do not change either bound to a substring match. grep exit 1 means no
+# match, which is a valid answer. LC_ALL=C because the listing is raw bytes: in
+# a UTF-8 locale, grep skips a line that holds an invalid sequence.
 matches=$(printf '%s\n' "$listing" | LC_ALL=C grep -iE -e "(^|[^A-Za-z])${id}([^0-9]|$)") || [ "$?" -eq 1 ]
 
-# One awk pass, not a fork per match: a matched directory expands to a line per
-# file inside it. The root goes through ENVIRON because -v would process a
-# backslash in it as an escape. The quoting is built with index() so no
-# backslash passes through gsub's replacement rules.
+# One awk pass, not one process per match: a matched directory gives one line
+# per file in it. ROOT goes through ENVIRON because -v processes backslash
+# escapes. shell_quote uses index(), so no backslash goes through the
+# replacement rules of gsub.
 printf '%s\n' "$matches" | ROOT="$root" awk -v q="'" '
   function shell_quote(s,   out, i) {
     out = ""

@@ -35,7 +35,7 @@ A branch counts as "merged" if **either** of these is true:
 1. **Git ancestry** - `git branch --merged <DEFAULT>` lists it (works for true merge commits)
 2. **GitHub PR** - `gh pr list --head <branch-name> --state merged` returns a result (works for squash and rebase merges)
 
-First, list the local branches, each checked for a name no command below can safely take:
+First, list the local branches. The block checks each name before a command below uses it:
 
 ```bash
 git for-each-ref --format='%(refname:lstrip=2)' refs/heads/ | while IFS= read -r b; do
@@ -43,7 +43,7 @@ git for-each-ref --format='%(refname:lstrip=2)' refs/heads/ | while IFS= read -r
 done
 ```
 
-Only a `branch=` name reaches the criteria, the probe, or any later command, several of which substitute it unquoted. Never substitute an `unsafe=` name anywhere; Step 3 lists it as not examined. The format is `lstrip=2` rather than `short`, which prints `heads/<name>` when a tag shares the name.
+Use only `branch=` names in the criteria, the probe and every later command. Several of those commands use the name without quotes. Never put an `unsafe=` name into a command; Step 3 lists it as not examined. The format is `lstrip=2`, not `short`, because `short` prints `heads/<name>` when a tag has the same name.
 
 Drop `<DEFAULT>` (and `master`/`main` if the other exists) from the `branch=` names, then check each one against both criteria. A branch only needs to satisfy one to be considered merged.
 
@@ -62,8 +62,8 @@ for Step 4 rather than dropping it - some leftovers were superseded rather than
 abandoned.
 
 If nothing matches either criterion and Step 4 clears none of the leftovers, tell
-the user everything is clean and stop, still naming any `unsafe=` branch the way
-Step 3 does.
+the user everything is clean and stop. Still name each `unsafe=` branch as Step 3
+does.
 
 ## Step 3: Gather PR and remote info
 
@@ -100,9 +100,10 @@ Merged branches:
 - quick-patch - merged via git ancestry, no PR found - remote deleted
 ```
 
-Under the list, name every `unsafe=` branch as not examined, in a fenced block
-since the names are repo-controlled text, with the reason: its name begins with
-`-` or holds a character other than a letter, digit, `.`, `_`, `/` or `-`.
+Under the list, name each `unsafe=` branch as not examined. Put the names in a
+fenced block, because they are repo-controlled text. Give the reason: the name
+starts with `-`, or holds a character that is not a letter, a digit, `.`, `_`,
+`/` or `-`.
 
 Do NOT suggest deleting remote branches. That's not this skill's job.
 
