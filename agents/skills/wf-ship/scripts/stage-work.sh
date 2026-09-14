@@ -71,10 +71,12 @@ stage() {
 
   # --untracked-files=normal, so status.showUntrackedFiles cannot expand or hide
   # the untracked directories wf-ship's staged_total stop compares against.
-  # --ignore-submodules=none: under diff.ignoreSubmodules=all, status hides a
+  # --ignore-submodules=dirty: under diff.ignoreSubmodules=all, status hides a
   # bumped gitlink, which would let staged_total exceed this count and trip the
   # expanded-directory stop over a change the stop was never meant to catch.
-  porcelain_total=$(git status --porcelain --untracked-files=normal --ignore-submodules=none | awk 'END { print NR }')
+  # Not =none: that counts an embedded repository's uncommitted edits, which no
+  # add stages, so each one would hide a file of an expanded directory.
+  porcelain_total=$(git status --porcelain --untracked-files=normal --ignore-submodules=dirty | awk 'END { print NR }')
   echo "porcelain_total=$porcelain_total"
 
   # Each add's status is captured, so set -e does not stop the script: wf-ship

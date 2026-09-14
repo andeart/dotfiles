@@ -220,9 +220,34 @@ run_push() { run bash "$PUSH" "$@"; }
   [ "$status" -eq 0 ] || fail "exit $status: $output"
   [ "$(key_values unpushed_total)" -eq 1 ]
   [ "$(key_values pushed_total)" -eq 0 ]
+  [ "$(key_values pushed_shown)" -eq 0 ]
   [ "$(key_values pushed_docs_only)" = "no" ]
   [ "$(section_names)" = "$(printf 'pushed\ngit_log')" ]
   [ -n "$(remote_ref empty)" ]
+}
+
+@test "a push past the path cap lists the first paths, and reads docs-only from every path" {
+  git checkout --quiet -b big
+  mkdir docs
+  local i=1
+  while [ "$i" -le 100 ]; do
+    printf 'x\n' > "docs/d$i.md"
+    i=$((i + 1))
+  done
+  # Sorts after docs/, so only the uncapped read sees it.
+  printf 'x\n' > zz.txt
+  git add docs zz.txt
+  git commit --quiet -m big
+
+  run_push --default main
+  [ "$status" -eq 0 ] || fail "exit $status: $output"
+  [ "$(key_values pushed_total)" -eq 101 ]
+  [ "$(key_values pushed_shown)" -eq 100 ]
+  [ "$(section pushed | wc -l | tr -d ' ')" -eq 100 ]
+  ! section pushed | grep -Fx zz.txt > /dev/null || fail "a path past the cap is listed: $output"
+  [ "$(key_values pushed_docs_only)" = "no" ]
+  [ "$(section_names)" = "$(printf 'pushed\ngit_log')" ]
+  [ "$(remote_ref big)" = "$(git rev-parse HEAD)" ]
 }
 
 @test "run from a subdirectory under diff.relative, the paths are the whole branch's" {

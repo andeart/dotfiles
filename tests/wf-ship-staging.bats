@@ -103,15 +103,18 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
 }
 
 # Step 0's porcelain is what a clean tree is read from. Under
-# status.showUntrackedFiles=no, a tree holding only new files reads as clean.
-@test "Step 0's porcelain read pins --untracked-files=normal" {
-  local block
+# status.showUntrackedFiles=no a tree holding only new files reads as clean, and
+# under diff.ignoreSubmodules=all so does one holding only a bumped gitlink.
+@test "Step 0's porcelain read pins the same flags as porcelain_total" {
+  local block read='git status --porcelain --untracked-files=normal --ignore-submodules=dirty'
   block="$(awk '
     /^```bash$/ { if (done) exit; inblock = 1; next }
     inblock && /^```$/ { done = 1; inblock = 0; next }
     inblock' "$SKILL")"
-  printf '%s\n' "$block" | grep -Fx 'git status --porcelain --untracked-files=normal' > /dev/null \
-    || fail "wf-ship's Step 0 block does not run git status --porcelain --untracked-files=normal"
+  printf '%s\n' "$block" | grep -Fx "$read" > /dev/null \
+    || fail "wf-ship's Step 0 block does not run $read"
+  script_code | grep -F "$read |" > /dev/null \
+    || fail "stage-work.sh's porcelain_total read is not $read"
 }
 
 # ─── what gets left behind ─────────────────────────────────────────────────
@@ -186,6 +189,29 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ "$(key_values porcelain_total)" -eq 1 ]
   [ "$(key_values staged)" = "yes" ]
   [ "$(key_values staged_total)" -eq 12 ]
+  [ -z "$(key_values gather_exit)" ]
+  [ "$(section_names)" = "residue" ]
+}
+
+# A status that scans submodule worktrees counts an embedded repository's
+# uncommitted edits as a line no add stages, which would hide one file of an
+# expanded directory from the stop.
+@test "a dirty embedded repository does not hide an expanded untracked directory" {
+  new_repo
+  mkdir emb
+  ( cd emb && git init --quiet . && printf 'x\n' > f && git add f && git commit --quiet -m e )
+  git add emb >/dev/null 2>&1
+  git commit --quiet -m 'add embedded repo as gitlink'
+  printf 'edit\n' >> emb/f
+  mkdir vendored
+  printf 'x\n' > vendored/a.js
+  printf 'x\n' > vendored/b.js
+  # The control: a status that scans the embedded worktree counts two lines.
+  [ "$(git status --porcelain --untracked-files=normal --ignore-submodules=none | wc -l | tr -d ' ')" -eq 2 ]
+
+  run_script
+  [ "$(key_values porcelain_total)" -eq 1 ]
+  [ "$(key_values staged_total)" -eq 2 ]
   [ -z "$(key_values gather_exit)" ]
   [ "$(section_names)" = "residue" ]
 }

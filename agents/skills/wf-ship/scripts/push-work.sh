@@ -8,7 +8,8 @@ set -euo pipefail
 #
 # Output, read by position:
 #   1. key=value lines, every one of them this script's own text;
-#   2. when pushed_total is printed, `pushed<<<` and exactly that many paths;
+#   2. when pushed_total is printed, `pushed<<<` and exactly pushed_shown paths,
+#      the first of pushed_total, at most 100;
 #   3. on a pull request hit, `pr_first_line<<<` and one line;
 #   4. when a push or a failed cherry-pick ran, `git_log<<<` and its output,
 #      control bytes removed, to the end. When nothing was pushed and the
@@ -52,25 +53,32 @@ case "${BASH_SOURCE[0]}" in
 esac
 lookup="$lookup/pr-lookup.sh"
 
-mode= default= move_to= paths= docs_only= pushed_total= git_log= lookup_out= gh_log=
+# The path cap keeps a large push's later sections inside a result the Bash
+# tool returns inline rather than behind a saved file's preview.
+pushed_max=100
+mode= default= move_to= paths= docs_only= pushed_total= pushed_shown= git_log= lookup_out= gh_log=
 have_paths=no have_log=no have_first=no have_gh_log=no
 
 # record_paths <base>: the paths from the merge base of <base> and HEAD. Three
 # dots, so a default branch that moved adds none of its own paths.
 # --no-relative: under diff.relative=true, from a subdirectory, --name-only
 # lists only that directory's paths, prefix stripped.
-# docs_only reads the same listing. Git quotes a path holding a non-ASCII or
-# control byte, so a quoted path under docs/ opens with "docs/, while a path
-# that itself opens with a quote is printed as "\"...
+# pushed_total and docs_only read every path; paths keeps the first pushed_max.
+# Git quotes a path holding a non-ASCII or control byte, so a quoted path under
+# docs/ opens with "docs/, while a path that itself opens with a quote is
+# printed as "\"...
 record_paths() {
-  local counts
-  paths=$(git diff --name-only --no-relative "$1...HEAD")
-  counts=$(printf '%s' "$paths" | awk '
-    { n++ }
+  local out counts
+  out=$(git diff --name-only --no-relative "$1...HEAD" | awk -v max="$pushed_max" '
+    NR <= max { keep = keep "\n" $0 }
     !/^"?docs\// { other = 1 }
-    END { d = (n && !other) ? "yes" : "no"; print n + 0, d }')
+    END { printf "%d %s%s", NR, ((NR && !other) ? "yes" : "no"), keep }')
+  counts=${out%%$'\n'*}
   pushed_total=${counts%% *}
   docs_only=${counts#* }
+  pushed_shown=$(( pushed_total < pushed_max ? pushed_total : pushed_max ))
+  paths=
+  [ "$pushed_shown" -eq 0 ] || paths=${out#*$'\n'}
   have_paths=yes
 }
 
@@ -79,6 +87,7 @@ push_head() {
   git_log=$(git push -u origin HEAD 2>&1) || push_exit=$?
   have_log=yes
   echo "pushed_total=$pushed_total"
+  echo "pushed_shown=$pushed_shown"
   echo "pushed_docs_only=$docs_only"
   echo "push_exit=$push_exit"
   return "$push_exit"
@@ -167,7 +176,7 @@ work() {
 
   if [ "$have_paths" = yes ]; then
     echo 'pushed<<<'
-    [ "$pushed_total" -eq 0 ] || printf '%s\n' "$paths"
+    [ "$pushed_shown" -eq 0 ] || printf '%s\n' "$paths"
   fi
   if [ "$have_first" = yes ]; then
     echo 'pr_first_line<<<'

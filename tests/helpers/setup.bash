@@ -219,13 +219,13 @@ key_values() {
 }
 
 # section <name>: the lines of section <name>. residue<<< holds residue_shown
-# lines, pushed<<< holds pushed_total, pr_first_line<<< holds one, and any
+# lines, pushed<<< holds pushed_shown, pr_first_line<<< holds one, and any
 # other section runs to the end. A line where a marker should be ends the read,
 # so a wrong count shows as a missing section rather than a shifted one. An
 # empty <name> prints each section's name, in order, instead.
 section() {
   printf '%s\n' "$output" | W="$1" awk '
-    BEGIN { count["residue"] = "residue_shown"; count["pushed"] = "pushed_total"; fixed["pr_first_line"] = 1 }
+    BEGIN { count["residue"] = "residue_shown"; count["pushed"] = "pushed_shown"; fixed["pr_first_line"] = 1 }
     !started && !/^[a-z_]+<<<$/ { eq = index($0, "="); if (eq) key[substr($0, 1, eq - 1)] = substr($0, eq + 1); next }
     !inside {
       if ($0 !~ /^[a-z_]+<<<$/) exit
