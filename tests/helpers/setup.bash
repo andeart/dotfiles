@@ -205,3 +205,59 @@ brew "temp-root-only-formula"
 cask "temp-root-only-cask"
 EOF
 }
+
+# The readers below read $output as wf-ship reads a script's output. A marker
+# is `name<<<` alone on a line. When $output holds a `push_work=begin` line,
+# everything up to and including the first one is dropped: those lines are
+# output of a command chained in front of push-work.sh, and a commit hook can
+# print a marker or a key. The first such line, not the last, because lines
+# after push-work.sh's own can be repo-controlled text - a path, a PR body, a
+# pre-push hook. A chained hook that prints the line itself is misread, which
+# wf-ship accepts. Only push-work.sh prints it, so no fixture for another script
+# may name a path `push_work=begin`. Keys come only from the key region, the
+# lines before the first marker in what remains. A test that took keys from
+# anywhere else would pass a script that lets a path, a patch line or a hook
+# print one.
+
+# script_output: $output from the first `push_work=begin` line on, without that
+# line, or all of $output when it holds none.
+script_output() {
+  printf '%s\n' "$output" | awk '
+    { line[NR] = $0 }
+    !from && $0 == "push_work=begin" { from = NR }
+    END { for (i = from + 1; i <= NR; i++) print line[i] }'
+}
+
+# key_values <key>: every value of <key> in the key region, one per line.
+key_values() {
+  script_output | K="$1=" awk '
+    /^[a-z_]+<<<$/ { exit }
+    index($0, ENVIRON["K"]) == 1 { print substr($0, length(ENVIRON["K"]) + 1) }'
+}
+
+# section <name>: the lines of section <name>. residue<<< holds residue_shown
+# lines, pushed<<< holds pushed_total, pr_first_line<<< holds one, and any
+# other section runs to the end. A line where a marker should be ends the read,
+# so a wrong count shows as a missing section rather than a shifted one. An
+# empty <name> prints each section's name, in order, instead.
+section() {
+  script_output | W="$1" awk '
+    BEGIN { count["residue"] = "residue_shown"; count["pushed"] = "pushed_total"; fixed["pr_first_line"] = 1 }
+    !started && !/^[a-z_]+<<<$/ { eq = index($0, "="); if (eq) key[substr($0, 1, eq - 1)] = substr($0, eq + 1); next }
+    !inside {
+      if ($0 !~ /^[a-z_]+<<<$/) exit
+      started = 1
+      name = substr($0, 1, length($0) - 3)
+      if (ENVIRON["W"] == "") print name
+      left = (name in fixed) ? fixed[name] : ((name in count) ? key[count[name]] + 0 : -1)
+      inside = (left != 0)
+      next
+    }
+    {
+      if (name == ENVIRON["W"]) print
+      if (left > 0 && --left == 0) inside = 0
+    }'
+}
+
+# section_names: each section's name in $output, in order.
+section_names() { section ''; }
