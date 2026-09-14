@@ -99,7 +99,7 @@ new_fixture() {
   new_fixture
   local expected setting
   expected="$(bash "$GATHER")"
-  for setting in color.ui=always diff.external=/usr/bin/false diff.submodule=diff status.showUntrackedFiles=no; do
+  for setting in color.ui=always diff.external=/usr/bin/false diff.ignoreSubmodules=all diff.submodule=diff status.showUntrackedFiles=no; do
     # The control: each setting changes what the old command prints.
     [ "$(with_config "$setting" old_gather 2>&1)" != "$(old_gather)" ] \
       || fail "fixture: $setting does not change the old command's output"
@@ -107,6 +107,21 @@ new_fixture() {
     [ "$status" -eq 0 ] || fail "$setting: exit $status: $stderr"
     [ "$output" = "$expected" ] || fail "$setting changed the output"
   done
+}
+
+@test "a textconv driver does not rewrite the patch" {
+  new_fixture
+  local expected
+  expected="$(bash "$GATHER")"
+  # info/attributes, not .gitattributes, so the fixture's status is unchanged.
+  printf 'tracked.txt diff=upper\n' > .git/info/attributes
+  # The control: the driver rewrites the old command's patch.
+  with_config 'diff.upper.textconv=tr a-z A-Z <' old_gather | grep -Fx '+MORE' > /dev/null \
+    || fail "fixture: the textconv driver does not rewrite the old command's patch"
+
+  run --separate-stderr with_config 'diff.upper.textconv=tr a-z A-Z <' bash "$GATHER"
+  [ "$status" -eq 0 ] || fail "exit $status: $stderr"
+  [ "$output" = "$expected" ] || fail "$(diff <(printf '%s\n' "$expected") <(printf '%s\n' "$output"))"
 }
 
 @test "under diff.relative, run from a subdirectory, the output is the root's" {

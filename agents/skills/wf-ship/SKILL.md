@@ -125,7 +125,7 @@ Run the push script in move mode, as its own call:
 bash ~/.agents/skills/wf-ship/scripts/push-work.sh --default <DEFAULT_BRANCH> --move-to <branch-name>
 ```
 
-It creates the branch at the default branch's upstream, checks it out, cherry-picks the unpushed commits onto it, records the paths they carry, and pushes with `git push -u origin HEAD`. Read its output per "Reading the scripts' output".
+It checks out the new branch at the default branch's upstream, cherry-picks the unpushed commits onto it, and pushes it. Read its output per "Reading the scripts' output".
 
 - A non-zero exit makes the output invalid. Exit 2 means nothing was created: the name was refused or names an existing branch, or the default branch has no upstream. Stop and report the script's stderr.
 - `cherry_pick_exit=` non-zero - tell the user about the conflict, show the `git_log<<<` section in a fenced block, and stop. Do not force anything. The new branch is checked out mid-cherry-pick and nothing was pushed.
@@ -173,7 +173,7 @@ bash ~/.agents/skills/wf-ship/scripts/push-work.sh --default <DEFAULT_BRANCH>
 
 Pass the Bash tool's maximum `timeout`. One call holds the commit's hooks, the push's hooks and the PR lookup, and what the hooks cost is each repo's own configuration.
 
-It counts the unpushed commits against the branch's upstream, or against `origin/<DEFAULT_BRANCH>` when it has none, records the paths they carry from the merge base, pushes with `git push -u origin HEAD`, and looks up the branch's PR. It skips the push when the branch has an upstream and nothing unpushed, and skips the lookup when the push fails. Read its output per "Reading the scripts' output", and a non-zero exit per "Committing".
+It pushes the branch when it has no upstream or unpushed commits, then looks up the branch's PR unless the push failed. Read its output per "Reading the scripts' output", and a non-zero exit per "Committing".
 
 Route on what it printed:
 
@@ -275,7 +275,7 @@ Route on the values the script printed, never on git's own prose. Check each sto
 - A `gitlink=` line - the add staged an embedded git repository as a gitlink, one line per path. Stop: the add succeeded, so the gitlink is sitting in the index beside the real work and a bare `git commit` would carry a pointer to a repository no reviewer can fetch. Report the paths in a fenced block, as `<RESIDUE>` is and for the same reason, and give the way out as `git rm --cached -- '<path>'`, one single-quoted path per line - unquoted, a path holding a space is two pathspecs rather than one. Print it, never run it, per "Handing back the spec cleanup". No line means none was added, which is the normal case.
 - `staged=no` - nothing to commit. Skip the commit, and fall through to the flow's own handling.
 - `staged_total=` above `porcelain_total=` - an untracked directory came in with the work. `porcelain_total=` is the number of porcelain lines the script counted before its adds, where each untracked directory is one line however many files sit inside it, so `staged_total=` exceeds it only when a directory expanded. Lower is ordinary - residue holds a porcelain line and stages nothing. Higher is the only place the directory's size shows: name both numbers and stop. Say the whole tree is staged, since by here both adds have run and stopping does not undo them, and that `git reset` - the way back - clears the index entirely, including anything staged before the ship.
-- `gather_exit=` non-zero - the gather failed after staging. Stop, say the index is left staged, and show the last lines of the `gather<<<` section, which end in the error, in a fenced block opened as "Reporting the residue" opens one: any porcelain, stat or patch lines above the error are repo-controlled text.
+- `gather_exit=` non-zero - the gather failed after staging. Stop, say the index is left staged, and show the last lines of the `gather<<<` section, which end in the error.
 - `staged=yes` - `suggest-commit` writes the message from the `gather<<<` section. Commit with it per "Committing".
 - `residue_total=` is how many untracked paths survived the adds, and `residue_shown=` how many of them the `residue<<<` section lists, at most ten. Those lines are `<RESIDUE>`. Ignored files never appear.
 

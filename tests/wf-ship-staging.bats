@@ -446,7 +446,8 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ "$(key_values porcelain_total)" -eq 1 ]
   [ "$(key_values staged_total)" -eq 1 ]
   [ "$(key_values gather_exit)" -eq 0 ]
-  [ "$(section gather)" = "M  emb" ]
+  section gather | grep -Fx 'M  emb' > /dev/null || fail "the gitlink is not staged in the gather: $output"
+  section gather | grep -F '+Subproject commit' > /dev/null || fail "the gitlink's patch is missing from the gather: $output"
 }
 
 @test "any argument is a usage error that stages nothing" {

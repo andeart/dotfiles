@@ -425,6 +425,37 @@ SH
   [ "$(section gh_log)" = "no pull requests found for branch [31mfeat" ]
 }
 
+@test "pr-lookup output off its contract reads as no pull request, never as an exit" {
+  local lonely="$BATS_TEST_TMPDIR/lonely"
+  mkdir -p "$lonely"
+  cp "$PUSH" "$lonely/"
+  printf '#!/usr/bin/env bash\nprintf "pr_url=x\\nstale \\033[31mformat\\n"\n' > "$lonely/pr-lookup.sh"
+  git checkout --quiet -b feat
+  commit_file a.txt a
+
+  run bash "$lonely/push-work.sh" --default main
+  [ "$status" -eq 0 ] || fail "exit $status after a landed push: $output"
+  [ "$(key_values push_exit)" -eq 0 ]
+  [ "$(key_values pr)" = "none" ]
+  [ -z "$(key_values pr_url)" ]
+  [ "$(section_names)" = "$(printf 'pushed\ngit_log')" ]
+  [ "$(remote_ref feat)" = "$(git rev-parse HEAD)" ]
+
+  run bash "$lonely/push-work.sh" --default main
+  [ "$status" -eq 0 ] || fail "exit $status with nothing to push: $output"
+  [ "$(key_values pushed)" = "no" ]
+  [ "$(key_values pr)" = "none" ]
+  [ "$(section_names)" = "gh_log" ]
+  section gh_log | grep -Fx 'stale [31mformat' > /dev/null || fail "the off-contract output is not under gh_log: $output"
+}
+
+@test "the scripts that filter remote text define strip_controls identically" {
+  local defs
+  defs="$(grep -h '^strip_controls()' "$PUSH" "$LOOKUP" "$COMMIT")"
+  [ "$(printf '%s\n' "$defs" | wc -l | tr -d ' ')" -eq 3 ] || fail "expected one definition per script: $defs"
+  [ "$(printf '%s\n' "$defs" | sort -u | wc -l | tr -d ' ')" -eq 1 ] || fail "the definitions differ: $defs"
+}
+
 @test "wf-ship commits through commit.sh with the flow's next command chained" {
   assert_one_line "$SKILL" "bash ~/.agents/skills/wf-ship/scripts/commit.sh <<'EOF' && <the flow's next command>"
 }

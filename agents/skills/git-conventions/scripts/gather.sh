@@ -11,6 +11,9 @@ set -euo pipefail
 #   --no-ext-diff             diff.external replaces the patch, or fails it
 #   --no-relative             diff.relative drops paths outside the cwd
 #   --submodule=short         diff.submodule=diff inlines a submodule's log
+#   --ignore-submodules=none  diff.ignoreSubmodules=all drops a gitlink change
+#   --no-textconv             a textconv driver rewrites the patch, and a
+#                             git-crypt or transcrypt one prints plaintext
 # `top` binds the exclude-only pathspecs to the repo root. Without it they bind
 # to the cwd, and from a subdirectory a root lockfile's patch comes through.
 
@@ -36,7 +39,9 @@ fi
 base=HEAD
 git rev-parse --verify --quiet HEAD >/dev/null || base=--cached
 
-git status --porcelain --untracked-files=normal
-git diff "$base" --stat --no-color --no-ext-diff --no-relative --submodule=short
-git diff "$base" -U1 --no-color --no-ext-diff --no-relative --submodule=short \
+git status --porcelain --untracked-files=normal --ignore-submodules=none
+git diff "$base" --stat --no-color --no-ext-diff --no-textconv --no-relative \
+  --submodule=short --ignore-submodules=none
+git diff "$base" -U1 --no-color --no-ext-diff --no-textconv --no-relative \
+  --submodule=short --ignore-submodules=none \
   -- ':(top,exclude)*.lock' ':(top,exclude)*-lock.json'

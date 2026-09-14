@@ -12,8 +12,8 @@ set -euo pipefail
 #   3. on a pull request hit, `pr_first_line<<<` and one line;
 #   4. when a push or a failed cherry-pick ran, `git_log<<<` and its output,
 #      control bytes removed, to the end. When nothing was pushed and the
-#      lookup found no pull request, `gh_log<<<` and gh's filtered stderr, to
-#      the end, instead.
+#      lookup found no pull request, `gh_log<<<` and the lookup's error,
+#      control bytes removed, to the end, instead.
 # Hooks print on stdout as well as stderr, so each git command that runs one or
 # prints repo text has both streams captured.
 
@@ -52,7 +52,7 @@ case "${BASH_SOURCE[0]}" in
 esac
 lookup="$lookup/pr-lookup.sh"
 
-mode= default= move_to= paths= docs_only= pushed_total= git_log= lookup_out=
+mode= default= move_to= paths= docs_only= pushed_total= git_log= lookup_out= gh_log=
 have_paths=no have_log=no have_first=no have_gh_log=no
 
 # record_paths <base>: the paths from the merge base of <base> and HEAD. Three
@@ -110,23 +110,22 @@ feature() {
   # line still counts as a line.
   lookup_out=$(bash "$lookup"; echo .)
   lookup_out=${lookup_out%.}
+  if [ "${lookup_out%%=*}" = pr_url ] \
+    && [ "$(printf '%s' "$lookup_out" | awk 'NR == 3')" = 'pr_first_line<<<' ]; then
+    printf '%s' "$lookup_out" | awk 'NR <= 2'
+    have_first=yes
+    return 0
+  fi
+  echo 'pr=none'
+  # Where nothing was pushed, pr=none ends the ship, and gh's error is what
+  # tells a failed lookup from a branch with no pull request. After a push,
+  # gh pr create reports its own error.
+  [ "$pushed" = yes ] || have_gh_log=yes
+  # Output off pr-lookup's contract, as a partial sync can leave, is a failed
+  # lookup too, never an exit: the push may already have landed.
   case $lookup_out in
-    pr=none$'\n''gh_log<<<'$'\n'*)
-      echo 'pr=none'
-      # Where nothing was pushed, pr=none ends the ship, and gh's error is what
-      # tells a failed lookup from a branch with no pull request. After a push,
-      # gh pr create reports its own error.
-      [ "$pushed" = yes ] || have_gh_log=yes
-      ;;
-    pr_url=*)
-      [ "$(printf '%s' "$lookup_out" | awk 'NR == 3')" = 'pr_first_line<<<' ] \
-        || die 'unexpected pr-lookup output'
-      printf '%s' "$lookup_out" | awk 'NR <= 2'
-      have_first=yes
-      ;;
-    *)
-      die 'unexpected pr-lookup output'
-      ;;
+    pr=none$'\n''gh_log<<<'$'\n'*) gh_log=${lookup_out#pr=none$'\n''gh_log<<<'$'\n'} ;;
+    *) gh_log="push-work: unexpected pr-lookup output"$'\n'"$lookup_out" ;;
   esac
 }
 
@@ -179,7 +178,8 @@ work() {
     [ -z "$git_log" ] || printf '%s\n' "$git_log" | strip_controls
   fi
   if [ "$have_gh_log" = yes ]; then
-    printf '%s' "${lookup_out#pr=none$'\n'}"
+    echo 'gh_log<<<'
+    [ -z "$gh_log" ] || printf '%s\n' "${gh_log%$'\n'}" | strip_controls
   fi
 }
 
