@@ -207,30 +207,13 @@ EOF
 }
 
 # The readers below read $output as wf-ship reads a script's output. A marker
-# is `name<<<` alone on a line. When $output holds a `push_work=begin` line,
-# everything up to and including the first one is dropped: those lines are
-# output of a command chained in front of push-work.sh, and a commit hook can
-# print a marker or a key. The first such line, not the last, because lines
-# after push-work.sh's own can be repo-controlled text - a path, a PR body, a
-# pre-push hook. A chained hook that prints the line itself is misread, which
-# wf-ship accepts. Only push-work.sh prints it, so no fixture for another script
-# may name a path `push_work=begin`. Keys come only from the key region, the
-# lines before the first marker in what remains. A test that took keys from
-# anywhere else would pass a script that lets a path, a patch line or a hook
-# print one.
+# is `name<<<` alone on a line. Keys come only from the lines before the first
+# marker: a test that took them from anywhere else would pass a script that lets
+# a path, a patch line or a hook print one.
 
-# script_output: $output from the first `push_work=begin` line on, without that
-# line, or all of $output when it holds none.
-script_output() {
-  printf '%s\n' "$output" | awk '
-    { line[NR] = $0 }
-    !from && $0 == "push_work=begin" { from = NR }
-    END { for (i = from + 1; i <= NR; i++) print line[i] }'
-}
-
-# key_values <key>: every value of <key> in the key region, one per line.
+# key_values <key>: every value of <key> before the first marker, one per line.
 key_values() {
-  script_output | K="$1=" awk '
+  printf '%s\n' "$output" | K="$1=" awk '
     /^[a-z_]+<<<$/ { exit }
     index($0, ENVIRON["K"]) == 1 { print substr($0, length(ENVIRON["K"]) + 1) }'
 }
@@ -241,7 +224,7 @@ key_values() {
 # so a wrong count shows as a missing section rather than a shifted one. An
 # empty <name> prints each section's name, in order, instead.
 section() {
-  script_output | W="$1" awk '
+  printf '%s\n' "$output" | W="$1" awk '
     BEGIN { count["residue"] = "residue_shown"; count["pushed"] = "pushed_total"; fixed["pr_first_line"] = 1 }
     !started && !/^[a-z_]+<<<$/ { eq = index($0, "="); if (eq) key[substr($0, 1, eq - 1)] = substr($0, eq + 1); next }
     !inside {

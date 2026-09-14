@@ -130,9 +130,11 @@ stage() {
   [ "$gather_ran" = no ] || echo "gather_exit=$gather_exit"
   echo 'residue<<<'
   [ "$residue_shown" -eq 0 ] || printf '%s\n' "$residue_paths"
+  # ESC removed, as wf-ship shows this section on a failed gather. CR stays:
+  # it is how a CRLF-to-LF change shows in the patch.
   if [ "$gather_ran" = yes ]; then
     echo 'gather<<<'
-    [ -z "$gather_out" ] || printf '%s\n' "$gather_out"
+    [ -z "$gather_out" ] || printf '%s\n' "$gather_out" | LC_ALL=C tr -d '\033'
   fi
 }
 

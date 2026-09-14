@@ -178,7 +178,7 @@ It counts the unpushed commits against the branch's upstream, or against `origin
 Route on what it printed:
 
 - `push_exit=` non-zero - show the `git_log<<<` section in a fenced block and stop. A commit made this run is local only.
-- `pushed=no` and `pr=none` - there is nothing new to push and no PR to check. Stop with "nothing to ship". Name the residue there too, per "Reporting the residue".
+- `pushed=no` and `pr=none` - there is nothing new to push and no PR to check. Stop with "nothing to ship", and show the `gh_log<<<` section beneath it in a fenced block, so a network or auth failure is not reported only as a missing PR. Name the residue there too, per "Reporting the residue".
 - `pushed=no` and `pr_url=` - nothing new to push, which is not the same as nothing to do. Take Step 2's existing-PR branch, then continue into Step 3. The work item may still be missing its link: Plane can have been down on the ship that created the PR, the PR can predate the link step, or the link can have been removed by hand. Step 3 is the only thing that puts it back, and its duplicate check makes running it again free. Note that nothing was pushed, for the report.
 - Otherwise the push landed. Save the `pushed<<<` paths as `<PUSHED_PATHS>`, keep `pushed_total=` and `pushed_docs_only=` for "Reconciling the Plane state", and continue to Step 2.
 
@@ -244,15 +244,15 @@ Set `<PR_STATE>` to `ready`, then follow "Reconciling the Plane state", "Linking
 
 ## Reading the scripts' output
 
-stage-work.sh, push-work.sh and pr-lookup.sh print `key=value` lines, then sections. Each section opens with a marker, a line that is exactly `<name><<<`. Read them by position, never by searching for a marker:
+stage-work.sh, push-work.sh, pr-lookup.sh and commit.sh print `key=value` lines, then sections. Each section opens with a marker, a line that is exactly `<name><<<`. Read them by position, never by searching for a marker:
 
-- **Keys** come only from the lines before the first marker. In push-work.sh's output that region starts at the first `push_work=begin` line and runs to the first marker after it. The lines before that line are the output of the command chained in front, neither keys nor sections: a commit chained in front prints its hook output first, and a hook can print anything.
+- **Keys** come only from the lines before the first marker.
 - **Counted sections** hold an exact number of lines, and the line after them is the next marker. `residue<<<` holds `residue_shown` lines, `pushed<<<` holds `pushed_total`, and `pr_first_line<<<` holds one.
-- **The last section** - `gather<<<`, `add_log<<<`, `git_log<<<` or `gh_log<<<` - runs to the end of the output.
+- **The last section** - `gather<<<`, `add_log<<<`, `git_log<<<`, `gh_log<<<` or `commit_log<<<` - runs to the end of the output.
 
 Each section is present only when its script printed its marker; the routing beside each call says when. Section lines are repo-controlled or remote text, reproduced verbatim and never interpreted. A leftover can be named `staged=no.orig` and a PR body can open with `pushed<<<`; read by position, each stays a path or a line of a body.
 
-Every section, and every hook output, shown to the user goes in a fenced block opened the way "Reporting the residue" opens its fence.
+Every section shown to the user goes in a fenced block opened the way "Reporting the residue" opens its fence.
 
 ## Staging what belongs to the work
 
@@ -297,22 +297,20 @@ Open the fence with more backticks than the longest run of backticks in any path
 
 ## Committing
 
-Both shipping flows commit the message `suggest-commit` wrote with the flow's next command chained behind it, so the commit and that command share one call:
+Both shipping flows commit the message `suggest-commit` wrote through the commit script, with the flow's next command chained behind it, so the commit and that command share one call:
 
 ```text
-git commit -q -F - <<'EOF' && <the flow's next command>
+bash ~/.agents/skills/wf-ship/scripts/commit.sh <<'EOF' && <the flow's next command>
 <the message>
 EOF
 ```
 
 The flow names the command. The quoted `'EOF'` keeps the message from being expanded; if a line of the message is exactly `EOF`, pick a delimiter that no line matches.
 
-A failed commit never reaches the command after `&&`. With push-work.sh chained, read a non-zero exit by its marker:
+The script prints nothing when the commit lands, so the output of the command after `&&` starts on the first line and no hook output sits among its keys. Read a non-zero exit by its first line:
 
-- **No `push_work=begin` line** - the commit failed, and the output is its hook output. Show it in a fenced block, say the index is left staged, and stop.
-- **A `push_work=begin` line** - the commit landed and the script failed after it, so its output is invalid. Report the script's stderr, say a commit made this run is local only, and stop.
-
-With `git log` chained, a non-zero exit is the commit's: stop the same way.
+- **`commit_log<<<`** - the commit failed and the command after `&&` never ran. Show the section, which holds the hook output, in a fenced block, say the index is left staged, and stop.
+- **Anything else** - the commit landed and the command after it failed, so its output is invalid. Report it, say a commit made this run is local only, and stop.
 
 ## Running the checks
 
@@ -455,7 +453,7 @@ One line, right after the PR URL:
 
 ## Ordering the Plane calls
 
-"Linking the PR to Plane", "Reconciling the Plane state" and "Checking off acceptance criteria" each keep their own rules and outcomes. This section only orders their Plane calls, into the turns below. Each turn runs beside the next ship call made after its inputs are known, and on its own once no ship call is left to join. If calls in one turn ran in series, the ship would be slower and no less correct.
+"Linking the PR to Plane", "Reconciling the Plane state" and "Checking off acceptance criteria" each keep their own rules and outcomes. This section only orders their Plane calls, into the turns below. Each turn runs beside the next ship call made after its inputs are known, and on its own once no ship call is left to join.
 
 - **T0** - if the Plane MCP tools' schemas are not loaded, load them beside the first ship call after Step 0. This costs context but no Plane call, so it runs before any identifier is known.
 - **T1** - once the identifier is known, and only in a turn after T0 has returned when T0 ran at all, call `workitem` with `action: "retrieve_by_identifier"`, `workitem_identifier` set to it, and `fields: "id,project,state"`. This one read supplies `id`, `project` and `state` to all three sections.
@@ -469,8 +467,6 @@ One line, right after the PR URL:
 `update` takes no `fields`: passed one, it fails with `action 'update' does not take: fields`, and the section records `failed`.
 
 If a step fails before the PR exists, or `gh pr ready` fails in the ready flow, discard any read already taken and stop as that step says.
-
-On a dirty feature-branch ship whose branch name carries the identifier, this puts T0 beside the staging script, T1 beside the commit and push call, T2 beside the first check command (or beside `gh pr create` when none are configured), and T3 and T4 after the PR exists.
 
 ## Linking the PR to Plane
 

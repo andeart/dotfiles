@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# wf-ship's push, run chained after its commit. Feature mode pushes the current
+# wf-ship's push, run chained after commit.sh. Feature mode pushes the current
 # branch and looks up its pull request. Move mode, for a ship from the default
 # branch, cuts <branch> at the default branch's upstream, cherry-picks the
 # unpushed commits onto it, and pushes it.
 #
 # Output, read by position:
-#   1. `push_work=begin`, the first stdout line. A commit chained in front
-#      prints its hook output first, so keys are read only from here on;
-#   2. key=value lines, every one of them this script's own text;
-#   3. when pushed_total is printed, `pushed<<<` and exactly that many paths;
-#   4. on a pull request hit, `pr_first_line<<<` and one line;
-#   5. when a push or a failed cherry-pick ran, `git_log<<<` and its output,
-#      control bytes removed, to the end.
+#   1. key=value lines, every one of them this script's own text;
+#   2. when pushed_total is printed, `pushed<<<` and exactly that many paths;
+#   3. on a pull request hit, `pr_first_line<<<` and one line;
+#   4. when a push or a failed cherry-pick ran, `git_log<<<` and its output,
+#      control bytes removed, to the end. When nothing was pushed and the
+#      lookup found no pull request, `gh_log<<<` and gh's filtered stderr, to
+#      the end, instead.
 # Hooks print on stdout as well as stderr, so each git command that runs one or
 # prints repo text has both streams captured.
 
@@ -53,35 +53,24 @@ esac
 lookup="$lookup/pr-lookup.sh"
 
 mode= default= move_to= paths= docs_only= pushed_total= git_log= lookup_out=
-have_paths=no have_log=no have_first=no
-
-# all_under_docs: reads NUL-terminated paths on stdin and prints yes when there
-# is at least one and every one sits under docs/, otherwise no. A function
-# rather than a loop inline in $(...): /bin/bash 3.2 cannot parse a case
-# pattern's `)` inside a command substitution.
-all_under_docs() {
-  local n=0 answer=yes p
-  while IFS= read -r -d '' p; do
-    n=$((n + 1))
-    case $p in
-      docs/*) ;;
-      *) answer=no ;;
-    esac
-  done
-  [ "$n" -gt 0 ] || answer=no
-  echo "$answer"
-}
+have_paths=no have_log=no have_first=no have_gh_log=no
 
 # record_paths <base>: the paths from the merge base of <base> and HEAD. Three
 # dots, so a default branch that moved adds none of its own paths.
 # --no-relative: under diff.relative=true, from a subdirectory, --name-only
 # lists only that directory's paths, prefix stripped.
+# docs_only reads the same listing. Git quotes a path holding a non-ASCII or
+# control byte, so a quoted path under docs/ opens with "docs/, while a path
+# that itself opens with a quote is printed as "\"...
 record_paths() {
+  local counts
   paths=$(git diff --name-only --no-relative "$1...HEAD")
-  pushed_total=$(printf '%s' "$paths" | awk 'END { print NR }')
-  # -z, because --name-only quotes a non-ASCII path, and "docs/\303\251.md"
-  # fails a docs/ prefix test.
-  docs_only=$(git diff --name-only -z --no-relative "$1...HEAD" | all_under_docs)
+  counts=$(printf '%s' "$paths" | awk '
+    { n++ }
+    !/^"?docs\// { other = 1 }
+    END { d = (n && !other) ? "yes" : "no"; print n + 0, d }')
+  pushed_total=${counts%% *}
+  docs_only=${counts#* }
   have_paths=yes
 }
 
@@ -96,7 +85,7 @@ push_head() {
 }
 
 feature() {
-  local ref base upstream unpushed
+  local ref base upstream unpushed pushed=yes
   # The full ref: with a tag named like the branch, --short prints heads/<name>
   # and the comparison would pass on the default branch itself.
   ref=$(git symbolic-ref --quiet HEAD) || refuse
@@ -111,6 +100,7 @@ feature() {
   echo "upstream=$upstream"
   echo "unpushed_total=$unpushed"
   if [ "$upstream" = yes ] && [ "$unpushed" -eq 0 ]; then
+    pushed=no
     echo 'pushed=no'
   else
     record_paths "$base"
@@ -121,8 +111,12 @@ feature() {
   lookup_out=$(bash "$lookup"; echo .)
   lookup_out=${lookup_out%.}
   case $lookup_out in
-    pr=none$'\n'*)
+    pr=none$'\n''gh_log<<<'$'\n'*)
       echo 'pr=none'
+      # Where nothing was pushed, pr=none ends the ship, and gh's error is what
+      # tells a failed lookup from a branch with no pull request. After a push,
+      # gh pr create reports its own error.
+      [ "$pushed" = yes ] || have_gh_log=yes
       ;;
     pr_url=*)
       [ "$(printf '%s' "$lookup_out" | awk 'NR == 3')" = 'pr_first_line<<<' ] \
@@ -145,8 +139,9 @@ move() {
   # The short name: refs/heads/main@{upstream} does not resolve, and a tag named
   # like the branch does not change what main@{upstream} resolves to.
   up=$(git rev-parse --verify --quiet "$default@{upstream}") || refuse
-  out=$(git branch "$branch" "$up" 2>&1) || die "$out"
-  out=$(git checkout "$branch" 2>&1) || die "$out"
+  # One step: a checkout that fails, say over an untracked file the upstream
+  # tracks, creates no branch, so a re-ship can take the same name.
+  out=$(git checkout -q -b "$branch" "$up" 2>&1) || die "$out"
   git_log=$(git cherry-pick "$up..refs/heads/$default" 2>&1) || cherry_pick_exit=$?
   echo "cherry_pick_exit=$cherry_pick_exit"
   if [ "$cherry_pick_exit" -ne 0 ]; then
@@ -159,7 +154,6 @@ move() {
 
 work() {
   set -e
-  echo 'push_work=begin'
   [ -f "$lookup" ] || die "missing $lookup - run 'dotfiles push' to sync the skills"
   # The mode comes from the argument count, never from an empty value: an empty
   # --move-to is a refused name, not feature mode.
@@ -183,6 +177,9 @@ work() {
   if [ "$have_log" = yes ]; then
     echo 'git_log<<<'
     [ -z "$git_log" ] || printf '%s\n' "$git_log" | strip_controls
+  fi
+  if [ "$have_gh_log" = yes ]; then
+    printf '%s' "${lookup_out#pr=none$'\n'}"
   fi
 }
 

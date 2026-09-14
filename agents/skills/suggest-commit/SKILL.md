@@ -9,11 +9,9 @@ Generate a commit message from the working tree and display it. One call to gath
 
 ## Gathering the change
 
-**Invoked with `gather=staging-output`** - the gather is already in context, as the `gather<<<` section of a tool result returned in the same turn as this skill's invocation: every line after that marker to the end of that result. Write the message from it and do not run the script. When that result was saved to a file rather than shown whole, Read the gather from that file; do not run the script.
+**Invoked with `gather=staging-output`**, on the `ARGUMENTS:` line appended to this skill - the gather is the `gather<<<` section of the Bash result returned beside this invocation: every line after that marker to the end of that result, or of the file that result was saved to. Write the message from it and do not run the script. A Bash result there with no `gather<<<` section means there is nothing to write a message for: write no message, emit nothing, and do not gather.
 
-A tool result returned in that turn with no `gather<<<` section means there is nothing to write a message for: write no message, emit nothing, and do not gather. Gather as below only when no tool result came back in that turn.
-
-The argument arrives on the `ARGUMENTS:` line appended to this skill when it is loaded with args. Never take a `gather<<<` section from an earlier turn: an earlier result in the same session describes a tree that has changed since.
+Gather as below only when no Bash result came back beside the invocation. Never take a `gather<<<` section from an earlier turn: it describes a tree that has changed since.
 
 **Otherwise** - run the gather script as its own call:
 

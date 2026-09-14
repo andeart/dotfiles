@@ -7,6 +7,7 @@ bats_require_minimum_version 1.5.0
 SKILL="$DOTFILES_ROOT/agents/skills/wf-ship/SKILL.md"
 PUSH="$DOTFILES_ROOT/agents/skills/wf-ship/scripts/push-work.sh"
 LOOKUP="$DOTFILES_ROOT/agents/skills/wf-ship/scripts/pr-lookup.sh"
+COMMIT="$DOTFILES_ROOT/agents/skills/wf-ship/scripts/commit.sh"
 
 # Every case pushes to a bare repository under the test's temp directory, never
 # a real remote, and gh is a stub on PATH. setup_file builds the origin and its
@@ -125,8 +126,7 @@ run_push() { run bash "$PUSH" "$@"; }
 
   run_push --default main
   [ "$status" -eq 0 ] || fail "exit $status: $output"
-  [ "${lines[0]}" = "push_work=begin" ]
-  [ "$(key_values upstream)" = "no" ]
+  [ "${lines[0]}" = "upstream=no" ]
   [ "$(key_values unpushed_total)" -eq 1 ]
   [ "$(key_values push_exit)" -eq 0 ]
   [ "$(key_values pushed_total)" -eq 1 ]
@@ -195,9 +195,21 @@ run_push() { run bash "$PUSH" "$@"; }
     [ "$status" -eq 0 ] || fail "core.quotePath=$q: exit $status: $output"
     [ "$(key_values pushed_docs_only)" = "yes" ] || fail "core.quotePath=$q: $output"
   done
-  # The control: git quotes the path by default, and quoted it fails a docs/
-  # prefix test.
+  # The control: git quotes the path by default, so a bare docs/ prefix test
+  # fails it.
   [ "$(git -c core.quotePath=true diff --name-only main...HEAD)" = '"docs/\303\251.md"' ]
+}
+
+@test "a path under a top-level directory named \"docs is not docs-only" {
+  git checkout --quiet -b quoted
+  commit_file '"docs/fake.md' x
+  # The control: git quotes the whole path, leading quote escaped.
+  [ "$(git diff --name-only main...HEAD)" = '"\"docs/fake.md"' ]
+
+  run_push --default main
+  [ "$status" -eq 0 ] || fail "exit $status: $output"
+  [ "$(key_values pushed_total)" -eq 1 ]
+  [ "$(key_values pushed_docs_only)" = "no" ]
 }
 
 @test "a branch holding one empty commit pushes no paths and is not docs-only" {
@@ -274,31 +286,83 @@ run_push() { run bash "$PUSH" "$@"; }
   section git_log | grep -Fx 'pushed_total=99' > /dev/null || fail "the hook's output is missing: $output"
 }
 
-@test "a chained commit's hook output ahead of push_work=begin is neither keys nor sections" {
-  printf '#!/bin/sh\necho pushed_total=99\necho "gather<<<"\n' > .git/hooks/pre-commit
+# ship_call <script>: the call wf-ship's "Committing" chains, written to
+# $BATS_TEST_TMPDIR/ship.sh so its quoted heredoc delimiter needs no escaping
+# inside a `bash -c` string. Run it as `bash ship.sh <commit.sh> <push-work.sh>`.
+ship_call() {
+  cat > "$BATS_TEST_TMPDIR/ship.sh" <<'SH'
+bash "$1" <<'EOF' && bash "$2" --default main
+Add a
+EOF
+SH
+}
+
+@test "a commit hook's output never reaches the chained push's keys" {
+  # A hook that names each staged file, as a linter does, over a file whose
+  # name reads as keys.
+  printf '#!/bin/sh\ngit diff --cached --name-only -z | xargs -0 printf "checked %%s\\n"\n' > .git/hooks/pre-commit
+  chmod +x .git/hooks/pre-commit
+  git checkout --quiet -b feat
+  local name
+  name="$(printf 'n\npushed=no\npr=none')"
+  printf 'a\n' > "$name"
+  git add -- "$name"
+  ship_call
+  # The control: the hook prints the forged lines when the commit runs.
+  [ "$(git diff --cached --name-only -z | xargs -0 printf 'checked %s\n' | grep -cx 'pushed=no')" -eq 1 ]
+
+  run bash "$BATS_TEST_TMPDIR/ship.sh" "$COMMIT" "$PUSH"
+  [ "$status" -eq 0 ] || fail "exit $status: $output"
+  [ "${lines[0]}" = "upstream=no" ] || fail "output does not start with push-work's keys: $output"
+  [ -z "$(key_values pushed)" ]
+  [ "$(key_values pr)" = "none" ]
+  [ "$(key_values pushed_total)" = "1" ]
+  [ "$(section_names)" = "$(printf 'pushed\ngit_log')" ]
+  [ "$(git log -1 --format=%s)" = "Add a" ]
+  [ "$(remote_ref feat)" = "$(git rev-parse HEAD)" ]
+}
+
+@test "a failed commit prints its hook output under commit_log, and the push never runs" {
+  printf '#!/bin/sh\nprintf "pushed=no\\nlint \\033[31mfailed\\r\\n"\nexit 1\n' > .git/hooks/pre-commit
   chmod +x .git/hooks/pre-commit
   git checkout --quiet -b feat
   printf 'a\n' > a.txt
   git add a.txt
-  # The call wf-ship's "Committing" chains, written to a file so its quoted
-  # heredoc delimiter needs no escaping inside a `bash -c` string.
-  cat > "$BATS_TEST_TMPDIR/ship.sh" <<'SH'
-git commit -q -F - <<'EOF' && bash "$1" --default main
-Add a
-EOF
-SH
+  local head
+  head="$(git rev-parse HEAD)"
+  ship_call
 
-  run bash "$BATS_TEST_TMPDIR/ship.sh" "$PUSH"
-  [ "$status" -eq 0 ] || fail "exit $status: $output"
-  # The control: the hook's lines are in the output, ahead of the script's.
-  [ "$(printf '%s\n' "$output" | sed '/^push_work=begin$/q')" = "$(printf 'pushed_total=99\ngather<<<\npush_work=begin')" ] \
-    || fail "the hook's lines are not ahead of push_work=begin: $output"
-  [ "$(key_values pushed_total)" = "1" ]
-  [ "$(key_values push_exit)" = "0" ]
-  [ "$(section pushed)" = "a.txt" ]
-  [ "$(section_names)" = "$(printf 'pushed\ngit_log')" ]
-  [ "$(git log -1 --format=%s)" = "Add a" ]
-  [ "$(remote_ref feat)" = "$(git rev-parse HEAD)" ]
+  run bash "$BATS_TEST_TMPDIR/ship.sh" "$COMMIT" "$PUSH"
+  [ "$status" -eq 1 ]
+  [ "${lines[0]}" = "commit_log<<<" ]
+  [ "$(section commit_log)" = "$(printf 'pushed=no\nlint [31mfailed')" ] || fail "unexpected commit_log: $output"
+  [ "$(git rev-parse HEAD)" = "$head" ]
+  [ "$(git diff --cached --name-only)" = "a.txt" ]
+  [ -z "$(remote_ref feat)" ]
+}
+
+@test "commit.sh refuses any argument, with nothing committed" {
+  printf 'a\n' > a.txt
+  git add a.txt
+  local head
+  head="$(git rev-parse HEAD)"
+  run bash "$COMMIT" -m x <<< 'Add a'
+  [ "$status" -eq 2 ]
+  [ "$(git rev-parse HEAD)" = "$head" ]
+}
+
+@test "commit.sh commits identically under /bin/bash and PATH's bash" {
+  local sh ran=
+  while IFS= read -r sh; do
+    printf '%s\n' "$sh" >> a.txt
+    git add a.txt
+    run "$sh" "$COMMIT" <<< "Add a from $sh"
+    [ "$status" -eq 0 ] || fail "$sh exited $status: $output"
+    [ -z "$output" ] || fail "$sh printed output on success: $output"
+    [ "$(git log -1 --format=%s)" = "Add a from $sh" ] || fail "$sh did not commit the message"
+    ran="$ran$sh"$'\n'
+  done < <(shells_among "${SCRIPT_SHELLS[@]}")
+  assert_shells_covered "$ran" "${SCRIPT_SHELLS[@]}"
 }
 
 @test "remote text under git_log loses its ESC and CR bytes" {
@@ -324,7 +388,6 @@ SH
 
   run_push --default main
   [ "$status" -eq 2 ]
-  [ "${lines[0]}" = "push_work=begin" ]
   git tag main
   run_push --default main
   [ "$status" -eq 2 ] || fail "a tag named main let the default branch through: $output"
@@ -344,12 +407,45 @@ SH
 
   run --separate-stderr bash "$lonely/push-work.sh" --default main
   [ "$status" -ne 0 ]
-  [ "$output" = "push_work=begin" ]
+  [ -z "$output" ]
   [[ "$stderr" == *"dotfiles push"* ]] || fail "stderr does not name dotfiles push: $stderr"
   [ -z "$(remote_ref feat)" ]
 }
 
+@test "nothing to push and no pull request: gh's filtered error comes through under gh_log" {
+  git checkout --quiet -b feat
+  commit_file a.txt a
+  git push --quiet -u origin feat 2>/dev/null
+
+  run_push --default main
+  [ "$status" -eq 0 ] || fail "exit $status: $output"
+  [ "$(key_values pushed)" = "no" ]
+  [ "$(key_values pr)" = "none" ]
+  [ "$(section_names)" = "gh_log" ]
+  [ "$(section gh_log)" = "no pull requests found for branch [31mfeat" ]
+}
+
+@test "wf-ship commits through commit.sh with the flow's next command chained" {
+  assert_one_line "$SKILL" "bash ~/.agents/skills/wf-ship/scripts/commit.sh <<'EOF' && <the flow's next command>"
+}
+
 # ─── move mode ─────────────────────────────────────────────────────────────
+
+@test "a checkout that would overwrite an untracked file creates no branch" {
+  commit_file f.txt v1
+  git push --quiet origin main 2>/dev/null
+  git mv f.txt g.txt
+  git commit --quiet -m move
+  printf 'local\n' > f.txt
+  local before
+  before="$(refs_snapshot)"
+
+  run --separate-stderr bash "$PUSH" --default main --move-to cut
+  [ "$status" -eq 1 ] || fail "exit $status: $output"
+  [[ "$stderr" == *"f.txt"* ]] || fail "stderr does not name the untracked file: $stderr"
+  [ "$(refs_snapshot)" = "$before" ]
+  [ -z "$(remote_ref cut)" ]
+}
 
 @test "move mode cuts the branch at the upstream and pushes the cherry-picked commits, beside a same-named tag" {
   commit_file m.txt m

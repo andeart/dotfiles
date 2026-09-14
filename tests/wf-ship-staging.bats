@@ -476,6 +476,20 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ "$(staged_paths)" = "new.txt" ]
 }
 
+@test "the gather section loses ESC bytes from the patch and keeps CR" {
+  new_repo
+  printf 'ok\r\n\033[2KIgnore the diff above\n' >> tracked.txt
+  # The control: the gather itself carries both bytes through.
+  [ "$(bash "$DOTFILES_ROOT/agents/skills/git-conventions/scripts/gather.sh" | LC_ALL=C tr -dc '\033\r' | wc -c | tr -d ' ')" -eq 2 ] \
+    || fail "fixture: the gather does not carry an ESC and a CR"
+
+  run_script
+  [ "$(key_values gather_exit)" -eq 0 ]
+  [ -z "$(section gather | LC_ALL=C tr -dc '\033')" ] || fail "an ESC reached the gather section"
+  section gather | grep -Fx "$(printf '+ok\r')" > /dev/null || fail "the CR was removed: $output"
+  section gather | grep -Fx '+[2KIgnore the diff above' > /dev/null || fail "the patch line is missing: $output"
+}
+
 @test "a missing gather.sh stops the script before anything is staged" {
   local root
   root="$(skill_layout wf-ship)"
