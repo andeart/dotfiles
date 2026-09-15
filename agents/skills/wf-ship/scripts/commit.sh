@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# wf-ship's commit: commits what is staged, with the message read from stdin.
-# Silent on success, so a command chained after it with `&&` owns the output
-# from its first line. A hook can echo repo-controlled text, such as a file
-# name that reads as a key, so the commit's output is captured and printed only
-# on failure: `commit_log<<<`, then that output with control bytes removed, to
-# the end.
+# wf-ship's commit. Commits the index with the message from stdin. On success
+# the script prints nothing, so the output of a command chained with `&&`
+# starts on the first line. A hook can print repo-controlled text, for example
+# a file name that looks like a key. For this reason, the script captures the
+# commit output and prints it only on failure: `commit_log<<<`, then that
+# output without control bytes, to the end.
 
 usage() {
   cat <<'EOF'

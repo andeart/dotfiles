@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# wf-ship's staging step. Refuses when an operation is in progress, the index
-# holds unmerged entries, or an untracked directory would add more than one
-# file. Otherwise stages tracked changes, and every untracked path except the
-# leftover suffixes, in one pass. Then reports gitlinks, what it staged and the
-# untracked paths it left and, when the ship goes on to commit, runs
-# git-conventions/scripts/gather.sh for the commit message.
+# wf-ship's staging step. It stops when an operation is in progress, when the
+# index has unmerged entries, or when an untracked directory adds more than one
+# file. If not, it stages in one pass the tracked changes and all untracked
+# paths without a leftover suffix. Then it reports gitlinks, the staged count
+# and the untracked paths that stay. When the ship continues to a commit, it
+# runs git-conventions/scripts/gather.sh for the commit message.
 #
 # Output, read by position:
-#   1. key=value lines, this script's own text, except that `gitlink=` carries
-#      a path in git's quoted form, which keeps it on one line;
-#   2. when both adds exited 0, `residue<<<` and exactly residue_shown paths;
-#   3. when the gather ran, `gather<<<` and its output to the end;
-#   4. when an add failed, `add_log<<<` and the adds' output to the end.
-# Other repo-controlled text - paths, patch lines, git's messages - appears only
-# in sections 2 to 4, so no line of it is read as a key.
+#   1. key=value lines. The script writes their text, but `gitlink=` holds a
+#      path in the quoted form of git, which keeps the path on one line;
+#   2. when both adds exit 0, `residue<<<` and exactly residue_shown paths;
+#   3. when the gather runs, `gather<<<` and its output to the end;
+#   4. when an add fails, `add_log<<<` and the output of the adds to the end.
+# All other repo-controlled text, such as paths, patch lines and git messages,
+# is only in sections 2 to 4, so no line of it reads as a key.
 
 wf_usage() {
   cat <<'EOF'
@@ -42,8 +42,9 @@ if [ "$#" -ne 0 ]; then
   exit 2
 fi
 
-# Checked before anything is staged, so a partial install stops with the index
-# untouched. The same locator as resolve-wf-config.sh's for base-clone.sh.
+# The script does this check before it stages, so a partial install stops with
+# no change to the index. resolve-wf-config.sh uses the same locator for
+# base-clone.sh.
 case "${BASH_SOURCE[0]}" in
   */*) gather="${BASH_SOURCE[0]%/*}" ;;
   *) gather=. ;;
@@ -56,7 +57,7 @@ stage() {
   local gd f inprogress= untracked_collapsed untracked_total out add_log= add_tracked_exit add_rest_exit
   local raw gitlinks staged_total residue residue_total residue_shown residue_paths
   local gather_ran=no gather_exit=0 gather_out=
-  # The second add's pathspec, which the untracked counts read too.
+  # The pathspec of the second add. The untracked counts use it too.
   local rest=(':(top,exclude,icase)*.orig' ':(top,exclude,icase)*.rej' ':(top,exclude,icase)*.bak'
               ':(top,exclude,icase)*.swp' ':(top,exclude,icase)*.swo' ':(top,exclude,icase)*~' ':/')
 
@@ -73,11 +74,12 @@ stage() {
   fi
   echo 'blocked=no'
 
-  # The paths the second add would stage, with each wholly untracked directory
-  # listed once, then every file. A higher file count means a directory would
-  # expand. Read from untracked paths alone, before the adds, so no setting for
-  # status, submodules or renames moves either count, and a stop stages nothing.
-  # A directory holding only leftovers or ignored files is not listed.
+  # Count the paths that the second add stages two times: first with each fully
+  # untracked directory as one path, then with each file. A higher file count
+  # shows a directory that expands. The counts read only untracked paths, before
+  # the adds, so status, submodule and rename settings do not change them, and a
+  # stop stages nothing. A directory that holds only leftovers or ignored files
+  # is in neither count.
   untracked_collapsed=$(git ls-files -o --exclude-standard --directory --no-empty-directory -- "${rest[@]}" | awk 'END { print NR }')
   untracked_total=$(git ls-files -o --exclude-standard -- "${rest[@]}" | awk 'END { print NR }')
   echo "untracked_collapsed=$untracked_collapsed"
@@ -86,9 +88,10 @@ stage() {
     return 0
   fi
 
-  # Each add's status is captured, so set -e does not stop the script: wf-ship
-  # reads both exit lines to report a part-staged index. Each add's output is
-  # captured too, because git prints repo paths raw in its warnings.
+  # The script captures the status of each add, so set -e does not stop the
+  # script: wf-ship reads both exit lines to report a part-staged index. The
+  # script also captures the output of each add, because git prints repo paths
+  # raw in its warnings.
   add_tracked_exit=0
   out=$(git add -u 2>&1) || add_tracked_exit=$?
   [ -z "$out" ] || add_log="$out"$'\n'
@@ -98,10 +101,10 @@ stage() {
   [ -z "$out" ] || add_log="$add_log$out"$'\n'
   echo "add_rest_exit=$add_rest_exit"
 
-  # --no-relative: under diff.relative=true, run from a subdirectory, the raw
-  # read drops every path outside it, a gitlink at the root included.
-  # --ignore-submodules=none: under diff.ignoreSubmodules=all, the raw read
-  # drops a staged gitlink entirely, and the gitlink stop never fires.
+  # --no-relative: with diff.relative=true, from a subdirectory, the raw read
+  # removes all paths outside that directory, also a gitlink at the root.
+  # --ignore-submodules=none: with diff.ignoreSubmodules=all, the raw read
+  # removes a staged gitlink, and the gitlink stop does not occur.
   raw=$(git diff --cached --raw --no-relative --ignore-submodules=none)
   gitlinks=$(printf '%s' "$raw" | awk '
     $1 == ":000000" && $2 == "160000" { print "gitlink=" substr($0, index($0, "\t") + 1) }')
@@ -116,8 +119,8 @@ stage() {
     return 0
   fi
 
-  # awk, not `head -n 10`: head exits after ten lines, git then gets SIGPIPE,
-  # and pipefail stops the script with no message on stderr.
+  # Use awk, not `head -n 10`: head exits after ten lines, git then gets
+  # SIGPIPE, and pipefail stops the script with no message on stderr.
   residue=$(git ls-files -o --exclude-standard --full-name -- :/ \
     | awk 'NR <= 10 { keep = keep "\n" $0 } END { printf "%d%s", NR, keep }')
   residue_total=${residue%%$'\n'*}
@@ -125,8 +128,8 @@ stage() {
   residue_paths=
   [ "$residue_shown" -eq 0 ] || residue_paths=${residue#*$'\n'}
 
-  # The conditions under which wf-ship commits. A ship that stops never carries
-  # an embedded repository's patch into context.
+  # The gather runs only when wf-ship commits. A ship that stops on a gitlink
+  # does not put the patch of the embedded repository into context.
   if [ "$staged_total" -gt 0 ] && [ -z "$gitlinks" ]; then
     gather_ran=yes
     gather_out=$(bash "$gather" 2>&1) || gather_exit=$?
@@ -137,19 +140,20 @@ stage() {
   [ "$gather_ran" = no ] || echo "gather_exit=$gather_exit"
   echo 'residue<<<'
   [ "$residue_shown" -eq 0 ] || printf '%s\n' "$residue_paths"
-  # ESC removed, as wf-ship shows this section on a failed gather. CR stays:
-  # it is how a CRLF-to-LF change shows in the patch.
+  # Remove ESC, because wf-ship shows this section when the gather fails. Keep
+  # CR: a CRLF-to-LF change shows as CR in the patch.
   if [ "$gather_ran" = yes ]; then
     echo 'gather<<<'
     [ -z "$gather_out" ] || printf '%s\n' "$gather_out" | LC_ALL=C tr -d '\033'
   fi
 }
 
-# Every other git call's stderr is held, and printed to stderr only when the
-# script fails. The Bash tool merges stderr into stdout in write order, so a
-# warning naming a repo path would otherwise land among the key lines.
-# `set +e` around the capture, never `|| st=$?`: bash 5 ignores `set -e` inside
-# a function called from a `||` list, command substitution included.
+# The script holds the stderr of all other git commands and prints it to stderr
+# only when the script fails. The Bash tool merges stderr into stdout in write
+# order, so without this capture a warning with a repo path can show between
+# the key lines. Use `set +e` around the capture, not `|| st=$?`: bash 5 ignores
+# `set -e` in a function that runs as part of a `||` list, also in a command
+# substitution.
 exec 3>&1
 set +e
 err=$(stage 2>&1 >&3 3>&-)

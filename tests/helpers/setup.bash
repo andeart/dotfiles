@@ -206,23 +206,25 @@ cask "temp-root-only-cask"
 EOF
 }
 
-# The readers below read $output as wf-ship reads a script's output. A marker
+# These readers read $output as wf-ship reads the output of a script. A marker
 # is `name<<<` alone on a line. Keys come only from the lines before the first
-# marker: a test that took them from anywhere else would pass a script that lets
-# a path, a patch line or a hook print one.
+# marker. A test that reads keys from other lines passes a script that lets a
+# path, a patch line or a hook print a key.
 
-# key_values <key>: every value of <key> before the first marker, one per line.
+# key_values <key>: all values of <key> before the first marker, one on each
+# line.
 key_values() {
   printf '%s\n' "$output" | K="$1=" awk '
     /^[a-z_]+<<<$/ { exit }
     index($0, ENVIRON["K"]) == 1 { print substr($0, length(ENVIRON["K"]) + 1) }'
 }
 
-# section <name>: the lines of section <name>. residue<<< holds residue_shown
-# lines, pushed<<< holds pushed_shown, pr_first_line<<< holds one, and any
-# other section runs to the end. A line where a marker should be ends the read,
-# so a wrong count shows as a missing section rather than a shifted one. An
-# empty <name> prints each section's name, in order, instead.
+# section <name>: the lines of section <name>. residue<<< has residue_shown
+# lines, pushed<<< has pushed_shown, pr_first_line<<< has one, and all other
+# sections continue to the end. A line that is not a marker where a marker must
+# be stops the read, so a wrong count shows as a missing section, not as a
+# shifted section. With an empty <name>, it prints the name of each section, in
+# order.
 section() {
   printf '%s\n' "$output" | W="$1" awk '
     BEGIN { count["residue"] = "residue_shown"; count["pushed"] = "pushed_shown"; fixed["pr_first_line"] = 1 }
@@ -242,5 +244,5 @@ section() {
     }'
 }
 
-# section_names: each section's name in $output, in order.
+# section_names: the name of each section in $output, in order.
 section_names() { section ''; }

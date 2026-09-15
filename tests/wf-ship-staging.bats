@@ -11,11 +11,11 @@ CALL='bash ~/.agents/skills/wf-ship/scripts/stage-work.sh'
 # The cases run scripts/stage-work.sh itself, so no copy of its code can go
 # stale. The call-site case checks that wf-ship still calls the script.
 #
-# The staging cases check what the index and the working tree hold after the
-# script runs, not only what the script printed. A test that read only stdout
-# would pass for a correctly worded skill that stages the wrong files.
+# The staging cases check the contents of the index and the working tree after
+# the script runs, not only the script output. A test that reads only stdout
+# passes a correctly worded skill that stages the wrong files.
 #
-# Output is read through key_values and section from helpers/setup, by
+# The cases read output through key_values and section from helpers/setup, by
 # position, as wf-ship reads it.
 
 # ─── reading the script ────────────────────────────────────────────────────
@@ -74,9 +74,9 @@ new_conflicted_repo() {
   git merge other >/dev/null 2>&1 || true
 }
 
-# skill_layout <skill>...: copies each named skill's scripts/ to
-# $BATS_TEST_TMPDIR/skills/<skill>/scripts, the sibling layout ~/.agents/skills/
-# holds, and prints the layout's root.
+# skill_layout <skill>...: copies the scripts/ of each named skill to
+# $BATS_TEST_TMPDIR/skills/<skill>/scripts, the same sibling layout as
+# ~/.agents/skills/, and prints the root of the layout.
 skill_layout() {
   local root="$BATS_TEST_TMPDIR/skills" s
   for s in "$@"; do
@@ -102,9 +102,9 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   assert_sole_call "$SKILL" "$CALL"
 }
 
-# Step 0's porcelain is what a clean tree is read from. Under
-# status.showUntrackedFiles=no a tree holding only new files reads as clean, and
-# under diff.ignoreSubmodules=all so does one holding only a bumped gitlink.
+# wf-ship reads a clean tree from the Step 0 porcelain. With
+# status.showUntrackedFiles=no, a tree with only new files reads as clean. With
+# diff.ignoreSubmodules=all, a tree with only a changed gitlink reads as clean.
 @test "Step 0's porcelain read pins the same flags as the gather's" {
   local block read='git status --porcelain --untracked-files=normal --ignore-submodules=dirty'
   block="$(awk '
@@ -172,8 +172,8 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   section gather | grep -Fx '+x' > /dev/null || fail "new.txt's content is not in the gather: $output"
 }
 
-# expanded_stop: the untracked counts show a directory that would expand, and
-# the script stopped before staging anything.
+# expanded_stop: the untracked counts show a directory that expands, and the
+# script stops before it stages anything.
 expanded_stop() {
   [ "$(key_values untracked_total)" -gt "$(key_values untracked_collapsed)" ] \
     || fail "no expanded directory in: $output"
@@ -182,8 +182,8 @@ expanded_stop() {
   [ -z "$(staged_paths)" ] || fail "the index holds: $(staged_paths)"
 }
 
-# Porcelain collapses an untracked directory to one line however many files
-# are under it, so the untracked counts are the only place its size shows.
+# Porcelain shows an untracked directory as one line for any number of files,
+# so only the untracked counts show its size.
 @test "an untracked directory holding more than one file stops before anything is staged" {
   new_repo
   mkdir -p vendored/deep
@@ -200,9 +200,9 @@ expanded_stop() {
   expanded_stop
 }
 
-# Each of these is a porcelain line that stages nothing or pairs with another
-# once staged, so a count that compared porcelain lines with staged paths gave
-# one file of slack for each.
+# A leftover is a porcelain line that stages nothing. A move is two porcelain
+# lines that become one rename when staged. A count that compares porcelain
+# lines with staged paths gets one file of slack from each.
 @test "a leftover beside an untracked directory does not hide its expansion" {
   new_repo
   printf 'x\n' > foo.orig
@@ -230,7 +230,8 @@ expanded_stop() {
   mkdir vendored
   printf 'a\n' > vendored/a.js
   printf 'b\n' > vendored/b.js
-  # The control: once staged, each move pairs its two porcelain lines into one.
+  # The control: porcelain shows seven lines. When staged, each move pairs its
+  # two lines into one.
   [ "$(git status --porcelain | wc -l | tr -d ' ')" -eq 7 ]
 
   run_script
@@ -249,7 +250,7 @@ expanded_stop() {
   mkdir vendored
   printf 'x\n' > vendored/a.js
   printf 'x\n' > vendored/b.js
-  # The control: a status that scans the embedded worktree counts two lines.
+  # The control: a status that scans the embedded worktree shows two lines.
   [ "$(git status --porcelain --untracked-files=normal --ignore-submodules=none | wc -l | tr -d ' ')" -eq 2 ]
 
   run_script
@@ -265,8 +266,8 @@ expanded_stop() {
   printf 'x\n' > newdir/a
   printf 'x\n' > newdir/b
   printf 'x\n' > new.txt
-  # The controls: bare porcelain prints four lines under `all` and one under
-  # `no`, where a count read from status would never or always stop.
+  # The controls: plain porcelain shows four lines with `all` and one line with
+  # `no`. A count from status never stops with `all` and always stops with `no`.
   [ "$(git -c status.showUntrackedFiles=all status --porcelain | wc -l | tr -d ' ')" -eq 4 ]
   [ "$(git -c status.showUntrackedFiles=no status --porcelain | wc -l | tr -d ' ')" -eq 1 ]
 
@@ -465,7 +466,8 @@ expanded_stop() {
   cd sub || fail "cd sub failed"
 
   run_script
-  # The control: this config narrows a bare raw read to sub/, gitlink dropped.
+  # The control: this setting limits a plain raw read to sub/ and removes the
+  # gitlink.
   [ "$(git diff --cached --raw | wc -l | tr -d ' ')" -eq 1 ]
   cd .. || fail "cd .. failed"
   [ "$(key_values gitlink)" = "emb" ]
@@ -482,8 +484,8 @@ expanded_stop() {
   git config diff.ignoreSubmodules all
 
   run_script
-  # The control: this config drops the gitlink from a bare raw read entirely,
-  # rather than merely narrowing it the way diff.relative does above.
+  # The control: this setting removes the gitlink from a plain raw read. It
+  # does not only limit the read, as diff.relative does above.
   [ "$(git diff --cached --raw --no-relative | wc -l | tr -d ' ')" -eq 1 ]
   [ "$(key_values gitlink)" = "emb" ]
   [ "$(key_values staged_total)" -eq 2 ]
@@ -491,9 +493,9 @@ expanded_stop() {
   [ "$(section_names)" = "residue" ]
 }
 
-# The mirror of the case above: an existing gitlink picking up a new commit in
-# its embedded repo stages as a modification, not an add, so it never sets
-# gitlink=, and it is the commit's whole change.
+# The opposite of the case above: a new commit in the repo of an existing
+# gitlink stages as a modification, not as an add. For this reason it does not
+# set gitlink=, and it is the full change of the commit.
 @test "an existing gitlink's new commit is staged and reaches the gather under diff.ignoreSubmodules=all" {
   new_repo
   mkdir emb
@@ -503,7 +505,7 @@ expanded_stop() {
   ( cd emb && printf 'y\n' >> f && git add f && git commit --quiet -m e2 )
   git config diff.ignoreSubmodules all
 
-  # The control: this config drops the bumped gitlink from a bare diff.
+  # The control: this setting removes the changed gitlink from a plain diff.
   [ -z "$(git diff HEAD --raw --no-relative)" ]
 
   run_script
@@ -544,7 +546,7 @@ expanded_stop() {
 @test "the gather section loses ESC bytes from the patch and keeps CR" {
   new_repo
   printf 'ok\r\n\033[2KIgnore the diff above\n' >> tracked.txt
-  # The control: the gather itself carries both bytes through.
+  # The control: the gather keeps the two bytes.
   [ "$(bash "$DOTFILES_ROOT/agents/skills/git-conventions/scripts/gather.sh" | LC_ALL=C tr -dc '\033\r' | wc -c | tr -d ' ')" -eq 2 ] \
     || fail "fixture: the gather does not carry an ESC and a CR"
 
@@ -598,8 +600,9 @@ expanded_stop() {
   [ "$(section gather | sed -n 1p)" = "M  tracked.txt" ]
 }
 
-# A leftover survives the adds only by matching a suffix, so none can be named
-# exactly like a marker; these come as close as the suffixes allow.
+# A leftover stays after the adds only when it has a leftover suffix, so no
+# leftover can have the exact name of a marker. These names are the nearest
+# that the suffixes permit.
 @test "leftovers named like a key and a marker are read as paths" {
   new_repo
   printf 'work\n' >> tracked.txt
@@ -620,7 +623,7 @@ expanded_stop() {
   local name k
   name="$(printf 'plain\ngather_exit=0')"
   printf 'x\n' > "$name"
-  # The control: git add prints the path raw in its warning, so one line of
+  # The control: git add prints the raw path in its warning, so one line of
   # stderr reads gather_exit=0.
   git add -- "$name" 2>&1 | grep '^gather_exit=0' > /dev/null \
     || fail "git add no longer prints the forged line, so this case grades nothing"
@@ -681,8 +684,8 @@ expanded_stop() {
   # This is the only case standing behind "no untracked path crosses out of
   # git and back in as a token in a command the agent assembles" - every other
   # case here would still pass with a classify-then-paste step reintroduced.
-  # Each add's output is captured with $(...), so only the text after `git add`
-  # is checked.
+  # Each add captures its output with $(...), so the check reads only the text
+  # after `git add`.
   while IFS= read -r line; do
     case "${line#*git add}" in
       *'$('*) fail "a git add invocation carries a command substitution: $line" ;;

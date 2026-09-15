@@ -9,18 +9,18 @@ PUSH="$DOTFILES_ROOT/agents/skills/wf-ship/scripts/push-work.sh"
 LOOKUP="$DOTFILES_ROOT/agents/skills/wf-ship/scripts/pr-lookup.sh"
 COMMIT="$DOTFILES_ROOT/agents/skills/wf-ship/scripts/commit.sh"
 
-# Every case pushes to a bare repository under the test's temp directory, never
-# a real remote, and gh is a stub on PATH. setup_file builds the origin and its
-# clone once and setup copies them per case, at about a quarter of the cost of
-# building them.
+# Each case pushes to a bare repository in the temp directory of the test, never
+# to a real remote, and gh is a stub on PATH. setup_file builds the origin and
+# its clone one time, and setup copies them for each case. A copy costs
+# approximately a quarter of a build.
 #
 # The cases check the remote and the refs, not only the output: a script that
-# printed the right keys over the wrong push would pass on output alone. Output
-# is read by position through key_values and section from helpers/setup.
+# prints the correct keys over the wrong push passes on output alone. The cases
+# read output by position through key_values and section from helpers/setup.
 #
-# One case per mode, and one pr-lookup case, runs under both shells. The rest
-# run under PATH's bash, because the suite runs at every commit and its wall
-# clock is pinned by its longest file.
+# One case for each mode, and one pr-lookup case, run under the two shells. All
+# other cases run with the bash on PATH, because the suite runs at each commit
+# and the longest file sets its wall-clock time.
 
 setup_file() {
   local world="$BATS_FILE_TMPDIR/world"
@@ -44,10 +44,10 @@ setup() {
   fresh_world
 }
 
-# fresh_world: a copy of setup_file's world at $BATS_TEST_TMPDIR/world, cd'd
-# into the clone. A world already there is moved aside, so a second copy in one
-# case has the same paths as the first: git push prints the origin's path, and
-# the portability cases compare two runs' output.
+# fresh_world: copies the world of setup_file to $BATS_TEST_TMPDIR/world and
+# sets the clone as the cwd. It first moves an existing world away, so a second
+# copy in one case has the same paths as the first. git push prints the origin
+# path, and the portability cases compare the output of two runs.
 fresh_world() {
   local world="$BATS_TEST_TMPDIR/world"
   if [ -e "$world" ]; then
@@ -56,15 +56,16 @@ fresh_world() {
   cp -R "$BATS_FILE_TMPDIR/world" "$world"
   ORIGIN="$world/origin.git"
   cd "$world/clone" || fail "cd $world/clone failed"
-  # The copy still names setup_file's origin, which every case would share.
+  # Without this change, the copy uses the origin of setup_file, which all
+  # cases share.
   git remote set-url origin "$ORIGIN"
 }
 
-# stub_gh: a gh that records each call in $STUB_BIN/calls. With
-# $STUB_BIN/payload present it answers by running the --jq filter it was
-# passed over that payload, so the cases exercise the script's own filter.
-# Without one it fails as gh does for a branch with no pull request, with an
-# ESC and a CR in the message.
+# stub_gh: a gh that records each call in $STUB_BIN/calls. When
+# $STUB_BIN/payload exists, the stub runs the --jq filter of the call on that
+# payload, so the cases test the filter of the script. When no payload exists,
+# the stub fails as gh does for a branch with no pull request, with an ESC and a
+# CR in the message.
 stub_gh() {
   cat > "$STUB_BIN/gh" <<EOF
 #!/bin/sh
@@ -85,13 +86,13 @@ EOF
   chmod +x "$STUB_BIN/gh"
 }
 
-# pr_payload <json>: the pull request the stub answers with.
+# pr_payload <json>: sets the pull request that the stub returns.
 pr_payload() { printf '%s' "$1" > "$STUB_BIN/payload"; }
 
-# remote_ref <branch>: the origin's commit for <branch>, or nothing.
+# remote_ref <branch>: the origin commit for <branch>, or nothing.
 remote_ref() { git --git-dir="$ORIGIN" rev-parse --verify --quiet "refs/heads/$1" || true; }
 
-# commit_file <path> <content>: <content> written to <path> and committed.
+# commit_file <path> <content>: writes <content> to <path> and commits it.
 commit_file() {
   mkdir -p "$(dirname -- "$1")"
   printf '%s\n' "$2" > "$1"
@@ -99,8 +100,8 @@ commit_file() {
   git commit --quiet -m "change $1"
 }
 
-# advance_origin <path> <content>: a commit on origin's main from a second
-# clone, fetched into this one.
+# advance_origin <path> <content>: makes a commit on the origin main branch from
+# a second clone, and fetches it into this clone.
 advance_origin() {
   local other
   other="$(mktemp -d "$BATS_TEST_TMPDIR/other.XXXXXX")"
@@ -110,7 +111,7 @@ advance_origin() {
   git fetch --quiet origin
 }
 
-# refs_snapshot: every local branch with its commit, then what HEAD is.
+# refs_snapshot: each local branch with its commit, then the value of HEAD.
 refs_snapshot() {
   git for-each-ref --format='%(refname) %(objectname)' refs/heads
   git symbolic-ref --quiet HEAD || git rev-parse HEAD
@@ -176,7 +177,8 @@ run_push() { run bash "$PUSH" "$@"; }
   git checkout --quiet -b spec
   commit_file docs/spec.md spec
   advance_origin app.sh 'app v2'
-  # The control: a two-dot range diffs the tips, so it lists origin's app.sh.
+  # The control: a two-dot range compares the tips, so it lists app.sh from
+  # origin.
   [ "$(git diff --name-only origin/main..HEAD | wc -l | tr -d ' ')" -eq 2 ]
 
   run_push --default main
@@ -195,15 +197,15 @@ run_push() { run bash "$PUSH" "$@"; }
     [ "$status" -eq 0 ] || fail "core.quotePath=$q: exit $status: $output"
     [ "$(key_values pushed_docs_only)" = "yes" ] || fail "core.quotePath=$q: $output"
   done
-  # The control: git quotes the path by default, so a bare docs/ prefix test
-  # fails it.
+  # The control: git quotes the path by default, so a plain docs/ prefix test
+  # fails on it.
   [ "$(git -c core.quotePath=true diff --name-only main...HEAD)" = '"docs/\303\251.md"' ]
 }
 
 @test "a path under a top-level directory named \"docs is not docs-only" {
   git checkout --quiet -b quoted
   commit_file '"docs/fake.md' x
-  # The control: git quotes the whole path, leading quote escaped.
+  # The control: git quotes the full path and escapes the first quote.
   [ "$(git diff --name-only main...HEAD)" = '"\"docs/fake.md"' ]
 
   run_push --default main
@@ -240,8 +242,8 @@ run_push() { run bash "$PUSH" "$@"; }
     [ "$(section pushed)" = "docs/app-$v.md" ] || fail "diff.renames=$v: $output"
     [ "$(key_values pushed_docs_only)" = "no" ] || fail "diff.renames=$v: $output"
   done
-  # The controls: a bare listing names the move by its docs/ path alone under
-  # rename detection, and as two paths without it.
+  # The controls: with rename detection, a plain listing shows the move only as
+  # its docs/ path. Without rename detection, it shows two paths.
   [ "$(git -c diff.renames=true diff --name-only main...HEAD)" = "docs/app-copies.md" ]
   [ "$(git -c diff.renames=false diff --name-only main...HEAD | wc -l | tr -d ' ')" -eq 2 ]
 }
@@ -271,7 +273,7 @@ run_push() { run bash "$PUSH" "$@"; }
   git add emb
   commit_file docs/spec.md spec
   git config diff.ignoreSubmodules all
-  # The control: this config drops the gitlink from a bare listing.
+  # The control: this setting removes the gitlink from a plain listing.
   [ "$(git diff --name-only origin/main...HEAD)" = "docs/spec.md" ]
 
   run_push --default main
@@ -289,7 +291,7 @@ run_push() { run bash "$PUSH" "$@"; }
     printf 'x\n' > "docs/d$i.md"
     i=$((i + 1))
   done
-  # Sorts after docs/, so only the uncapped read sees it.
+  # zz.txt sorts after docs/, so only the read with no limit finds it.
   printf 'x\n' > zz.txt
   git add docs zz.txt
   git commit --quiet -m big
@@ -311,7 +313,7 @@ run_push() { run bash "$PUSH" "$@"; }
   commit_file docs/b.md b
   git config diff.relative true
   cd docs || fail "cd docs failed"
-  # The control: this config strips the directory from a bare listing.
+  # The control: this setting removes the directory from a plain listing.
   [ "$(git diff --name-only origin/main...HEAD | sed -n 1p)" = "a.md" ]
 
   run_push --default main
@@ -366,9 +368,9 @@ run_push() { run bash "$PUSH" "$@"; }
   section git_log | grep -Fx 'pushed_total=99' > /dev/null || fail "the hook's output is missing: $output"
 }
 
-# ship_call <script>: the call wf-ship's "Committing" chains, written to
-# $BATS_TEST_TMPDIR/ship.sh so its quoted heredoc delimiter needs no escaping
-# inside a `bash -c` string. Run it as `bash ship.sh <commit.sh> <push-work.sh>`.
+# ship_call: writes the chained call from "Committing" in wf-ship to
+# $BATS_TEST_TMPDIR/ship.sh, so its quoted heredoc delimiter needs no escape in
+# a `bash -c` string. Run it as `bash ship.sh <commit.sh> <push-work.sh>`.
 ship_call() {
   cat > "$BATS_TEST_TMPDIR/ship.sh" <<'SH'
 bash "$1" <<'EOF' && bash "$2" --default main
@@ -378,8 +380,8 @@ SH
 }
 
 @test "a commit hook's output never reaches the chained push's keys" {
-  # A hook that names each staged file, as a linter does, over a file whose
-  # name reads as keys.
+  # A hook that prints the name of each staged file, as a linter does, and a
+  # file with a name that looks like keys.
   printf '#!/bin/sh\ngit diff --cached --name-only -z | xargs -0 printf "checked %%s\\n"\n' > .git/hooks/pre-commit
   chmod +x .git/hooks/pre-commit
   git checkout --quiet -b feat
@@ -388,7 +390,7 @@ SH
   printf 'a\n' > "$name"
   git add -- "$name"
   ship_call
-  # The control: the hook prints the forged lines when the commit runs.
+  # The control: the hook prints the false key lines when the commit runs.
   [ "$(git diff --cached --name-only -z | xargs -0 printf 'checked %s\n' | grep -cx 'pushed=no')" -eq 1 ]
 
   run bash "$BATS_TEST_TMPDIR/ship.sh" "$COMMIT" "$PUSH"
@@ -450,7 +452,7 @@ SH
   chmod +x "$ORIGIN/hooks/pre-receive"
   git checkout --quiet -b feat
   commit_file a.txt a
-  # The control: a plain push carries both bytes through.
+  # The control: a plain push keeps the two bytes.
   [ -n "$(git push origin HEAD:refs/heads/probe 2>&1 | LC_ALL=C tr -dc '\033\r')" ] \
     || fail "the hook's ESC and CR did not reach git push's output"
 
@@ -622,7 +624,7 @@ SH
   for list in '' '--default' '--default main --move-to' '--default main --default main' \
               '--default main --move-to a --move-to b' '--move-to a --default main' \
               '--bogus main' '--default main extra'; do
-    # Unquoted on purpose: each list is several arguments.
+    # No quotes here: each list is more than one argument.
     run bash "$PUSH" $list
     [ "$status" -eq 2 ] || fail "'$list' exited $status: $output"
   done
@@ -665,8 +667,8 @@ SH
 
 # ─── portability ───────────────────────────────────────────────────────────
 
-# Before-hooks for assert_script_portable, each resetting the world the
-# previous shell's run pushed into.
+# Before-hooks for assert_script_portable. Each one resets the world that the
+# run of the previous shell pushed into.
 feature_world() { fresh_world; git checkout --quiet -b feat; commit_file a.txt a; }
 move_world() { fresh_world; commit_file m.txt m; }
 

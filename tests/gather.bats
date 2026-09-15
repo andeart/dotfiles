@@ -6,25 +6,27 @@ bats_require_minimum_version 1.5.0
 
 GATHER="$DOTFILES_ROOT/agents/skills/git-conventions/scripts/gather.sh"
 
-# suggest-commit ran this command inline at 9486a3e. It is the oracle for
-# gather.sh under default config. Never edit it to match the script: a copy of
-# gather.sh's command here agrees with whatever the script does.
+# old_gather: the inline gather command of suggest-commit at commit 9486a3e,
+# with no flags. It is the reference output for gather.sh under default config.
+# Do not change it to agree with the script: a copy of the command in gather.sh
+# agrees with each change to the script.
 old_gather() {
   git status --porcelain && git diff HEAD --stat && git diff HEAD -U1 -- ':(exclude)*.lock' ':(exclude)*-lock.json'
 }
 
-# with_config <name=value> <command>...: runs <command> with one setting given
-# through the environment, which outranks every config file.
+# with_config <name=value> <command>...: runs <command> with one setting in the
+# environment. That setting has priority over all config files.
 with_config() {
   local setting=$1
   shift
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="${setting%%=*}" GIT_CONFIG_VALUE_0="${setting#*=}" "$@"
 }
 
-# new_fixture: a repo, cd'd into, holding every kind of change the gather
-# reports: a modified tracked file, a staged new file, an untracked file,
-# modified lockfiles at the root and in sub/, and a submodule commit in emb/.
-# Under $BATS_TEST_TMPDIR, never the dotfiles working tree.
+# new_fixture: makes a repo and sets it as the cwd. The repo has each type of
+# change that the gather reports: a changed tracked file, a staged new file, an
+# untracked file, changed lockfiles at the root and in sub/, and a submodule
+# commit in emb/. The repo is under $BATS_TEST_TMPDIR, never in the dotfiles
+# working tree.
 new_fixture() {
   local tmp
   tmp="$(mktemp -d "$BATS_TEST_TMPDIR/repo.XXXXXX")"
@@ -54,7 +56,7 @@ new_fixture() {
   new_fixture
   local expected
   expected="$(old_gather)"
-  # The fixture reaches each part of the output.
+  # The fixture puts content in each part of the output.
   printf '%s\n' "$expected" | grep -Fx '?? untracked.txt' > /dev/null || fail "fixture: no untracked line"
   printf '%s\n' "$expected" | grep -Fx 'A  staged.txt' > /dev/null || fail "fixture: no staged line"
   printf '%s\n' "$expected" | grep -F ' top.lock ' > /dev/null || fail "fixture: no lockfile in the stat"
@@ -68,8 +70,8 @@ new_fixture() {
 @test "from a subdirectory, a root lockfile stays in the stat and out of the patch" {
   new_fixture
   cd sub || fail "cd sub failed"
-  # The control: without top magic the exclusion binds to sub/, and the root
-  # lockfile's patch comes through.
+  # The control: without `top`, the exclusion binds to sub/, and the patch
+  # includes the root lockfile.
   old_gather | grep -F 'diff --git a/top.lock' > /dev/null \
     || fail "fixture: the old command kept top.lock out from sub/"
 
@@ -100,7 +102,7 @@ new_fixture() {
   local expected setting
   expected="$(bash "$GATHER")"
   for setting in color.ui=always diff.external=/usr/bin/false diff.ignoreSubmodules=all diff.submodule=diff status.showUntrackedFiles=no; do
-    # The control: each setting changes what the old command prints.
+    # The control: each setting changes the output of old_gather.
     [ "$(with_config "$setting" old_gather 2>&1)" != "$(old_gather)" ] \
       || fail "fixture: $setting does not change the old command's output"
     run --separate-stderr with_config "$setting" bash "$GATHER"
@@ -113,9 +115,10 @@ new_fixture() {
   new_fixture
   local expected
   expected="$(bash "$GATHER")"
-  # info/attributes, not .gitattributes, so the fixture's status is unchanged.
+  # Use info/attributes, not .gitattributes, so the status of the fixture does
+  # not change.
   printf 'tracked.txt diff=upper\n' > .git/info/attributes
-  # The control: the driver rewrites the old command's patch.
+  # The control: the driver changes the patch of old_gather.
   with_config 'diff.upper.textconv=tr a-z A-Z <' old_gather | grep -Fx '+MORE' > /dev/null \
     || fail "fixture: the textconv driver does not rewrite the old command's patch"
 
@@ -142,17 +145,17 @@ new_fixture() {
   [ "$status" -eq 2 ]
 }
 
-# The other cases run the script under PATH's bash, as a skill's `bash <path>`
-# call does. AGENTS.md also requires /bin/bash 3.2, which is /bin/bash on macOS.
+# All other cases run the script with the bash on PATH, as the `bash <path>`
+# call of a skill does. AGENTS.md also requires /bin/bash 3.2, which is
+# /bin/bash on macOS.
 @test "the script answers identically under /bin/bash and PATH's bash" {
   new_fixture
   assert_script_portable : "$GATHER"
   printf '%s\n' "$output" | grep -Fx 'A  staged.txt' > /dev/null || fail "unexpected output: $output"
 }
 
-# One copy of the command, rather than a test pinning two copies together. The
-# scan's `*-lock.json` also matches the pathspec without `top`, the form a copy
-# of the old command would carry.
+# The gather command has one copy, so no test compares two copies. The scan for
+# `*-lock.json` also finds the pathspec without `top`, as old_gather has it.
 @test "exactly one file under agents/skills/ holds the gather's lockfile pathspec" {
   local hits
   grep -F -e "':(top,exclude)*-lock.json'" "$GATHER" > /dev/null \

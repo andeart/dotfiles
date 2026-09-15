@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# wf-ship's push, run chained after commit.sh. Feature mode pushes the current
-# branch and looks up its pull request. Move mode, for a ship from the default
-# branch, cuts <branch> at the default branch's upstream, cherry-picks the
-# unpushed commits onto it, and pushes it.
+# wf-ship's push. It runs chained after commit.sh. Feature mode pushes the
+# current branch and finds its pull request. Move mode is for a ship from the
+# default branch: it creates <branch> at the upstream of the default branch,
+# cherry-picks the unpushed commits onto it, and pushes it.
 #
 # Output, read by position:
-#   1. key=value lines, every one of them this script's own text;
+#   1. key=value lines. The script writes all of their text;
 #   2. when pushed_total is printed, `pushed<<<` and exactly pushed_shown paths,
-#      the first of pushed_total, at most 100;
+#      the first of pushed_total, 100 at most;
 #   3. on a pull request hit, `pr_first_line<<<` and one line;
-#   4. when a push or a failed cherry-pick ran, `git_log<<<` and its output,
-#      control bytes removed, to the end. When nothing was pushed and the
-#      lookup found no pull request, `gh_log<<<` and the lookup's error,
-#      control bytes removed, to the end, instead.
-# Hooks print on stdout as well as stderr, so each git command that runs one or
-# prints repo text has both streams captured.
+#   4. when a push runs or a cherry-pick fails, `git_log<<<` and the git output
+#      without control bytes, to the end. When no push runs and the lookup
+#      finds no pull request, `gh_log<<<` and the lookup error without control
+#      bytes, to the end.
+# Hooks write to stdout and to stderr. The script captures both streams of each
+# git command that runs a hook or prints repo text.
 
 usage() {
   cat <<'EOF'
@@ -53,25 +53,25 @@ case "${BASH_SOURCE[0]}" in
 esac
 lookup="$lookup/pr-lookup.sh"
 
-# The path cap keeps a large push's later sections inside a result the Bash
-# tool returns inline rather than behind a saved file's preview.
+# The path limit keeps the later sections of a large push in the inline Bash
+# tool result, not in a saved file behind a preview.
 pushed_max=100
 mode= default= move_to= paths= docs_only= pushed_total= pushed_shown= git_log= lookup_out= gh_log=
 have_paths=no have_log=no have_first=no have_gh_log=no
 
-# record_paths <base>: the paths from the merge base of <base> and HEAD. Three
-# dots, so a default branch that moved adds none of its own paths.
-# Each flag pins the listing against config:
+# record_paths <base>: the paths from the merge base of <base> to HEAD. With the
+# three-dot range, new commits on the default branch add no paths.
+# Each flag makes the listing independent of one setting:
 #   --no-relative             diff.relative, from a subdirectory, lists only
-#                             that directory's paths, prefix stripped
-#   --ignore-submodules=none  diff.ignoreSubmodules=all drops a gitlink change
+#                             the paths in that directory, without the prefix
+#   --ignore-submodules=none  diff.ignoreSubmodules=all removes a gitlink change
 #   -M                        diff.renames=false lists a move as two paths
-# A move is one line, listed by its new path, and docs_only reads both of its
-# paths, so a move into docs/ is not docs-only. pushed_total and docs_only read
-# every line; paths keeps the first pushed_max.
-# Git quotes a path holding a tab, non-ASCII or control byte, so a tab only
-# separates fields, a quoted path under docs/ opens with "docs/, and a path
-# that itself opens with a quote is printed as "\"...
+# A move is one line with its new path. docs_only reads the old path and the
+# new path, so a move into docs/ is not docs-only. pushed_total and docs_only
+# read all lines; paths keeps the first pushed_max.
+# Git quotes a path that holds a tab, a non-ASCII byte or a control byte. Thus
+# a tab only separates fields, a quoted path in docs/ starts with "docs/, and a
+# path that starts with a quote starts with "\" in the output.
 record_paths() {
   local out counts
   out=$(git diff --name-status --no-relative --ignore-submodules=none -M "$1...HEAD" \
@@ -101,8 +101,8 @@ push_head() {
 
 feature() {
   local ref base upstream unpushed pushed=yes
-  # The full ref: with a tag named like the branch, --short prints heads/<name>
-  # and the comparison would pass on the default branch itself.
+  # Compare the full ref. When a tag has the name of the branch, --short prints
+  # heads/<name>, and the comparison passes on the default branch.
   ref=$(git symbolic-ref --quiet HEAD) || refuse
   [ "$ref" != "refs/heads/$default" ] || refuse
   if base=$(git rev-parse --verify --quiet '@{upstream}'); then
@@ -121,8 +121,8 @@ feature() {
     record_paths "$base"
     push_head || return 0
   fi
-  # A trailing `.` keeps the lookup's trailing newlines, so an empty first
-  # line still counts as a line.
+  # The trailing `.` keeps the trailing newlines of the lookup, so an empty
+  # first line stays a line.
   lookup_out=$(bash "$lookup"; echo .)
   lookup_out=${lookup_out%.}
   if [ "${lookup_out%%=*}" = pr_url ] \
@@ -132,12 +132,13 @@ feature() {
     return 0
   fi
   echo 'pr=none'
-  # Where nothing was pushed, pr=none ends the ship, and gh's error is what
-  # tells a failed lookup from a branch with no pull request. After a push,
-  # gh pr create reports its own error.
+  # When no push runs, pr=none ends the ship, and the gh error shows the
+  # difference between a failed lookup and a branch with no pull request. After
+  # a push, gh pr create reports its own error.
   [ "$pushed" = yes ] || have_gh_log=yes
-  # Output off pr-lookup's contract, as a partial sync can leave, is a failed
-  # lookup too, never an exit: the push may already have landed.
+  # Output that does not agree with the pr-lookup contract, for example after a
+  # partial sync, is also a failed lookup. It is never an exit, because the push
+  # can be complete.
   case $lookup_out in
     pr=none$'\n''gh_log<<<'$'\n'*) gh_log=${lookup_out#pr=none$'\n''gh_log<<<'$'\n'} ;;
     *) gh_log="push-work: unexpected pr-lookup output"$'\n'"$lookup_out" ;;
@@ -150,11 +151,12 @@ move() {
   if git show-ref --verify --quiet "refs/heads/$branch"; then
     refuse
   fi
-  # The short name: refs/heads/main@{upstream} does not resolve, and a tag named
-  # like the branch does not change what main@{upstream} resolves to.
+  # Use the short name: refs/heads/main@{upstream} does not resolve. A tag with
+  # the name of the branch does not change the result of main@{upstream}.
   up=$(git rev-parse --verify --quiet "$default@{upstream}") || refuse
-  # One step: a checkout that fails, say over an untracked file the upstream
-  # tracks, creates no branch, so a re-ship can take the same name.
+  # Create and check out in one command. When the checkout fails, for example on
+  # an untracked file that the upstream tracks, no branch exists, so a new ship
+  # can use the same name.
   out=$(git checkout -q -b "$branch" "$up" 2>&1) || die "$out"
   git_log=$(git cherry-pick "$up..refs/heads/$default" 2>&1) || cherry_pick_exit=$?
   echo "cherry_pick_exit=$cherry_pick_exit"
@@ -169,8 +171,8 @@ move() {
 work() {
   set -e
   [ -f "$lookup" ] || die "missing $lookup - run 'dotfiles push' to sync the skills"
-  # The mode comes from the argument count, never from an empty value: an empty
-  # --move-to is a refused name, not feature mode.
+  # The argument count sets the mode, not an empty value: an empty --move-to is
+  # a refused name, not feature mode.
   case "$#:${1-}:${3-}" in
     2:--default:) mode=feature default=$2 ;;
     4:--default:--move-to) mode=move default=$2 move_to=$4 ;;
@@ -198,10 +200,10 @@ work() {
   fi
 }
 
-# Every other git call's stderr is held, and printed to stderr only when the
-# script fails. `set +e` around the capture, never `|| st=$?`: bash 5 ignores
-# `set -e` inside a function called from a `||` list, command substitution
-# included.
+# The script holds the stderr of all other git commands and prints it to stderr
+# only when the script fails. Use `set +e` around the capture, not `|| st=$?`:
+# bash 5 ignores `set -e` in a function that runs as part of a `||` list, also
+# in a command substitution.
 exec 3>&1
 set +e
 err=$(work "$@" 2>&1 >&3 3>&-)

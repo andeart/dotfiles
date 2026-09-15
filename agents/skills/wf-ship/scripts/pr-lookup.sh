@@ -2,11 +2,12 @@
 set -euo pipefail
 
 # wf-ship's pull request lookup for the current branch. Output, by position:
-#   on a hit:          pr_url=, pr_draft=yes|no, `pr_first_line<<<`, then the
-#                      body's first line;
-#   on any failure:    pr=none, `gh_log<<<`, then gh's stderr to the end.
-# The first line and gh's stderr are remote text, so both lose bytes 0x00-0x08,
-# 0x0B-0x1F and 0x7F. Matching `^Issue:` needs none of them.
+#   on a hit:      pr_url=, pr_draft=yes|no, `pr_first_line<<<`, then the first
+#                  line of the body;
+#   on a failure:  pr=none, `gh_log<<<`, then the stderr of gh to the end.
+# The first line and the stderr of gh are remote text. The script removes bytes
+# 0x00-0x08, 0x0B-0x1F and 0x7F from both. The `^Issue:` match needs none of
+# these bytes.
 
 usage() {
   cat <<'EOF'
@@ -32,8 +33,8 @@ strip_controls() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
 lookup() {
   set -e
   local out url rest draft first
-  # `line=` keeps an empty first line from being stripped with the trailing
-  # newlines of the command substitution.
+  # The `line=` prefix keeps an empty first line. Without the prefix, the
+  # command substitution removes that line with the trailing newlines.
   out=$(gh pr view --json url,body,isDraft \
     --jq '.url, .isDraft, "line=" + (.body // "" | split("\n")[0])')
   url=${out%%$'\n'*}
@@ -53,9 +54,10 @@ lookup() {
     | strip_controls
 }
 
-# gh's stderr is held, and printed under gh_log<<< only when the lookup fails.
-# `set +e` around the capture, never `|| st=$?`: bash 5 ignores `set -e` inside
-# a function called from a `||` list, command substitution included.
+# The script holds the stderr of gh and prints it under gh_log<<< only when the
+# lookup fails. Use `set +e` around the capture, not `|| st=$?`: bash 5 ignores
+# `set -e` in a function that runs as part of a `||` list, also in a command
+# substitution.
 exec 3>&1
 set +e
 err=$(lookup 2>&1 >&3 3>&-)
