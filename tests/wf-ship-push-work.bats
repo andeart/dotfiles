@@ -226,9 +226,9 @@ run_push() { run bash "$PUSH" "$@"; }
   [ -n "$(remote_ref empty)" ]
 }
 
-@test "a file moved into docs/ is not docs-only under either diff.renames value" {
+@test "a file moved into docs/ is one path and not docs-only under every diff.renames value" {
   local v
-  for v in true false; do
+  for v in true false copies; do
     git checkout --quiet -b "move-$v" main
     mkdir -p docs
     git mv "app.sh" "docs/app-$v.md"
@@ -236,12 +236,28 @@ run_push() { run bash "$PUSH" "$@"; }
     git config diff.renames "$v"
     run_push --default main
     [ "$status" -eq 0 ] || fail "diff.renames=$v: exit $status: $output"
-    [ "$(section pushed)" = "$(printf 'app.sh\ndocs/app-%s.md' "$v")" ] || fail "diff.renames=$v: $output"
+    [ "$(key_values pushed_total)" -eq 1 ] || fail "diff.renames=$v: $output"
+    [ "$(section pushed)" = "docs/app-$v.md" ] || fail "diff.renames=$v: $output"
     [ "$(key_values pushed_docs_only)" = "no" ] || fail "diff.renames=$v: $output"
   done
-  # The control: under rename detection a bare listing names the move by its
-  # docs/ path alone.
-  [ "$(git -c diff.renames=true diff --name-only main...HEAD)" = "docs/app-false.md" ]
+  # The controls: a bare listing names the move by its docs/ path alone under
+  # rename detection, and as two paths without it.
+  [ "$(git -c diff.renames=true diff --name-only main...HEAD)" = "docs/app-copies.md" ]
+  [ "$(git -c diff.renames=false diff --name-only main...HEAD | wc -l | tr -d ' ')" -eq 2 ]
+}
+
+@test "a move within docs/ stays docs-only" {
+  git checkout --quiet -b spec-move
+  commit_file docs/old.md spec
+  git push --quiet -u origin spec-move 2>/dev/null
+  git mv docs/old.md docs/new.md
+  git commit --quiet -m move
+
+  run_push --default main
+  [ "$status" -eq 0 ] || fail "exit $status: $output"
+  [ "$(key_values pushed_total)" -eq 1 ]
+  [ "$(section pushed)" = "docs/new.md" ]
+  [ "$(key_values pushed_docs_only)" = "yes" ]
 }
 
 @test "a pushed gitlink bump is listed under diff.ignoreSubmodules=all" {

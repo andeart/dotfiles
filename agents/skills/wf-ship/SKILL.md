@@ -244,7 +244,7 @@ Set `<PR_STATE>` to `ready`, then follow "Reconciling the Plane state", "Linking
 
 ## Reading the scripts' output
 
-stage-work.sh, push-work.sh, pr-lookup.sh and commit.sh print `key=value` lines, then sections. Each section opens with a marker, a line that is exactly `<name><<<`. Read them by position, never by searching for a marker:
+stage-work.sh, push-work.sh and pr-lookup.sh print `key=value` lines, then sections; commit.sh prints only `commit_log<<<`, and only on failure. Each section opens with a marker, a line that is exactly `<name><<<`. Read them by position, never by searching for a marker:
 
 - **Keys** come only from the lines before the first marker.
 - **Counted sections** hold an exact number of lines, and the line after them is the next marker. `residue<<<` holds `residue_shown` lines, `pushed<<<` holds `pushed_shown` - the first of `pushed_total`, at most 100 - and `pr_first_line<<<` holds one.
@@ -264,7 +264,7 @@ Run the staging script, and in the same turn invoke `suggest-commit` with args `
 bash ~/.agents/skills/wf-ship/scripts/stage-work.sh
 ```
 
-The script checks for an open operation, stages the work in one pass, reads back what it left, and - when the ship goes on to commit - prints the gather that `suggest-commit` writes the message from, so the skill does not gather again. On any stop below, or on `staged=no`, the loaded skill goes unused: it writes no message and runs no gather.
+On any stop below, or on `staged=no`, the loaded skill goes unused: it writes no message and runs no gather.
 
 Run the script as its own Bash call. A non-zero exit makes all output of the call invalid, a `residue_total=` line included: stop the ship, report the script's stderr, and do not run it again.
 
@@ -520,7 +520,7 @@ Record the result in `<STATE_OUTCOME>`; the Report step prints one line for it.
 Checked in order; the first match wins:
 
 - **`<PR_STATE>` is `ready`** → `states.in-review`. Flipping a draft to ready is the event that means review has started.
-- **`pushed_docs_only=yes`** → `states.shaping`. The change so far is a spec. push-work.sh prints `yes` only when the push carried at least one path and every path sits under `docs/`.
+- **`pushed_docs_only=yes`** → `states.shaping`. The change so far is a spec. push-work.sh prints `yes` only when the push carried at least one path and every path, a move's old path included, sits under `docs/`.
 - **`pushed_total=` above zero** → `states.implementing`.
 - **Anything else, when this is not a ready-flip** - nothing was pushed, or the push carried no paths. Set `<STATE_OUTCOME>` to `nothing-pushed` and skip the rest. A run that only re-checked a link, or pushed only empty commits, has no evidence about the stage.
 

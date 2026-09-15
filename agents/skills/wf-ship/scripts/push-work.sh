@@ -65,18 +65,19 @@ have_paths=no have_log=no have_first=no have_gh_log=no
 #   --no-relative             diff.relative, from a subdirectory, lists only
 #                             that directory's paths, prefix stripped
 #   --ignore-submodules=none  diff.ignoreSubmodules=all drops a gitlink change
-#   --no-renames              diff.renames lists a move by its new path alone,
-#                             so a move into docs/ reads as docs-only
-# pushed_total and docs_only read every path; paths keeps the first pushed_max.
-# Git quotes a path holding a non-ASCII or control byte, so a quoted path under
-# docs/ opens with "docs/, while a path that itself opens with a quote is
-# printed as "\"...
+#   -M                        diff.renames=false lists a move as two paths
+# A move is one line, listed by its new path, and docs_only reads both of its
+# paths, so a move into docs/ is not docs-only. pushed_total and docs_only read
+# every line; paths keeps the first pushed_max.
+# Git quotes a path holding a tab, non-ASCII or control byte, so a tab only
+# separates fields, a quoted path under docs/ opens with "docs/, and a path
+# that itself opens with a quote is printed as "\"...
 record_paths() {
   local out counts
-  out=$(git diff --name-only --no-relative --ignore-submodules=none --no-renames "$1...HEAD" \
-    | awk -v max="$pushed_max" '
-    NR <= max { keep = keep "\n" $0 }
-    !/^"?docs\// { other = 1 }
+  out=$(git diff --name-status --no-relative --ignore-submodules=none -M "$1...HEAD" \
+    | awk -F '\t' -v max="$pushed_max" '
+    NR <= max { keep = keep "\n" $NF }
+    { for (i = 2; i <= NF; i++) if ($i !~ /^"?docs\//) other = 1 }
     END { printf "%d %s%s", NR, ((NR && !other) ? "yes" : "no"), keep }')
   counts=${out%%$'\n'*}
   pushed_total=${counts%% *}
