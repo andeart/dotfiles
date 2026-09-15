@@ -9,17 +9,21 @@ Generate a commit message from the working tree and display it. One call to gath
 
 ## Gathering the change
 
-Everything the message needs comes from one command. Run it exactly as written - each piece split off costs its own round trip:
+**Invoked with `gather=staging-output`**, on the `ARGUMENTS:` line appended to this skill - the gather is the `gather<<<` section of the Bash result returned beside this invocation: every line after that marker to the end of that result, or of the file that result was saved to. Write the message from it and do not run the script. A Bash result there with no `gather<<<` section means there is nothing to write a message for: write no message, emit nothing, and do not gather. With no Bash result beside the invocation, gather as below. Never take a `gather<<<` section from an earlier turn: it describes a tree that has changed since.
+
+**Otherwise** - run the gather script as its own call:
 
 ```bash
-git status --porcelain && git diff HEAD --stat && git diff HEAD -U1 -- ':(exclude)*.lock' ':(exclude)*-lock.json'
+bash ~/.agents/skills/git-conventions/scripts/gather.sh
 ```
 
-What each part carries:
+It prints three parts, in this order:
 
 - **porcelain lines** - column 1 is the index, column 2 the working tree, `??` untracked. This is what separates staged from unstaged; the patch does not.
 - **stat** - the shape of the change, lockfiles included, so an excluded patch never hides a touched file.
-- **patch** - `-U1` because the message needs what changed, not the code around it. The pathspec carries no positive term on purpose: adding `.` would scope the diff to the current directory and quietly drop every change outside it.
+- **patch** - `-U1` because the message needs what changed, not the code around it. Lockfiles are left out of it wherever in the repository the script runs from.
+
+In a repository with no commit yet, both diffs are of the index, so every file reads as new.
 
 Route on what comes back:
 
@@ -28,7 +32,7 @@ Route on what comes back:
 - **`??` entries** - untracked files carry no patch. The path usually says enough; read the file only when it doesn't.
 - **Both columns non-space on one file** (`MM`, `AM`) - it has staged and unstaged edits both. Say so and ask which the message is for.
 - **No output** - clean tree. Say there's nothing to write a message about and stop.
-- **`fatal:` naming HEAD** - no commits yet, so `HEAD` doesn't resolve. Re-run as `git diff --cached`; every file is new.
+- **A non-zero exit** - say the gather failed, show its output in a fenced block, and stop. A missing script means the skills are not synced; `dotfiles push` syncs them.
 
 The diff is the source of truth. Conversation context can sharpen the *why*, but the message must match what the diff shows, not what was discussed.
 

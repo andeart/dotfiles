@@ -205,3 +205,44 @@ brew "temp-root-only-formula"
 cask "temp-root-only-cask"
 EOF
 }
+
+# These readers read $output as wf-ship reads the output of a script. A marker
+# is `name<<<` alone on a line. Keys come only from the lines before the first
+# marker. A test that reads keys from other lines passes a script that lets a
+# path, a patch line or a hook print a key.
+
+# key_values <key>: all values of <key> before the first marker, one on each
+# line.
+key_values() {
+  printf '%s\n' "$output" | K="$1=" awk '
+    /^[a-z_]+<<<$/ { exit }
+    index($0, ENVIRON["K"]) == 1 { print substr($0, length(ENVIRON["K"]) + 1) }'
+}
+
+# section <name>: the lines of section <name>. residue<<< has residue_shown
+# lines, pushed<<< has pushed_shown, pr_first_line<<< has one, and all other
+# sections continue to the end. A line that is not a marker where a marker must
+# be stops the read, so a wrong count shows as a missing section, not as a
+# shifted section. With an empty <name>, it prints the name of each section, in
+# order.
+section() {
+  printf '%s\n' "$output" | W="$1" awk '
+    BEGIN { count["residue"] = "residue_shown"; count["pushed"] = "pushed_shown"; fixed["pr_first_line"] = 1 }
+    !started && !/^[a-z_]+<<<$/ { eq = index($0, "="); if (eq) key[substr($0, 1, eq - 1)] = substr($0, eq + 1); next }
+    !inside {
+      if ($0 !~ /^[a-z_]+<<<$/) exit
+      started = 1
+      name = substr($0, 1, length($0) - 3)
+      if (ENVIRON["W"] == "") print name
+      left = (name in fixed) ? fixed[name] : ((name in count) ? key[count[name]] + 0 : -1)
+      inside = (left != 0)
+      next
+    }
+    {
+      if (name == ENVIRON["W"]) print
+      if (left > 0 && --left == 0) inside = 0
+    }'
+}
+
+# section_names: the name of each section in $output, in order.
+section_names() { section ''; }
