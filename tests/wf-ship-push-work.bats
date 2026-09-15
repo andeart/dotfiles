@@ -226,6 +226,45 @@ run_push() { run bash "$PUSH" "$@"; }
   [ -n "$(remote_ref empty)" ]
 }
 
+@test "a file moved into docs/ is not docs-only under either diff.renames value" {
+  local v
+  for v in true false; do
+    git checkout --quiet -b "move-$v" main
+    mkdir -p docs
+    git mv "app.sh" "docs/app-$v.md"
+    git commit --quiet -m move
+    git config diff.renames "$v"
+    run_push --default main
+    [ "$status" -eq 0 ] || fail "diff.renames=$v: exit $status: $output"
+    [ "$(section pushed)" = "$(printf 'app.sh\ndocs/app-%s.md' "$v")" ] || fail "diff.renames=$v: $output"
+    [ "$(key_values pushed_docs_only)" = "no" ] || fail "diff.renames=$v: $output"
+  done
+  # The control: under rename detection a bare listing names the move by its
+  # docs/ path alone.
+  [ "$(git -c diff.renames=true diff --name-only main...HEAD)" = "docs/app-false.md" ]
+}
+
+@test "a pushed gitlink bump is listed under diff.ignoreSubmodules=all" {
+  mkdir emb
+  ( cd emb && git init --quiet . && printf 'e1\n' > f && git add f && git commit --quiet -m e1 )
+  git add emb 2>/dev/null
+  git commit --quiet -m 'add emb'
+  git push --quiet origin main 2>/dev/null
+  git checkout --quiet -b bump
+  ( cd emb && printf 'e2\n' >> f && git commit --quiet -am e2 )
+  git add emb
+  commit_file docs/spec.md spec
+  git config diff.ignoreSubmodules all
+  # The control: this config drops the gitlink from a bare listing.
+  [ "$(git diff --name-only origin/main...HEAD)" = "docs/spec.md" ]
+
+  run_push --default main
+  [ "$status" -eq 0 ] || fail "exit $status: $output"
+  [ "$(key_values pushed_total)" -eq 2 ]
+  [ "$(section pushed)" = "$(printf 'docs/spec.md\nemb')" ]
+  [ "$(key_values pushed_docs_only)" = "no" ]
+}
+
 @test "a push past the path cap lists the first paths, and reads docs-only from every path" {
   git checkout --quiet -b big
   mkdir docs

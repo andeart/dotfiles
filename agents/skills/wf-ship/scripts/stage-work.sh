@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# wf-ship's staging step. Refuses when an operation is in progress or the index
-# holds unmerged entries. Otherwise stages tracked changes, and every untracked
-# path except the leftover suffixes, in one pass. Then reports gitlinks, what it
-# staged and the untracked paths it left and, when the ship goes on to commit,
-# runs git-conventions/scripts/gather.sh for the commit message.
+# wf-ship's staging step. Refuses when an operation is in progress, the index
+# holds unmerged entries, or an untracked directory would add more than one
+# file. Otherwise stages tracked changes, and every untracked path except the
+# leftover suffixes, in one pass. Then reports gitlinks, what it staged and the
+# untracked paths it left and, when the ship goes on to commit, runs
+# git-conventions/scripts/gather.sh for the commit message.
 #
 # Output, read by position:
 #   1. key=value lines, this script's own text, except that `gitlink=` carries
@@ -52,9 +53,12 @@ gather="$gather/../../git-conventions/scripts/gather.sh"
 
 stage() {
   set -e
-  local gd f inprogress= porcelain_total out add_log= add_tracked_exit add_rest_exit
+  local gd f inprogress= untracked_collapsed untracked_total out add_log= add_tracked_exit add_rest_exit
   local raw gitlinks staged_total residue residue_total residue_shown residue_paths
   local gather_ran=no gather_exit=0 gather_out=
+  # The second add's pathspec, which the untracked counts read too.
+  local rest=(':(top,exclude,icase)*.orig' ':(top,exclude,icase)*.rej' ':(top,exclude,icase)*.bak'
+              ':(top,exclude,icase)*.swp' ':(top,exclude,icase)*.swo' ':(top,exclude,icase)*~' ':/')
 
   gd=$(git rev-parse --git-dir)
   for f in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply sequencer; do
@@ -69,15 +73,18 @@ stage() {
   fi
   echo 'blocked=no'
 
-  # --untracked-files=normal, so status.showUntrackedFiles cannot expand or hide
-  # the untracked directories wf-ship's staged_total stop compares against.
-  # --ignore-submodules=dirty: under diff.ignoreSubmodules=all, status hides a
-  # bumped gitlink, which would let staged_total exceed this count and trip the
-  # expanded-directory stop over a change the stop was never meant to catch.
-  # Not =none: that counts an embedded repository's uncommitted edits, which no
-  # add stages, so each one would hide a file of an expanded directory.
-  porcelain_total=$(git status --porcelain --untracked-files=normal --ignore-submodules=dirty | awk 'END { print NR }')
-  echo "porcelain_total=$porcelain_total"
+  # The paths the second add would stage, with each wholly untracked directory
+  # listed once, then every file. A higher file count means a directory would
+  # expand. Read from untracked paths alone, before the adds, so no setting for
+  # status, submodules or renames moves either count, and a stop stages nothing.
+  # A directory holding only leftovers or ignored files is not listed.
+  untracked_collapsed=$(git ls-files -o --exclude-standard --directory --no-empty-directory -- "${rest[@]}" | awk 'END { print NR }')
+  untracked_total=$(git ls-files -o --exclude-standard -- "${rest[@]}" | awk 'END { print NR }')
+  echo "untracked_collapsed=$untracked_collapsed"
+  echo "untracked_total=$untracked_total"
+  if [ "$untracked_total" -gt "$untracked_collapsed" ]; then
+    return 0
+  fi
 
   # Each add's status is captured, so set -e does not stop the script: wf-ship
   # reads both exit lines to report a part-staged index. Each add's output is
@@ -87,9 +94,7 @@ stage() {
   [ -z "$out" ] || add_log="$out"$'\n'
   echo "add_tracked_exit=$add_tracked_exit"
   add_rest_exit=0
-  out=$(git add -- ':(top,exclude,icase)*.orig' ':(top,exclude,icase)*.rej' ':(top,exclude,icase)*.bak' \
-                   ':(top,exclude,icase)*.swp' ':(top,exclude,icase)*.swo' ':(top,exclude,icase)*~' ':/' 2>&1) \
-    || add_rest_exit=$?
+  out=$(git add -- "${rest[@]}" 2>&1) || add_rest_exit=$?
   [ -z "$out" ] || add_log="$add_log$out"$'\n'
   echo "add_rest_exit=$add_rest_exit"
 
@@ -121,8 +126,8 @@ stage() {
   [ "$residue_shown" -eq 0 ] || residue_paths=${residue#*$'\n'}
 
   # The conditions under which wf-ship commits. A ship that stops never carries
-  # an expanded directory's or an embedded repository's patch into context.
-  if [ "$staged_total" -gt 0 ] && [ -z "$gitlinks" ] && [ "$staged_total" -le "$porcelain_total" ]; then
+  # an embedded repository's patch into context.
+  if [ "$staged_total" -gt 0 ] && [ -z "$gitlinks" ]; then
     gather_ran=yes
     gather_out=$(bash "$gather" 2>&1) || gather_exit=$?
   fi

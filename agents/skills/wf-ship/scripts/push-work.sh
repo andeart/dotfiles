@@ -61,15 +61,20 @@ have_paths=no have_log=no have_first=no have_gh_log=no
 
 # record_paths <base>: the paths from the merge base of <base> and HEAD. Three
 # dots, so a default branch that moved adds none of its own paths.
-# --no-relative: under diff.relative=true, from a subdirectory, --name-only
-# lists only that directory's paths, prefix stripped.
+# Each flag pins the listing against config:
+#   --no-relative             diff.relative, from a subdirectory, lists only
+#                             that directory's paths, prefix stripped
+#   --ignore-submodules=none  diff.ignoreSubmodules=all drops a gitlink change
+#   --no-renames              diff.renames lists a move by its new path alone,
+#                             so a move into docs/ reads as docs-only
 # pushed_total and docs_only read every path; paths keeps the first pushed_max.
 # Git quotes a path holding a non-ASCII or control byte, so a quoted path under
 # docs/ opens with "docs/, while a path that itself opens with a quote is
 # printed as "\"...
 record_paths() {
   local out counts
-  out=$(git diff --name-only --no-relative "$1...HEAD" | awk -v max="$pushed_max" '
+  out=$(git diff --name-only --no-relative --ignore-submodules=none --no-renames "$1...HEAD" \
+    | awk -v max="$pushed_max" '
     NR <= max { keep = keep "\n" $0 }
     !/^"?docs\// { other = 1 }
     END { printf "%d %s%s", NR, ((NR && !other) ? "yes" : "no"), keep }')

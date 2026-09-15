@@ -105,7 +105,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
 # Step 0's porcelain is what a clean tree is read from. Under
 # status.showUntrackedFiles=no a tree holding only new files reads as clean, and
 # under diff.ignoreSubmodules=all so does one holding only a bumped gitlink.
-@test "Step 0's porcelain read pins the same flags as porcelain_total" {
+@test "Step 0's porcelain read pins the same flags as the gather's" {
   local block read='git status --porcelain --untracked-files=normal --ignore-submodules=dirty'
   block="$(awk '
     /^```bash$/ { if (done) exit; inblock = 1; next }
@@ -113,8 +113,8 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
     inblock' "$SKILL")"
   printf '%s\n' "$block" | grep -Fx "$read" > /dev/null \
     || fail "wf-ship's Step 0 block does not run $read"
-  script_code | grep -F "$read |" > /dev/null \
-    || fail "stage-work.sh's porcelain_total read is not $read"
+  grep -Fx "$read" "$DOTFILES_ROOT/agents/skills/git-conventions/scripts/gather.sh" > /dev/null \
+    || fail "gather.sh's status read is not $read"
 }
 
 # ─── what gets left behind ─────────────────────────────────────────────────
@@ -172,10 +172,19 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   section gather | grep -Fx '+x' > /dev/null || fail "new.txt's content is not in the gather: $output"
 }
 
-# staged_total is the only place an untracked directory's size reaches the
-# agent: porcelain collapses a directory to one line however many files are
-# under it, and porcelain_total counts it that way.
-@test "staged_total counts every path inside a collapsed untracked directory, and no gather runs" {
+# expanded_stop: the untracked counts show a directory that would expand, and
+# the script stopped before staging anything.
+expanded_stop() {
+  [ "$(key_values untracked_total)" -gt "$(key_values untracked_collapsed)" ] \
+    || fail "no expanded directory in: $output"
+  [ -z "$(key_values add_tracked_exit)" ] || fail "an add ran: $output"
+  [ -z "$(section_names)" ] || fail "a section printed: $output"
+  [ -z "$(staged_paths)" ] || fail "the index holds: $(staged_paths)"
+}
+
+# Porcelain collapses an untracked directory to one line however many files
+# are under it, so the untracked counts are the only place its size shows.
+@test "an untracked directory holding more than one file stops before anything is staged" {
   new_repo
   mkdir -p vendored/deep
   local i=1
@@ -186,16 +195,50 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ "$(git status --porcelain)" = "?? vendored/" ]
 
   run_script
-  [ "$(key_values porcelain_total)" -eq 1 ]
-  [ "$(key_values staged)" = "yes" ]
-  [ "$(key_values staged_total)" -eq 12 ]
-  [ -z "$(key_values gather_exit)" ]
-  [ "$(section_names)" = "residue" ]
+  [ "$(key_values untracked_collapsed)" -eq 1 ]
+  [ "$(key_values untracked_total)" -eq 12 ]
+  expanded_stop
 }
 
-# A status that scans submodule worktrees counts an embedded repository's
-# uncommitted edits as a line no add stages, which would hide one file of an
-# expanded directory from the stop.
+# Each of these is a porcelain line that stages nothing or pairs with another
+# once staged, so a count that compared porcelain lines with staged paths gave
+# one file of slack for each.
+@test "a leftover beside an untracked directory does not hide its expansion" {
+  new_repo
+  printf 'x\n' > foo.orig
+  mkdir vendored
+  printf 'a\n' > vendored/a.js
+  printf 'b\n' > vendored/b.js
+
+  run_script
+  [ "$(key_values untracked_collapsed)" -eq 1 ]
+  [ "$(key_values untracked_total)" -eq 2 ]
+  expanded_stop
+}
+
+@test "files moved with mv beside an untracked directory do not hide its expansion" {
+  new_repo
+  local f
+  for f in a b c; do
+    seq 1 50 | sed "s/^/$f /" > "$f.txt"
+  done
+  git add a.txt b.txt c.txt
+  git commit --quiet -m three
+  for f in a b c; do
+    mv "$f.txt" "${f}2.txt"
+  done
+  mkdir vendored
+  printf 'a\n' > vendored/a.js
+  printf 'b\n' > vendored/b.js
+  # The control: once staged, each move pairs its two porcelain lines into one.
+  [ "$(git status --porcelain | wc -l | tr -d ' ')" -eq 7 ]
+
+  run_script
+  [ "$(key_values untracked_collapsed)" -eq 4 ]
+  [ "$(key_values untracked_total)" -eq 5 ]
+  expanded_stop
+}
+
 @test "a dirty embedded repository does not hide an expanded untracked directory" {
   new_repo
   mkdir emb
@@ -210,22 +253,20 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   [ "$(git status --porcelain --untracked-files=normal --ignore-submodules=none | wc -l | tr -d ' ')" -eq 2 ]
 
   run_script
-  [ "$(key_values porcelain_total)" -eq 1 ]
-  [ "$(key_values staged_total)" -eq 2 ]
-  [ -z "$(key_values gather_exit)" ]
-  [ "$(section_names)" = "residue" ]
+  [ "$(key_values untracked_collapsed)" -eq 1 ]
+  [ "$(key_values untracked_total)" -eq 2 ]
+  expanded_stop
 }
 
-@test "porcelain_total counts the tree before the adds, whatever status.showUntrackedFiles says" {
+@test "the untracked counts do not change with status.showUntrackedFiles" {
   new_repo
   printf 'work\n' >> tracked.txt
   mkdir newdir
   printf 'x\n' > newdir/a
   printf 'x\n' > newdir/b
   printf 'x\n' > new.txt
-  # The controls: bare porcelain prints four lines under `all`, where the
-  # staged_total stop can never fire, and one under `no`, where it fires on
-  # any new file.
+  # The controls: bare porcelain prints four lines under `all` and one under
+  # `no`, where a count read from status would never or always stop.
   [ "$(git -c status.showUntrackedFiles=all status --porcelain | wc -l | tr -d ' ')" -eq 4 ]
   [ "$(git -c status.showUntrackedFiles=no status --porcelain | wc -l | tr -d ' ')" -eq 1 ]
 
@@ -233,9 +274,9 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   for v in normal all no; do
     git config status.showUntrackedFiles "$v"
     run_script
-    [ "$(key_values porcelain_total)" -eq 3 ] \
-      || fail "under status.showUntrackedFiles=$v, porcelain_total is $(key_values porcelain_total)"
-    reset_index
+    [ "$(key_values untracked_collapsed):$(key_values untracked_total)" = "2:3" ] \
+      || fail "under status.showUntrackedFiles=$v: $output"
+    expanded_stop
   done
 }
 
@@ -452,10 +493,8 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
 
 # The mirror of the case above: an existing gitlink picking up a new commit in
 # its embedded repo stages as a modification, not an add, so it never sets
-# gitlink=. Left uncovered, the same config would still hide it from the
-# porcelain read, and staged_total would run ahead of porcelain_total and trip
-# the expanded-directory stop over a change that stop was never meant to catch.
-@test "an existing gitlink's new commit is counted by both totals under diff.ignoreSubmodules=all" {
+# gitlink=, and it is the commit's whole change.
+@test "an existing gitlink's new commit is staged and reaches the gather under diff.ignoreSubmodules=all" {
   new_repo
   mkdir emb
   ( cd emb && git init --quiet . && printf 'x\n' > f && git add f && git commit --quiet -m e1 )
@@ -464,12 +503,11 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   ( cd emb && printf 'y\n' >> f && git add f && git commit --quiet -m e2 )
   git config diff.ignoreSubmodules all
 
-  # The control: this config drops the bumped gitlink from a bare status read.
-  [ -z "$(git status --porcelain --untracked-files=normal)" ]
+  # The control: this config drops the bumped gitlink from a bare diff.
+  [ -z "$(git diff HEAD --raw --no-relative)" ]
 
   run_script
   [ -z "$(key_values gitlink)" ]
-  [ "$(key_values porcelain_total)" -eq 1 ]
   [ "$(key_values staged_total)" -eq 1 ]
   [ "$(key_values gather_exit)" -eq 0 ]
   section gather | grep -Fx 'M  emb' > /dev/null || fail "the gitlink is not staged in the gather: $output"
@@ -589,7 +627,7 @@ untracked_paths() { git ls-files -o --exclude-standard | sort; }
   reset_index
 
   run_script
-  for k in blocked porcelain_total add_tracked_exit add_rest_exit staged staged_total residue_total residue_shown gather_exit; do
+  for k in blocked untracked_collapsed untracked_total add_tracked_exit add_rest_exit staged staged_total residue_total residue_shown gather_exit; do
     [ "$(key_values "$k" | wc -l | tr -d ' ')" -eq 1 ] \
       || fail "$(printf '%s has %s values in:\n%s' "$k" "$(key_values "$k" | wc -l | tr -d ' ')" "$output")"
   done
